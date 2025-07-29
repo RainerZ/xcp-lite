@@ -166,18 +166,25 @@ fn get_conversion(conversion: &str, module: &a2lfile::Module, vector_xcp_mode: b
 
 // Get event number from IF_DATA
 fn get_event_id_from_ifdata(if_data_vec: &Vec<a2lfile::IfData>) -> Option<u16> {
-    let mut event_id = None;
     for ifdata in if_data_vec {
         let decoded_ifdata = aml_ifdata::A2mlVector::load_from_ifdata(ifdata).unwrap();
         if let Some(xcp) = decoded_ifdata.xcp {
             if let Some(daq_event) = xcp.daq_event {
                 if let Some(fixed_event_list) = daq_event.fixed_event_list {
-                    event_id = Some(fixed_event_list.event[0].item);
+                    assert!(!fixed_event_list.event.is_empty());
+                    return Some(fixed_event_list.event[0].item);
+                }
+                // @@@@ TODO Improve this workaround to treat the first default event like a fixed event
+                if let Some(event_lists) = daq_event.variable {
+                    if let Some(default_event_list) = event_lists.default_event_list {
+                        assert!(!default_event_list.event.is_empty());
+                        return Some(default_event_list.event[0].item);
+                    }
                 }
             }
         }
     }
-    event_id
+    None
 }
 
 // Always read to A2L address representation
@@ -212,8 +219,13 @@ fn get_mc_address(registry: &Registry, addr: u32, addr_ext: u8, event_id: Option
                 let addr_offset: i32 = addr as i32;
                 McAddress::new_event_rel(event_id, addr_offset)
             }
+            McAddress::XCP_ADDR_EXT_ABS => {
+                let event_id = event_id.unwrap();
+                let addr_offset: i32 = addr as i32;
+                McAddress::new_event_abs(event_id, addr_offset)
+            }
             _ => {
-                warn!("Address extension {} not supported", addr_ext);
+                warn!("Address extension {} not supported in Vector mode", addr_ext);
                 McAddress::new_a2l(addr, addr_ext)
             }
         }

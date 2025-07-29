@@ -101,6 +101,17 @@ impl McAddress {
         }
     }
 
+    pub fn new_event_abs(event_id: u16, addr_offset: i32) -> Self {
+        McAddress {
+            calseg_name: None,
+            event_id: Some(event_id),
+            addr_offset,
+            addr_mode: McAddress::ADDR_MODE_ABS,
+            a2l_addr: 0,
+            a2l_addr_ext: 0,
+        }
+    }
+
     pub fn new_event_rel(event_id: u16, addr_offset: i32) -> Self {
         McAddress {
             calseg_name: None,
@@ -206,6 +217,13 @@ impl McAddress {
         }
     }
 
+    fn get_abs_ext_addr(offset: u32) -> (u8, u32) {
+        let a2l_ext = McAddress::XCP_ADDR_EXT_ABS;
+        #[allow(clippy::cast_sign_loss)]
+        let a2l_addr: u32 = offset;
+        (a2l_ext, a2l_addr)
+    }
+
     fn get_dyn_ext_addr(event_id: u16, offset: i16) -> (u8, u32) {
         let a2l_ext = McAddress::XCP_ADDR_EXT_DYN;
         #[allow(clippy::cast_sign_loss)]
@@ -247,6 +265,10 @@ impl McAddress {
         // Event relative addressing with async access
         else if self.addr_mode == McAddress::ADDR_MODE_DYN {
             McAddress::get_dyn_ext_addr(self.event_id.unwrap(), self.addr_offset.try_into().expect("offset too large"))
+        }
+        // Absolute addressing with default event
+        else if self.addr_mode == McAddress::ADDR_MODE_ABS {
+            McAddress::get_abs_ext_addr(self.addr_offset.try_into().expect("addr too large"))
         }
         // Explicit segment relative addressing
         else if self.addr_mode == McAddress::ADDR_MODE_CAL {
