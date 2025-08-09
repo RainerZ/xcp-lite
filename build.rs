@@ -18,7 +18,7 @@ fn main() {
     // Generate C code bindings for xcplib
     if is_posix {
         let bindings = bindgen::Builder::default()
-            .header("xcplib/xcplib.h")
+            .header("xcplib/src/xcplib.h")
             //
             //.clang_args(&["-target", "x86_64-pc-windows-msvc"])
             .clang_arg("-Ixcplib/src")
