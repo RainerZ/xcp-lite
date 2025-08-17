@@ -103,7 +103,7 @@ const TEST_DURATION_MS: u64 = 5000;
 //------------------------------------------------------------------------
 // Demo
 
-const MAX_EVENT: usize = 16;
+const MAX_EVENT: usize = 64;
 
 // DaqDecoder for xcp_client_demo - handle incoming DAQ data
 // This is a simple example of a DAQ decoder that prints the decoded data to the console
