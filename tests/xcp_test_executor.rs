@@ -631,7 +631,7 @@ pub async fn test_setup(task_count: usize, load_a2l: bool, upload_a2l: bool) -> 
     let local_addr = "0.0.0.0:0".parse().unwrap();
     info!("  dest_addr: {}", dest_addr);
     info!("  local_addr: {}", local_addr);
-    let mut xcp_client = XcpClient::new(dest_addr, local_addr);
+    let mut xcp_client = XcpClient::new(false, dest_addr, local_addr);
     let daq_decoder: Arc<parking_lot::lock_api::Mutex<parking_lot::RawMutex, DaqDecoder>> = Arc::new(Mutex::new(DaqDecoder::new(task_count)));
     let serv_text_decoder = ServTextDecoder::new();
     xcp_client.connect(Arc::clone(&daq_decoder), serv_text_decoder).await.unwrap();
@@ -679,7 +679,7 @@ pub async fn test_setup(task_count: usize, load_a2l: bool, upload_a2l: bool) -> 
     if load_a2l {
         // Upload A2L file from XCP server
         if upload_a2l {
-            xcp_client.a2l_loader().await.unwrap();
+            xcp_client.a2l_loader_old("test").await.unwrap();
         }
         // Load the A2L file from file
         else {

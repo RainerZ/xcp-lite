@@ -18,11 +18,12 @@ fn main() {
     // Generate C code bindings for xcplib
     if is_posix {
         let bindings = bindgen::Builder::default()
-            .header("xcplib/src/xcplib.h")
+            .header("xcplib/inc/xcplib.h")
             //
             //.clang_args(&["-target", "x86_64-pc-windows-msvc"])
             .clang_arg("-Ixcplib/src")
             .clang_arg("-Ixcplib")
+            .clang_arg("-DXCPLIB_FOR_RUST")
             .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
             //
             .blocklist_type("T_CLOCK_INFO")

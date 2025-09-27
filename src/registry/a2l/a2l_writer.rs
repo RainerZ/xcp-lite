@@ -318,7 +318,7 @@ impl GenerateA2l for McApplication {
 impl GenerateA2l for McCalibrationSegment {
     fn write_a2l(&self, writer: &mut A2lWriter) -> std::io::Result<()> {
         let calseg = self;
-        let n = calseg.index;
+        let num = if writer.registry.is_vector_xcp_mode() { calseg.index + 1 } else { calseg.index };
 
         //for (n, calseg) in self.iter().enumerate() {
         log::debug!("A2L writer: memory segment {}  {}:0x{:X} size={}", calseg.name, calseg.addr_ext, calseg.addr, calseg.size);
@@ -338,8 +338,7 @@ impl GenerateA2l for McCalibrationSegment {
     /begin PAGE 0x1 ECU_ACCESS_DONT_CARE XCP_READ_ACCESS_DONT_CARE XCP_WRITE_ACCESS_NOT_ALLOWED /end PAGE
     /end SEGMENT
 /end IF_DATA"#,
-            n + 1,
-            calseg.addr_ext,
+            num, calseg.addr_ext,
         )?;
 
         writeln!(writer, r#"/end MEMORY_SEGMENT"#,)?;
@@ -774,13 +773,13 @@ impl<'a> A2lWriter<'a> {
         false
     }
 
-    fn write_a2l_head(&mut self, project_name: &str, module_name: &str) -> std::io::Result<()> {
+    fn write_a2l_head(&mut self, project_name: &str, module_name: &str, project_no: &str) -> std::io::Result<()> {
         write!(
             self,
             r#"
     ASAP2_VERSION 1 71
     /begin PROJECT {project_name} ""
-    /begin HEADER "" VERSION "1.0" PROJECT_NO VECTOR /end HEADER
+    /begin HEADER "" VERSION "1.0" PROJECT_NO {project_no} /end HEADER
 
     /begin MODULE {module_name} ""
             
@@ -864,10 +863,15 @@ impl<'a> A2lWriter<'a> {
 
     // MOD_PAR
     fn write_a2l_modpar(&mut self) -> std::io::Result<()> {
-        // EPK segment
-        let application = &self.registry.application;
         write!(self, "/begin MOD_PAR \"\" ")?;
-        application.write_a2l(self)?;
+
+        // EPK segment
+        if self.registry.is_vector_xcp_mode() {
+            let application = &self.registry.application;
+            application.write_a2l(self)?;
+        }
+
+        // Calibration segments
         for s in &self.registry.cal_seg_list {
             s.write_a2l(self)?;
         }
@@ -1061,8 +1065,8 @@ impl<'a> A2lWriter<'a> {
         self.write_all("\n/end MODULE\n/end PROJECT\n".as_bytes())
     }
 
-    pub fn write_a2l(&mut self, project_name: &str, module_name: &str) -> Result<(), std::io::Error> {
-        self.write_a2l_head(project_name, module_name)?;
+    pub fn write_a2l(&mut self, project_name: &str, module_name: &str, project_no: &str) -> Result<(), std::io::Error> {
+        self.write_a2l_head(project_name, module_name, project_no)?;
         self.write_a2l_modpar()?;
         if self.registry.has_xcp_params() {
             self.write_a2l_if_data()?;

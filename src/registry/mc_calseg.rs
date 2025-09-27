@@ -82,7 +82,7 @@ impl McCalibrationSegmentList {
         self.0.sort_by(|a, b| a.name.cmp(&b.name));
     }
 
-    /// Add a calibration segment
+    /// Add a calibration segment by index using segment relative addressing
     pub fn add_cal_seg<T: Into<McIdentifier>>(&mut self, name: T, index: u16, size: u32) -> Result<(), RegistryError> {
         if self.find_cal_seg_by_index(index).is_some() {
             let error_msg = format!("Duplicate calibration segment index {}!", index);
@@ -90,6 +90,11 @@ impl McCalibrationSegmentList {
             return Err(RegistryError::Duplicate(error_msg));
         }
         let (addr_ext, addr) = McAddress::get_calseg_ext_addr_base(index);
+        self.add_a2l_cal_seg(name, index, addr_ext, addr, size)
+    }
+
+    /// Add a calibration segment by address using absolute addressing mode
+    pub fn add_cal_seg_by_addr<T: Into<McIdentifier>>(&mut self, name: T, index: u16, addr_ext: u8, addr: u32, size: u32) -> Result<(), RegistryError> {
         self.add_a2l_cal_seg(name, index, addr_ext, addr, size)
     }
 

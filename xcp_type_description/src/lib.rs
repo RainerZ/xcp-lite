@@ -199,7 +199,7 @@ impl StructDescriptor {
         self.fields.sort_by(|a, b| a.name.cmp(b.name));
     }
 
-    pub fn iter(&self) -> std::slice::Iter<FieldDescriptor> {
+    pub fn iter(&self) -> std::slice::Iter<'_, FieldDescriptor> {
         self.fields.iter()
     }
 }
