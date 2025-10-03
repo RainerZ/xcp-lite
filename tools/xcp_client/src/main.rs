@@ -10,7 +10,7 @@
 use parking_lot::Mutex;
 use std::net::Ipv4Addr;
 use std::{error::Error, sync::Arc};
-use xcp_lite::registry::McEvent;
+use xcp_lite::registry::{McEvent, Registry};
 
 // External crates for ELF parsing
 //use goblin;
@@ -20,6 +20,9 @@ use xcp_client::*;
 
 mod xcp_test_executor;
 use xcp_test_executor::test_executor;
+
+mod debuginfo;
+use debuginfo::DebugData;
 
 //-----------------------------------------------------------------------------
 // Command line arguments
@@ -333,6 +336,93 @@ impl XcpTextDecoder for ServTextDecoder {
 //------------------------------------------------------------------------
 //  Binary reader (ELF and Mach-O)
 
+fn read_elf(_reg: &mut Registry, file_name: &str) -> Result<(), Box<dyn Error>> {
+    use std::ffi::OsStr;
+
+    println!("Loading debug information from ELF file: {}", file_name);
+
+    // Load debug information from the ELF file
+    let debug_data = DebugData::load_dwarf(OsStr::new(file_name), true).map_err(|e| format!("Failed to load debug info from '{}': {}", file_name, e))?;
+
+    println!("Successfully loaded debug information!");
+    println!("\n=== Debug Data Structure ===");
+
+    // Print summary statistics
+    println!("Variables: {} unique names", debug_data.variables.len());
+    println!("Types: {} total types", debug_data.types.len());
+    println!("Type names: {} named types", debug_data.typenames.len());
+    println!("Demangled names: {} entries", debug_data.demangled_names.len());
+    println!("Compilation units: {} units", debug_data.unit_names.len());
+    println!("Sections: {} sections", debug_data.sections.len());
+
+    // Print sections information
+    println!("\n=== Memory Sections ===");
+    for (name, (addr, size)) in &debug_data.sections {
+        println!("Section '{}': address=0x{:08x}, size=0x{:x} ({} bytes)", name, addr, size, size);
+    }
+
+    // Print compilation units
+    println!("\n=== Compilation Units ===");
+    for (idx, unit_name) in debug_data.unit_names.iter().enumerate() {
+        if let Some(name) = unit_name {
+            println!("Unit {}: {}", idx, name);
+        } else {
+            println!("Unit {}: <unnamed>", idx);
+        }
+    }
+
+    // Print some sample variables (limit to first 20 to avoid overwhelming output)
+    println!("\n=== Sample Variables (first 20) ===");
+    let mut count = 0;
+    for (var_name, var_infos) in &debug_data.variables {
+        if count >= 20 {
+            println!("... and {} more variables", debug_data.variables.len() - 20);
+            break;
+        }
+
+        println!("Variable '{}': {} instances", var_name, var_infos.len());
+        for (idx, var_info) in var_infos.iter().enumerate() {
+            println!("  [{}] address=0x{:08x}, type_ref={}, unit={}", idx, var_info.address, var_info.typeref, var_info.unit_idx);
+            if let Some(function) = &var_info.function {
+                println!("      function: {}", function);
+            }
+            if !var_info.namespaces.is_empty() {
+                println!("      namespaces: {:?}", var_info.namespaces);
+            }
+
+            // Print type information if available
+            if let Some(type_info) = debug_data.types.get(&var_info.typeref) {
+                println!("      type: {:?} (size: {} bytes)", type_info.datatype, type_info.get_size());
+                if let Some(type_name) = &type_info.name {
+                    println!("      type name: {}", type_name);
+                }
+            }
+        }
+        count += 1;
+    }
+
+    // Print some sample type names
+    println!("\n=== Sample Type Names (first 10) ===");
+    let mut count = 0;
+    for (type_name, type_refs) in &debug_data.typenames {
+        if count >= 10 {
+            println!("... and {} more type names", debug_data.typenames.len() - 10);
+            break;
+        }
+
+        println!("Type name '{}': {} references", type_name, type_refs.len());
+        for type_ref in type_refs {
+            if let Some(type_info) = debug_data.types.get(type_ref) {
+                println!("  -> type_ref={}, size={} bytes, unit={}", type_ref, type_info.get_size(), type_info.unit_idx);
+            }
+        }
+        count += 1;
+    }
+
+    println!("\n=== Debug Information Loading Complete ===");
+    Ok(())
+}
+
 /*
 fn read_elf(reg: &mut Registry, file_name: &str) -> Result<(), Box<dyn Error>> {
     use std::fs::read;
@@ -551,7 +641,7 @@ async fn xcp_client(
         // Read binary file if specified
         if !_elf_name.is_empty() {
             info!("Reading binary file: {}", _elf_name);
-            //read_elf(&mut reg, &_elf_name)?;
+            read_elf(&mut reg, &_elf_name)?;
         }
 
         // Write the generated A2L file
