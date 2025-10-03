@@ -5,7 +5,7 @@
 // The example uses the tokio runtime and async/await syntax.
 //
 // Run:
-// cargo r --example xcp_client -- -h
+// cargo r -p xcp_client -- -h
 
 use parking_lot::Mutex;
 use std::net::Ipv4Addr;

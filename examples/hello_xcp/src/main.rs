@@ -4,10 +4,10 @@
 // Demonstrates the usage of xcp-lite for Rust together with a CANape project
 //
 // Run the demo
-// cargo run --example hello_xcp
+// cargo run -p hello_xcp
 //
 // Run the test XCP client in another terminal or start CANape with the project in folder examples/hello_xcp/CANape
-// cargo run --example xcp_client -- -m "counter"
+// cargo run -p xcp_client -- -m "counter"
 
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn};

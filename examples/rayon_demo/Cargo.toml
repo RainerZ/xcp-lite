@@ -14,6 +14,11 @@ image = "0.25.2"
 serde = "1.0"
 serde_json = "1.0"
 lazy_static = "1.4"
+clap = { version = "4.5.9", features = ["derive"] }
+build-info = "0.0.40"
 
 xcp_lite = { path = "../../", features = [] }
+
+[build-dependencies]
+build-info-build = "0.0.40"
 

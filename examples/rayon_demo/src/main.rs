@@ -2,7 +2,7 @@
 // Visualize start and stop of synchronous tasks in worker thread pool
 // Inspired by the mandelbrot rayon example in the book "Programming Rust" by Jim Blandy and Jason Orendorff
 
-// cargo r --example rayon_demo
+// cargo r -p rayon_demo
 // Creates madelbrot.a2l and mandelbrot.png in current directory
 
 #![allow(unused_imports)]

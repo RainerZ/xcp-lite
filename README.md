@@ -157,8 +157,8 @@ Run the main example:
   cargo r -- --port 5555 --bind 172.19.11.24 --tcp 
  
 Run a specific example:
-  cargo r --example struct_measurement_demo
-  cargo r --example xcp_client  
+  cargo r -p struct_measurement_demo
+  cargo r -p xcp_client  
 
 ```
 

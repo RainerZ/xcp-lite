@@ -9,6 +9,12 @@ env_logger = "0.11.3"
 anyhow = "1.0"
 rand = "0.8"
 lazy_static = "1.4"
+serde = { version = "1.0", features = ["derive"] }
+clap = { version = "4.5.9", features = ["derive"] }
+build-info = "0.0.40"
+parking_lot = "0.12.3"
 
-# xcp_lite = { path = "../../", default-features = false }
-xcp_lite = { path = "../../"  }
+xcp_lite = { path = "../../", features = [] }
+
+[build-dependencies]
+build-info-build = "0.0.40"

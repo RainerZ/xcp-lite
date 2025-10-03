@@ -29,7 +29,7 @@ lazy_static = "1.4"
 #gimli = "0.28"
 
 a2lfile = { version="3.0.0" }
-xcp_lite = { path = "../", features = ["a2l_reader"] }
+xcp_lite = { path = "../../", features = ["a2l_reader"] }
 
 [build-dependencies]
 #cc = "1.0"

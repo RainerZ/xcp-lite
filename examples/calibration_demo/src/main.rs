@@ -2,7 +2,7 @@
 // Calibration of lookup_tables, maps and curves with axis
 
 // Run the demo
-// cargo run  --example calibration_demo
+// cargo run  -p calibration_demo
 
 #![allow(unused_imports)]
 

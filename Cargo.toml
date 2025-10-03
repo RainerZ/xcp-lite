@@ -1,9 +1,9 @@
 [package]
 name = "xcp_lite"
-version = "0.3.0"
+version = "0.9.2"
 edition = "2024"
 resolver = "2"
-rust-version = "1.85.0"
+rust-version = "1.90.0"
 authors = ["RainerZ"]
 description = "Measurement and Calibration for Rust with XCP, based on XCPlite"
 readme = "README.md"
@@ -15,7 +15,9 @@ categories = ["MC"]
 
 [workspace]
 members = [
-    "xcp_client",  
+    "tools/xcp_client",  
+    "xcp_type_description",   
+    "xcp_idl_generator",      
     "examples/hello_xcp",
     "examples/calibration_demo",      
     "examples/struct_measurement_demo",    
@@ -24,7 +26,6 @@ members = [
     "examples/point_cloud_demo",
     "examples/rayon_demo",
     "examples/tokio_demo",
-   
 ]
 
 [workspace.package]
@@ -33,43 +34,38 @@ version = "0.3.0"
 
 #--------------------------------------------------------------------------------------
 
-[[example]]
-name = "xcp_client"
-path = "xcp_client/src/main.rs"
 
-[[example]]
-name = "hello_xcp"
-path = "examples/hello_xcp/src/main.rs"
+#[[example]]
+#name = "hello_xcp"
+#path = "examples/hello_xcp/src/main.rs"
 
-[[example]]
-name = "calibration_demo"
-path = "examples/calibration_demo/src/main.rs"
+#[[example]]
+#name = "calibration_demo"
+#path = "examples/calibration_demo/src/main.rs"
 
-[[example]]
-name = "struct_measurement_demo"
-path = "examples/struct_measurement_demo/src/main.rs"
+#[[example]]
+#name = "struct_measurement_demo"
+#path = "examples/struct_measurement_demo/src/main.rs"
 
-[[example]]
-name = "single_thread_demo"
-path = "examples/single_thread_demo/src/main.rs"
+#[[example]]
+#name = "single_thread_demo"
+#path = "examples/single_thread_demo/src/main.rs"
 
-[[example]]
-name = "multi_thread_demo"
-path = "examples/multi_thread_demo/src/main.rs"
+#[[example]]
+#name = "multi_thread_demo"
+#path = "examples/multi_thread_demo/src/main.rs"
 
-[[example]]
-name = "rayon_demo"
-path = "examples/rayon_demo/src/main.rs"
+#[[example]]
+#name = "rayon_demo"
+#path = "examples/rayon_demo/src/main.rs"
 
-[[example]]
-name = "tokio_demo"
-path = "examples/tokio_demo/src/main.rs"
+#[[example]]
+#name = "tokio_demo"
+#path = "examples/tokio_demo/src/main.rs"
 
-[[example]]
-name = "point_cloud_demo"
-path = "examples/point_cloud_demo/src/main.rs"
-
-
+#[[example]]
+#name = "point_cloud_demo"
+#path = "examples/point_cloud_demo/src/main.rs"
 
 
 #--------------------------------------------------------------------------------------
@@ -152,7 +148,7 @@ bytes = "1.6.0"
 byteorder = "1.5.0"
 regex = "1.11.1"
 tokio = { version = "1.37.0", features = ["full"] }
-xcp_client = { path = "xcp_client" }
+xcp_client = { path = "tools/xcp_client" }
 
 #goblin = "0.8"
 #gimli = "0.28"
