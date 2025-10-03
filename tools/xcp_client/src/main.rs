@@ -1,8 +1,10 @@
 //-----------------------------------------------------------------------------
 // xcp_client - XCP client example
-// This example demonstrates how to connect to an XCP server, load an A2L file, read and write calibration variables,
-// and measure data using the DAQ protocol.
-// The example uses the tokio runtime and async/await syntax.
+// This tool demonstrates how to to use the xcp_client library to
+//  connect to an XCP server
+//  load or upload an A2L file
+//  read and write calibration variables,
+//  configure and aquire measurment variables.
 //
 // Run:
 // cargo r -p xcp_client -- -h
@@ -12,15 +14,15 @@ use std::net::Ipv4Addr;
 use std::{error::Error, sync::Arc};
 use xcp_lite::registry::{McEvent, Registry};
 
-// External crates for ELF parsing
-//use goblin;
-
 mod xcp_client;
 use xcp_client::*;
 
 mod xcp_test_executor;
 use xcp_test_executor::test_executor;
 
+// This module contains code adapted from https://github.com/DanielT/a2ltool
+// Original code licensed under MIT/Apache-2.0
+// Copyright (c) DanielT
 mod debuginfo;
 use debuginfo::DebugData;
 
@@ -58,46 +60,54 @@ struct Args {
     tcp: bool,
 
     // -a, --a2l
-    /// Specify the name for the A2L file
+    /// Specify and overide the name of the A2L file
+    /// Usually, the A2L file name is obtained from the XCP server
     #[arg(short, long, default_value = "")]
     a2l: String,
 
-    // -e, --elf
-    /// Specify the name of the ELF file
-    #[arg(short, long, default_value = "")]
-    elf: String,
-
-    // --load-a2l
-    /// Load A2L file from XCP server
-    /// Requires that the XCP server supports the A2L upload command
+    // --upload-a2l
+    /// Upload A2L file from XCP server
+    /// Requires that the XCP server supports GET_ID A2L upload
     #[arg(long, default_value_t = false)]
     upload_a2l: bool,
 
     // --create-a2l
-    /// Build an A2L file template from XCP information about events and memory segments
+    /// Build an A2L file template from XCP server information about its events and memory segments
     /// Requires that the XCP server supports the GET_EVENT_INFO and GET_SEGMENT_INFO commands
     #[arg(long, default_value_t = false)]
     create_a2l: bool,
 
+    // -e, --elf
+    /// In addition to the create-a2l option:
+    /// Specify the name of a ELF file to automatically insert calibration variables located in calibration segments
+    #[arg(short, long, default_value = "")]
+    elf: String,
+
+    // -a, --add
+    /// In addition to the create-a2l/elf option:
+    /// Add specified measurement variables (regex)to the A2L file
+    #[arg(long, default_value = "")]
+    add_mea: String,
+
     // --list_mea
-    /// Lists all matching measurement variables found in the A2L file
+    /// Lists all specified measurement variables (regex) found in the A2L file
     #[clap(long, default_value = "")]
     list_mea: String,
 
     // --list-cal
-    /// Lists all matching calibration variables found in the A2L file
+    /// Lists all specified calibration variables (regex) found in the A2L file
     #[clap(long, default_value = "")]
     list_cal: String,
 
     // -m --mea
-    /// Specify variable names for DAQ measurement, may be list of names separated by space or single regular expressions (e.g. ".*")
+    /// Specify variable names for DAQ measurement (list), may be list of names separated by space or single regular expressions (e.g. ".*")
     #[arg(short, long, value_delimiter = ' ', num_args = 1..)]
     mea: Vec<String>,
 
     // -t --time
-    /// Specify measurement duration in ms
+    /// Limit measurement duration to n ms
     #[arg(short, long, default_value_t = 5000)]
-    time_ms: u64, // -t --time
+    time_ms: u64,
 
     // --cal
     /// Set calibration variable to a value (format: "variable_name value")
@@ -105,6 +115,7 @@ struct Args {
     cal: Vec<String>,
 
     /// --test
+    /// Execute a test sequence on the XCP server
     #[arg(long, default_value_t = false)]
     test: bool,
 }
@@ -422,72 +433,6 @@ fn read_elf(_reg: &mut Registry, file_name: &str) -> Result<(), Box<dyn Error>> 
     println!("\n=== Debug Information Loading Complete ===");
     Ok(())
 }
-
-/*
-fn read_elf(reg: &mut Registry, file_name: &str) -> Result<(), Box<dyn Error>> {
-    use std::fs::read;
-
-    println!("Starting binary analysis of: {}", file_name);
-
-    // Read and parse binary file
-    let buffer = read(file_name).map_err(|e| format!("Failed to read binary file '{}': {}", file_name, e))?;
-    println!("Successfully read {} bytes from binary file", buffer.len());
-
-    // Parse the object file (auto-detect format)
-    let object = goblin::Object::parse(&buffer).map_err(|e| format!("Failed to parse binary file: {}", e))?;
-    match object {
-        goblin::Object::Elf(elf) => {
-            println!("Detected ELF format");
-            process_elf_file(reg, &elf)?;
-        }
-        _ => {
-            println!("Unsupported object format");
-            return Err(format!("Unsupported object format").into());
-        }
-    }
-
-    Ok(())
-}
-
-fn process_elf_file(reg: &mut Registry, elf: &goblin::elf::Elf) -> Result<(), Box<dyn std::error::Error>> {
-
-    // Extract only global variable symbols (exclude functions and local variables)
-    for sym in elf.syms.iter() {
-        let bind = sym.st_bind();
-        let typ = sym.st_type();
-        let sec = sym.st_shndx;
-        let name = elf.strtab.get_at(sym.st_name).unwrap_or("").trim_end_matches('\0');
-
-        // Only show GLOBAL object symbols (variables)
-        // Exclude functions (STT_FUNC) and local variables (STB_LOCAL)
-        if typ == goblin::elf::sym::STT_OBJECT
-            && bind == goblin::elf::sym::STB_GLOBAL
-            && sec != 0
-            && !name.is_empty()
-            && !name.starts_with("__")  // Exclude compiler-generated symbols
-            && !name.starts_with("_")   // Exclude private/system symbols
-        {
-            let addr = sym.st_value;
-            let size = sym.st_size;
-
-            println!("Global Variable - Address: 0x{:08x}, Size: {}, Name: {}", addr, size, name);
-            let mc_support_data = McSupportData::new(McObjectType::Measurement);
-            let dim_type = match size {
-                1 => McDimType::new(McValueType::Ubyte, 0, 0),
-                2 => McDimType::new(McValueType::Uword, 0, 0),
-                4 => McDimType::new(McValueType::Ulong, 0, 0),
-                8 => McDimType::new(McValueType::Ulonglong, 0, 0),
-                _ => McDimType::new(McValueType::Ubyte, 0, 0),
-            };
-            let _= reg.instance_list.add_instance(name.to_string().clone(), dim_type, mc_support_data, McAddress::new_a2l(addr as u32, 1));
-        }
-    }
-
-
-
-    Ok(())
-}
-*/
 
 //------------------------------------------------------------------------
 //  XCP client

@@ -34,11 +34,7 @@ impl<'dbg> Iterator for TypeInfoIter<'dbg> {
 }
 
 impl<'dbg> TypeInfoIter<'dbg> {
-    pub(crate) fn new(
-        types: &'dbg HashMap<usize, TypeInfo>,
-        typeinfo: &'dbg TypeInfo,
-        use_new_arrays: bool,
-    ) -> Self {
+    pub(crate) fn new(types: &'dbg HashMap<usize, TypeInfo>, typeinfo: &'dbg TypeInfo, use_new_arrays: bool) -> Self {
         Self {
             types,
             type_stack: vec![typeinfo],
@@ -51,15 +47,12 @@ impl<'dbg> TypeInfoIter<'dbg> {
 
     fn next_core(&mut self) -> Option<(String, &'dbg TypeInfo, u64)> {
         match &self.type_stack.last()?.datatype {
-            DbgDataType::Class { members, .. }
-            | DbgDataType::Struct { members, .. }
-            | DbgDataType::Union { members, .. } => {
+            DbgDataType::Class { members, .. } | DbgDataType::Struct { members, .. } | DbgDataType::Union { members, .. } => {
                 let depth = self.type_stack.len() - 1;
                 let position = self.position_stack[depth];
                 let base = self.offset_stack[depth];
                 let prev_name = &self.name_stack[depth];
-                let (member_name, (member_typeinfo, member_offset)) =
-                    members.get_index(position)?;
+                let (member_name, (member_typeinfo, member_offset)) = members.get_index(position)?;
                 let member_typeinfo = member_typeinfo.get_reference(self.types);
                 let complete_offset = base + member_offset;
                 let fullname = format!("{prev_name}.{member_name}");
@@ -75,12 +68,7 @@ impl<'dbg> TypeInfoIter<'dbg> {
 
                 Some((fullname, member_typeinfo, complete_offset))
             }
-            DbgDataType::Array {
-                size,
-                dim,
-                stride,
-                arraytype,
-            } => {
+            DbgDataType::Array { size, dim, stride, arraytype } => {
                 let total_elemcount = size / stride;
                 let depth = self.type_stack.len() - 1;
                 let position = self.position_stack[depth] as u64;
@@ -98,17 +86,14 @@ impl<'dbg> TypeInfoIter<'dbg> {
                         current_indices[idx] = rem % dim[idx];
                         rem /= dim[idx];
                     }
-                    let idxstr =
-                        current_indices
-                            .iter()
-                            .fold(prev_name.clone(), |mut output, val| {
-                                if self.use_new_arrays {
-                                    let _ = write!(output, "[{val}]");
-                                } else {
-                                    let _ = write!(output, "._{val}_");
-                                }
-                                output
-                            });
+                    let idxstr = current_indices.iter().fold(prev_name.clone(), |mut output, val| {
+                        if self.use_new_arrays {
+                            let _ = write!(output, "[{val}]");
+                        } else {
+                            let _ = write!(output, "._{val}_");
+                        }
+                        output
+                    });
 
                     // calculate the storage offset of this array element. Each element is stride bytes wide.
                     let complete_offset = base + (*stride * position);
@@ -158,16 +143,8 @@ impl<'dbg> Iterator for VariablesIterator<'dbg> {
 
                 if self.type_iter.is_none() {
                     // newly set current_var, should be returned before using type_iter to return its sub-elements
-                    let typeinfo = self
-                        .debugdata
-                        .types
-                        .get(&varinfo.typeref)
-                        .unwrap_or(&Self::DEFAULT_TYPEINFO);
-                    self.type_iter = Some(TypeInfoIter::new(
-                        &self.debugdata.types,
-                        typeinfo,
-                        self.use_new_arrays,
-                    ));
+                    let typeinfo = self.debugdata.types.get(&varinfo.typeref).unwrap_or(&Self::DEFAULT_TYPEINFO);
+                    self.type_iter = Some(TypeInfoIter::new(&self.debugdata.types, typeinfo, self.use_new_arrays));
                     Some(SymbolInfo {
                         name: varname.to_string(),
                         address: varinfo.address,
@@ -177,9 +154,7 @@ impl<'dbg> Iterator for VariablesIterator<'dbg> {
                         namespaces: &varinfo.namespaces,
                         is_unique,
                     })
-                } else if let Some((var_component_name, typeinfo, offset)) =
-                    self.type_iter.as_mut().unwrap().next()
-                {
+                } else if let Some((var_component_name, typeinfo, offset)) = self.type_iter.as_mut().unwrap().next() {
                     Some(SymbolInfo {
                         name: format!("{varname}{var_component_name}"),
                         address: varinfo.address + offset,
@@ -315,10 +290,7 @@ mod test {
         structmembers.insert("inner_a".to_string(), (typeref_inner_1, 0));
         structmembers.insert("inner_b".to_string(), (typeref_inner_2, 0));
         let typeinfo = TypeInfo {
-            datatype: DbgDataType::Struct {
-                size: 64,
-                members: structmembers,
-            },
+            datatype: DbgDataType::Struct { size: 64, members: structmembers },
             ..DEFAULT_TYPEINFO.clone()
         };
         let iter = TypeInfoIter::new(&types, &typeinfo, false);
@@ -387,10 +359,7 @@ mod test {
         structmembers.insert("member_1".to_string(), (t_uint8.clone(), 0));
         structmembers.insert("member_2".to_string(), (t_uint8.clone(), 1));
         let structtype = TypeInfo {
-            datatype: DbgDataType::Struct {
-                size: 64,
-                members: structmembers,
-            },
+            datatype: DbgDataType::Struct { size: 64, members: structmembers },
             ..DEFAULT_TYPEINFO.clone()
         };
         types.insert(1, structtype);

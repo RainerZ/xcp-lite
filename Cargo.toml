@@ -29,43 +29,9 @@ members = [
 ]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.9.2"
 
 
-#--------------------------------------------------------------------------------------
-
-
-#[[example]]
-#name = "hello_xcp"
-#path = "examples/hello_xcp/src/main.rs"
-
-#[[example]]
-#name = "calibration_demo"
-#path = "examples/calibration_demo/src/main.rs"
-
-#[[example]]
-#name = "struct_measurement_demo"
-#path = "examples/struct_measurement_demo/src/main.rs"
-
-#[[example]]
-#name = "single_thread_demo"
-#path = "examples/single_thread_demo/src/main.rs"
-
-#[[example]]
-#name = "multi_thread_demo"
-#path = "examples/multi_thread_demo/src/main.rs"
-
-#[[example]]
-#name = "rayon_demo"
-#path = "examples/rayon_demo/src/main.rs"
-
-#[[example]]
-#name = "tokio_demo"
-#path = "examples/tokio_demo/src/main.rs"
-
-#[[example]]
-#name = "point_cloud_demo"
-#path = "examples/point_cloud_demo/src/main.rs"
 
 
 #--------------------------------------------------------------------------------------
@@ -132,39 +98,8 @@ xcp_idl_generator_derive  = { path = "./xcp_idl_generator/xcp_idl_generator_deri
 # A2L checker (optional)
 a2lfile = { version="3.0.0", optional = true}
 
-#--------------------------------------------------------------------------------------
 
 [dev-dependencies]
-
-anyhow = "1.0"
-rand = "0.9"
-
-# Alloc stats
-stats_alloc = "0.1.10"
-
-
-# XCP test client
-bytes = "1.6.0"
-byteorder = "1.5.0"
-regex = "1.11.1"
-tokio = { version = "1.37.0", features = ["full"] }
-xcp_client = { path = "tools/xcp_client" }
-
-#goblin = "0.8"
-#gimli = "0.28"
-
-
-# A2L checker (optional)
-a2lfile = { version="3.0.0", optional = false}
-
-# dependencies for point_cloud demo example
-cdr = "0.2.4"
-
-# dependencies for rayon demo example
-rayon = "1.10.0"
-num = "0.4.3"
-image = "0.25.2"
-num_cpus = "1.16.0"
 
 
 

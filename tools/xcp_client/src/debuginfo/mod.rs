@@ -5,7 +5,6 @@ use std::fmt::Display;
 
 mod dwarf;
 pub(crate) mod iter;
-mod pdb;
 
 #[derive(Debug)]
 pub(crate) struct VarInfo {
@@ -96,10 +95,6 @@ impl DebugData {
     // load the debug info from an elf file
     pub(crate) fn load_dwarf(filename: &OsStr, verbose: bool) -> Result<Self, String> {
         dwarf::load_dwarf(filename, verbose)
-    }
-
-    pub(crate) fn load_pdb(filename: &OsStr, verbose: bool) -> Result<Self, String> {
-        pdb::load_pdb(filename, verbose)
     }
 
     pub(crate) fn iter<'dbg>(&'dbg self, use_new_arrays: bool) -> iter::VariablesIterator<'dbg> {
