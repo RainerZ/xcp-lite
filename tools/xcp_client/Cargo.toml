@@ -36,6 +36,10 @@ cpp_demangle = "0.4"
 a2lfile = { version="3.0.0" }
 xcp_lite = { path = "../../", features = ["a2l_reader"] }
 
+[lints.rust]
+dead_code = "allow"
+unused_variables = "allow"
+
 [build-dependencies]
 #cc = "1.0"
 #build-info-build = "0.0.40"

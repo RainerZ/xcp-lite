@@ -687,9 +687,11 @@ async fn xcp_client(
         // @@@@ TODO xcp_client does not support arrays, instances and typedefs yet, flatten the registry and mangle the names
         reg.load_a2l(&a2l_path, true, true, true, true)?;
 
+    // If an ELF file is specified create an A2L file from the XCP server information and the ELF file
+    // If option create-a2l is specified and no ELF file, create a A2L template from XCP server information
     // Read segment and event information obtained from the XCP server into registry
     // Add measurement and calibration variables from ELF file if specified
-    } else if create_a2l {
+    } else if create_a2l || !elf_name.is_empty() {
         info!("Generate A2L file {} from XCP server event and segment information", a2l_path.display());
 
         reg.set_vector_xcp_mode(false); // Don't activate standard xcp-lite addressing modes and EPK segment

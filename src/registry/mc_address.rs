@@ -205,14 +205,14 @@ impl McAddress {
     }
 
     /// Add an offset to an address
-    /// # Panics
-    /// If the address is not segment or event relative
     pub fn add_addr_offset(&mut self, offset: i32) {
         match self.addr_mode {
             McAddress::ADDR_MODE_REL | McAddress::ADDR_MODE_CAL | McAddress::ADDR_MODE_DYN => {
                 self.addr_offset += offset;
             }
-            McAddress::ADDR_MODE_A2L | McAddress::ADDR_MODE_A2L_EVENT => panic!("A2L address does not have an offset"),
+            McAddress::ADDR_MODE_A2L | McAddress::ADDR_MODE_A2L_EVENT => {
+                self.a2l_addr = (self.a2l_addr as i64 + offset as i64) as u32;
+            }
             _ => panic!("Invalid address mode"),
         }
     }
