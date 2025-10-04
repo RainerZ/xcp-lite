@@ -4,7 +4,6 @@ use std::ffi::OsStr;
 use std::fmt::Display;
 
 mod dwarf;
-pub(crate) mod iter;
 
 #[derive(Debug)]
 pub(crate) struct VarInfo {
@@ -80,45 +79,15 @@ pub(crate) struct DebugData {
     pub(crate) sections: HashMap<String, (u64, u64)>,
 }
 
-#[derive(Debug)]
-pub(crate) struct SymbolInfo<'a> {
-    pub(crate) name: String,
-    pub(crate) address: u64,
-    pub(crate) typeinfo: &'a TypeInfo,
-    pub(crate) unit_idx: usize,
-    pub(crate) function_name: &'a Option<String>,
-    pub(crate) namespaces: &'a Vec<String>,
-    pub(crate) is_unique: bool,
-}
-
 impl DebugData {
     // load the debug info from an elf file
     pub(crate) fn load_dwarf(filename: &OsStr, verbose: bool) -> Result<Self, String> {
         dwarf::load_dwarf(filename, verbose)
     }
-
-    pub(crate) fn iter<'dbg>(&'dbg self, use_new_arrays: bool) -> iter::VariablesIterator<'dbg> {
-        iter::VariablesIterator::new(self, use_new_arrays)
-    }
-}
-
-/// convert a full unit name, which might include a path, into a simple unit name
-pub(crate) fn make_simple_unit_name(debug_data: &DebugData, unit_idx: usize) -> Option<String> {
-    let full_name = debug_data.unit_names.get(unit_idx)?.as_deref()?;
-
-    let file_name = if let Some(pos) = full_name.rfind('\\') {
-        &full_name[(pos + 1)..]
-    } else if let Some(pos) = full_name.rfind('/') {
-        &full_name[(pos + 1)..]
-    } else {
-        full_name
-    };
-
-    Some(file_name.replace('.', "_"))
 }
 
 impl TypeInfo {
-    const MAX_RECURSION_DEPTH: usize = 5;
+    //const MAX_RECURSION_DEPTH: usize = 5;
 
     pub(crate) fn get_size(&self) -> u64 {
         match &self.datatype {
@@ -143,152 +112,6 @@ impl TypeInfo {
             | DbgDataType::FuncPtr(size)
             | DbgDataType::TypeRef(_, size) => *size,
         }
-    }
-
-    pub(crate) fn get_members(&self) -> Option<&IndexMap<String, (TypeInfo, u64)>> {
-        match &self.datatype {
-            DbgDataType::Struct { members, .. } | DbgDataType::Class { members, .. } | DbgDataType::Union { members, .. } => Some(members),
-
-            _ => None,
-        }
-    }
-
-    pub(crate) fn get_pointer<'a>(&self, types: &'a HashMap<usize, TypeInfo>) -> Option<(u64, &'a TypeInfo)> {
-        if let DbgDataType::Pointer(pt_size, pt_ref) = &self.datatype {
-            let typeinfo = types.get(pt_ref)?;
-            Some((*pt_size, typeinfo))
-        } else {
-            None
-        }
-    }
-
-    pub(crate) fn get_arraytype(&self) -> Option<&TypeInfo> {
-        if let DbgDataType::Array { arraytype, .. } = &self.datatype {
-            Some(arraytype)
-        } else {
-            None
-        }
-    }
-
-    pub(crate) fn get_reference<'a>(&'a self, types: &'a HashMap<usize, TypeInfo>) -> &'a Self {
-        if let DbgDataType::TypeRef(dbginfo_offset, _) = &self.datatype {
-            types.get(dbginfo_offset).unwrap_or(self)
-        } else {
-            self
-        }
-    }
-
-    // not using PartialEq, because not all fields are considered for this comparison
-    pub(crate) fn compare(&self, other: &TypeInfo, types: &HashMap<usize, TypeInfo>) -> bool {
-        self.compare_internal(other, types, 0)
-    }
-
-    fn compare_internal(&self, other: &TypeInfo, types: &HashMap<usize, TypeInfo>, depth: usize) -> bool {
-        let type_1 = self.get_reference(types);
-        let type_2 = other.get_reference(types);
-
-        type_1.dbginfo_offset == type_2.dbginfo_offset
-            || (type_1.name == type_2.name
-                && match (&type_1.datatype, &type_2.datatype) {
-                    (DbgDataType::Uint8, DbgDataType::Uint8)
-                    | (DbgDataType::Uint16, DbgDataType::Uint16)
-                    | (DbgDataType::Uint32, DbgDataType::Uint32)
-                    | (DbgDataType::Uint64, DbgDataType::Uint64)
-                    | (DbgDataType::Sint8, DbgDataType::Sint8)
-                    | (DbgDataType::Sint16, DbgDataType::Sint16)
-                    | (DbgDataType::Sint32, DbgDataType::Sint32)
-                    | (DbgDataType::Sint64, DbgDataType::Sint64)
-                    | (DbgDataType::Float, DbgDataType::Float)
-                    | (DbgDataType::Double, DbgDataType::Double) => true,
-                    (
-                        DbgDataType::Enum { size, signed, enumerators },
-                        DbgDataType::Enum {
-                            size: size2,
-                            signed: signed2,
-                            enumerators: enumerators2,
-                        },
-                    ) => size == size2 && signed == signed2 && enumerators == enumerators2,
-                    (
-                        DbgDataType::Array { size, dim, stride, arraytype },
-                        DbgDataType::Array {
-                            size: size2,
-                            dim: dim2,
-                            stride: stride2,
-                            arraytype: arraytype2,
-                        },
-                    ) => size == size2 && dim == dim2 && stride == stride2 && arraytype.compare_internal(arraytype2, types, depth + 1),
-                    (DbgDataType::Pointer(size1, dest_offset1), DbgDataType::Pointer(size2, dest_offset2)) => {
-                        size1 == size2
-                            && if dest_offset1 == dest_offset2 {
-                                true
-                            } else if let (Some(dest_type1), Some(dest_type2)) = (types.get(dest_offset1), types.get(dest_offset2)) {
-                                // can't always call ref1.compare(&ref2) here, because this could result in infinite recursion
-                                if depth < Self::MAX_RECURSION_DEPTH {
-                                    dest_type1.compare_internal(dest_type2, types, depth + 1)
-                                } else {
-                                    // when we're not using compare(), we need to follow TypeRef (if any) to the referenced type
-                                    let dest1_deref = dest_type1.get_reference(types);
-                                    let dest2_deref = dest_type2.get_reference(types);
-                                    dest1_deref.name == dest2_deref.name
-                                        && std::mem::discriminant(&dest1_deref.datatype) == std::mem::discriminant(&dest2_deref.datatype)
-                                        && dest1_deref.get_size() == dest2_deref.get_size()
-                                }
-                            } else {
-                                false
-                            }
-                    }
-                    (DbgDataType::Other(size1), DbgDataType::Other(size2)) => size1 == size2,
-                    (
-                        DbgDataType::Bitfield { basetype, bit_offset, bit_size },
-                        DbgDataType::Bitfield {
-                            basetype: basetype2,
-                            bit_offset: bit_offset2,
-                            bit_size: bit_size2,
-                        },
-                    ) => bit_offset == bit_offset2 && bit_size == bit_size2 && basetype.compare_internal(basetype2, types, depth + 1),
-                    (DbgDataType::Struct { size, members }, DbgDataType::Struct { size: size2, members: members2 }) => {
-                        size == size2 && Self::compare_members(members, members2, types, depth)
-                    }
-                    (DbgDataType::Union { size, members }, DbgDataType::Union { size: size2, members: members2 }) => {
-                        size == size2 && Self::compare_members(members, members2, types, depth)
-                    }
-                    (
-                        DbgDataType::Class { size, members, inheritance },
-                        DbgDataType::Class {
-                            size: size2,
-                            members: members2,
-                            inheritance: inheritance2,
-                        },
-                    ) => size == size2 && Self::compare_members(members, members2, types, depth) && Self::compare_members(inheritance, inheritance2, types, depth),
-                    (DbgDataType::FuncPtr(size1), DbgDataType::FuncPtr(size2)) => size1 == size2,
-                    _ => false,
-                })
-    }
-
-    fn compare_members(members1: &IndexMap<String, (TypeInfo, u64)>, members2: &IndexMap<String, (TypeInfo, u64)>, types: &HashMap<usize, TypeInfo>, depth: usize) -> bool {
-        if members1.len() != members2.len() {
-            return false;
-        }
-        for (member1_name, (member1_type, member1_offset)) in members1 {
-            let Some((member2_type, member2_offset)) = members2.get(member1_name) else {
-                return false;
-            };
-            if member1_offset != member2_offset {
-                return false;
-            }
-            if depth < Self::MAX_RECURSION_DEPTH {
-                if !member1_type.compare_internal(member2_type, types, depth + 1) {
-                    return false;
-                }
-            } else {
-                let member1_deref = member1_type.get_reference(types);
-                let member2_deref = member2_type.get_reference(types);
-                if std::mem::discriminant(&member1_deref.datatype) != std::mem::discriminant(&member2_deref.datatype) || member1_deref.name != member2_deref.name {
-                    return false;
-                }
-            }
-        }
-        true
     }
 }
 

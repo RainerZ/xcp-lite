@@ -1020,8 +1020,6 @@ ASAP2_VERSION 1 71
             if !c.is_axis() {
                 // This is the inverse condition of the one in write_a2l_measurements
                 if !(c.is_measurement_object() || c.address.event_id().is_some()) {
-                    assert!(c.address.is_segment_relative());
-                    assert!(!c.is_measurement_object());
                     c.write_characteristic(self)?;
                 }
             }

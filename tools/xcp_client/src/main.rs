@@ -9,10 +9,13 @@
 // Run:
 // cargo r -p xcp_client -- -h
 
+use indexmap::IndexMap;
 use parking_lot::Mutex;
+use std::ffi::OsStr;
 use std::net::Ipv4Addr;
+
 use std::{error::Error, sync::Arc};
-use xcp_lite::registry::{McEvent, Registry};
+use xcp_lite::registry::{McAddress, McDimType, McEvent, McObjectType, McSupportData, McValueType, Registry};
 
 mod xcp_client;
 use xcp_client::*;
@@ -24,7 +27,7 @@ use xcp_test_executor::test_executor;
 // Original code licensed under MIT/Apache-2.0
 // Copyright (c) DanielT
 mod debuginfo;
-use debuginfo::DebugData;
+use debuginfo::{DbgDataType, DebugData, TypeInfo};
 
 //-----------------------------------------------------------------------------
 // Command line arguments
@@ -104,10 +107,14 @@ struct Args {
     #[arg(short, long, value_delimiter = ' ', num_args = 1..)]
     mea: Vec<String>,
 
-    // -t --time
+    // --time-ms
     /// Limit measurement duration to n ms
-    #[arg(short, long, default_value_t = 5000)]
+    #[arg(long, default_value_t = 0)]
     time_ms: u64,
+    // -t --time
+    /// Limit measurement duration to n s
+    #[arg(short, long, default_value_t = 0)]
+    time: u64,
 
     // --cal
     /// Set calibration variable to a value (format: "variable_name value")
@@ -347,90 +354,222 @@ impl XcpTextDecoder for ServTextDecoder {
 //------------------------------------------------------------------------
 //  Binary reader (ELF and Mach-O)
 
-fn read_elf(_reg: &mut Registry, file_name: &str) -> Result<(), Box<dyn Error>> {
-    use std::ffi::OsStr;
+// Print summary statistics
+// println!("  Variables: {} unique names", debug_data.variables.len());
+// println!("  Types: {} total types", debug_data.types.len());
+// println!("  Type names: {} named types", debug_data.typenames.len());
+// println!("  Demangled names: {} entries", debug_data.demangled_names.len());
+// println!("  Compilation units: {} units", debug_data.unit_names.len());
+// println!("  Sections: {} sections", debug_data.sections.len());
 
-    println!("Loading debug information from ELF file: {}", file_name);
+// Print compilation units
+// println!("\nCompilation Units:");
+// for (idx, unit_name) in debug_data.unit_names.iter().enumerate() {
+//     println!("  Unit {}: {:?}", idx, unit_name);
+// }
 
+// Print sections information
+// println!("\nMemory Sections:");
+// for (name, (addr, size)) in &debug_data.sections {
+//     println!("  Section '{}': address=0x{:08x}, size=0x{:x} ({} bytes)", name, addr, size, size);
+// }
+
+// Print type names
+// println!("\nType Names");
+// for (type_name, type_refs) in &debug_data.typenames {
+//     println!("Type name '{}': {} references", type_name, type_refs.len());
+//     for type_ref in type_refs {
+//         if let Some(type_info) = debug_data.types.get(type_ref) {
+//             println!("  -> type_ref={}, size={} bytes, unit={}", type_ref, type_info.get_size(), type_info.unit_idx);
+//         }
+//     }
+// }
+
+fn print_type_info(type_info: &TypeInfo) {
+    let type_name = if let Some(name) = &type_info.name { name } else { "" };
+    let type_size = type_info.get_size();
+
+    print!("    TypeInfo: {}", type_name);
+    // print!(" (unit_idx = {}, dbginfo_offset = {})",type_info.unit_idx, type_info.dbginfo_offset);
+
+    match &type_info.datatype {
+        DbgDataType::Uint8 | DbgDataType::Uint16 | DbgDataType::Uint32 | DbgDataType::Uint64 => {
+            println!(" Integer: {} byte unsigned", type_size);
+        }
+        DbgDataType::Sint8 | DbgDataType::Sint16 | DbgDataType::Sint32 | DbgDataType::Sint64 => {
+            println!(" Integer: {} byte signed", type_size);
+        }
+        DbgDataType::Float | DbgDataType::Double => {
+            println!(" Floating point: {} byte", type_size);
+        }
+
+        DbgDataType::Pointer(typeref, size) => {
+            println!(" Pointer: typeref = {}, size = {} ", typeref, size);
+        }
+        DbgDataType::Array { arraytype, dim, stride, size } => {
+            println!(" Array: typeref = {}, dim = {:?}, stride = {} bytes, size = {} bytes", arraytype, dim, stride, size);
+        }
+        DbgDataType::Struct { size, members } => {
+            println!(" Struct: {} fields, size = {}", members.len(), size);
+            for (name, (type_info, member_offset)) in members {
+                let member_size = type_info.get_size();
+                println!("      Field '{}': size = {} bytes, offset = {} bytes", name, member_size, member_offset);
+            }
+        }
+        DbgDataType::Union { members, size } => {
+            println!(" Union: {} members, size = {} bytes", members.len(), size);
+        }
+        DbgDataType::Enum { size, signed, enumerators } => {
+            println!(" Enum: {} variants, size = {} bytes", enumerators.len(), size);
+            for (name, value) in enumerators {
+                println!("      Variant '{}': value={}", name, value);
+            }
+        }
+        _ => {
+            println!(" Other type: {:?}", &type_info.datatype);
+        }
+    }
+}
+
+fn get_field_type(type_info: &TypeInfo) -> McValueType {
+    let type_size = type_info.get_size();
+    match &type_info.datatype {
+        DbgDataType::Uint8 => McValueType::Ubyte,
+        DbgDataType::Uint16 => McValueType::Uword,
+        DbgDataType::Uint32 => McValueType::Ulong,
+        DbgDataType::Uint64 => McValueType::Ulonglong,
+        DbgDataType::Sint8 => McValueType::Sbyte,
+        DbgDataType::Sint16 => McValueType::Sword,
+        DbgDataType::Sint32 => McValueType::Slong,
+        DbgDataType::Sint64 => McValueType::Slonglong,
+        DbgDataType::Float => McValueType::Float32Ieee,
+        DbgDataType::Double => McValueType::Float64Ieee,
+        _ => {
+            error!("Unsupported type for McValueType: {:?}", &type_info.datatype);
+            McValueType::Ubyte
+        }
+    }
+}
+
+fn register_struct(reg: &mut Registry, mc_object_type: McObjectType, type_name: String, size: usize, members: &IndexMap<String, (TypeInfo, u64)>) -> Result<(), Box<dyn Error>> {
+    let mc_typedef = reg.add_typedef(type_name, size)?;
+    for (field_name, (type_info, field_offset)) in members {
+        let field_dim_type = McDimType::new(get_field_type(&type_info), 1, 1);
+        let field_mc_support_data = McSupportData::new(mc_object_type);
+        mc_typedef.add_field(field_name.clone(), field_dim_type, field_mc_support_data, (*field_offset).try_into().unwrap())?;
+    }
+    Ok(())
+}
+
+fn read_elf(reg: &mut Registry, file_name: &str) -> Result<(), Box<dyn Error>> {
     // Load debug information from the ELF file
+    info!("Loading debug information from ELF file: {}", file_name);
     let debug_data = DebugData::load_dwarf(OsStr::new(file_name), true).map_err(|e| format!("Failed to load debug info from '{}': {}", file_name, e))?;
 
-    println!("Successfully loaded debug information!");
-    println!("\n=== Debug Data Structure ===");
-
-    // Print summary statistics
-    println!("Variables: {} unique names", debug_data.variables.len());
-    println!("Types: {} total types", debug_data.types.len());
-    println!("Type names: {} named types", debug_data.typenames.len());
-    println!("Demangled names: {} entries", debug_data.demangled_names.len());
-    println!("Compilation units: {} units", debug_data.unit_names.len());
-    println!("Sections: {} sections", debug_data.sections.len());
-
-    // Print sections information
-    println!("\n=== Memory Sections ===");
-    for (name, (addr, size)) in &debug_data.sections {
-        println!("Section '{}': address=0x{:08x}, size=0x{:x} ({} bytes)", name, addr, size, size);
-    }
-
-    // Print compilation units
-    println!("\n=== Compilation Units ===");
-    for (idx, unit_name) in debug_data.unit_names.iter().enumerate() {
-        if let Some(name) = unit_name {
-            println!("Unit {}: {}", idx, name);
-        } else {
-            println!("Unit {}: <unnamed>", idx);
-        }
-    }
-
-    // Print some sample variables (limit to first 20 to avoid overwhelming output)
-    println!("\n=== Sample Variables (first 20) ===");
-    let mut count = 0;
+    // Iterate over variables
+    println!("\nVariables:");
     for (var_name, var_infos) in &debug_data.variables {
-        if count >= 20 {
-            println!("... and {} more variables", debug_data.variables.len() - 20);
-            break;
+        // Skip internal variables
+        if var_name.starts_with("__") || var_name.starts_with("gXcp") || var_name.starts_with("gA2l") {
+            continue;
         }
 
-        println!("Variable '{}': {} instances", var_name, var_infos.len());
-        for (idx, var_info) in var_infos.iter().enumerate() {
-            println!("  [{}] address=0x{:08x}, type_ref={}, unit={}", idx, var_info.address, var_info.typeref, var_info.unit_idx);
-            if let Some(function) = &var_info.function {
-                println!("      function: {}", function);
+        // Check for captured variables with format "daq__<event_name>__<var_name>"
+        let mut a2l_name = var_name.to_string();
+        let mut xcp_event_id = 0u16;
+        if var_name.starts_with("daq__") {
+            // remove the "daq__" prefix
+            let new_name = var_name.strip_prefix("daq__").unwrap_or(var_name);
+            // get event name and variable name
+            let mut parts = new_name.split("__");
+            let event_name = parts.next().unwrap_or("");
+            let var_name = parts.next().unwrap_or("");
+            // Find the event in the registry
+            if let Some(id) = reg.event_list.find_event(event_name, 0) {
+                xcp_event_id = id.id;
+                a2l_name = format!("{}.{}", event_name, var_name);
+            } else {
+                warn!("Event '{}' for captured variable '{}' not found in registry", event_name, var_name);
+                continue; // skip this variable
             }
-            if !var_info.namespaces.is_empty() {
-                println!("      namespaces: {:?}", var_info.namespaces);
-            }
+        }
 
-            // Print type information if available
-            if let Some(type_info) = debug_data.types.get(&var_info.typeref) {
-                println!("      type: {:?} (size: {} bytes)", type_info.datatype, type_info.get_size());
-                if let Some(type_name) = &type_info.name {
-                    println!("      type name: {}", type_name);
+        assert!(var_infos.len() == 1); // @@@@ TODO: Handle multiple variables with the same name
+        let var_info = &var_infos[0]; // Use the first variable info
+        let a2l_addr = var_info.address.try_into().unwrap(); // @@@@ TODO: Handle 64 bit addresses
+        let a2l_addr_ext = 0;
+
+        // Check if the address is in a calibration segment
+        let (mc_object_type, mc_addr) = if reg.cal_seg_list.find_cal_seg_by_address(a2l_addr).is_some() {
+            (McObjectType::Characteristic, McAddress::new_a2l(a2l_addr, a2l_addr_ext))
+        } else {
+            (McObjectType::Measurement, McAddress::new_a2l_with_event(xcp_event_id, a2l_addr, a2l_addr_ext))
+        };
+
+        // Register measurement variable if possible
+        if let Some(type_info) = debug_data.types.get(&var_info.typeref) {
+            // Print variable info
+            println!("  {}: addr = 0x{:08x}", a2l_name, var_info.address);
+            //println!("  {}: addr = 0x{:08x}, typeref = {}, unit = {}",a2l_name, var_info.address, var_info.typeref, var_info.unit_idx;
+
+            // Print type info
+            print_type_info(type_info);
+            //  let type_name = if let Some(name) = &type_info.name { name } else { "" };
+            //     let type_size = type_info.get_size();
+            //     let data_type = &type_info.datatype;
+
+            // Register variables and types in the registry
+            let type_size = type_info.get_size();
+            let type_name = &type_info.name;
+            match &type_info.datatype {
+                DbgDataType::Uint8 | DbgDataType::Uint16 | DbgDataType::Uint32 | DbgDataType::Uint64 => {
+                    //println!("    Integer: {} byte unsigned", data_size);
+                    let _ = reg.instance_list.add_instance(
+                        a2l_name,
+                        McDimType::new(McValueType::from_integer_size(type_size as usize, false), 1, 1),
+                        McSupportData::new(mc_object_type).set_comment("created by xcp_client"),
+                        mc_addr,
+                    );
                 }
+                DbgDataType::Sint8 | DbgDataType::Sint16 | DbgDataType::Sint32 | DbgDataType::Sint64 => {
+                    //println!("    Integer: {} byte signed", data_size);
+                    let _ = reg.instance_list.add_instance(
+                        a2l_name,
+                        McDimType::new(McValueType::from_integer_size(type_size as usize, true), 1, 1),
+                        McSupportData::new(mc_object_type).set_comment("created by xcp_client"),
+                        mc_addr,
+                    );
+                }
+                DbgDataType::Float | DbgDataType::Double => {
+                    //println!("    Floating point: {} byte", data_size);
+                    let _ = reg.instance_list.add_instance(
+                        a2l_name,
+                        McDimType::new(McValueType::from_float_size(type_size as usize), 1, 1),
+                        McSupportData::new(mc_object_type).set_comment("created by xcp_client"),
+                        mc_addr,
+                    );
+                }
+
+                DbgDataType::Struct { size, members } => {
+                    // If the type has a name
+                    if let Some(type_name) = type_name {
+                        // Register the struct type
+                        register_struct(reg, mc_object_type, type_name.clone(), *size as usize, members)?;
+
+                        // Register the variable as an instance of the struct type
+                        let _ = reg.instance_list.add_instance(
+                            a2l_name,
+                            McDimType::new(McValueType::new_typedef(type_name.clone()), 1, 1),
+                            McSupportData::new(mc_object_type).set_comment("created by xcp_client"),
+                            mc_addr,
+                        );
+                    }
+                }
+                _ => {}
             }
         }
-        count += 1;
     }
 
-    // Print some sample type names
-    println!("\n=== Sample Type Names (first 10) ===");
-    let mut count = 0;
-    for (type_name, type_refs) in &debug_data.typenames {
-        if count >= 10 {
-            println!("... and {} more type names", debug_data.typenames.len() - 10);
-            break;
-        }
-
-        println!("Type name '{}': {} references", type_name, type_refs.len());
-        for type_ref in type_refs {
-            if let Some(type_info) = debug_data.types.get(type_ref) {
-                println!("  -> type_ref={}, size={} bytes, unit={}", type_ref, type_info.get_size(), type_info.unit_idx);
-            }
-        }
-        count += 1;
-    }
-
-    println!("\n=== Debug Information Loading Complete ===");
     Ok(())
 }
 
@@ -444,7 +583,7 @@ async fn xcp_client(
     a2l_name: String,
     upload_a2l: bool,
     create_a2l: bool,
-    _elf_name: String,
+    elf_name: String,
     list_cal: String,
     list_mea: String,
     measurement_list: Vec<String>,
@@ -508,9 +647,9 @@ async fn xcp_client(
 
     // Create a new empty A2L registry
     let mut reg = xcp_lite::registry::Registry::new();
-    reg.set_app_info(ecu_name.clone(), "description", 0);
+    reg.set_app_info(ecu_name.clone(), "-", 0);
 
-    // Set A2L default file path to given command line argument or target name if empty
+    // Set A2L default file path to given command line argument 'a2l' or target name 'ecu_name' if empty
     let mut a2l_path = std::path::Path::new(if a2l_name.is_empty() { &ecu_name } else { &a2l_name }).with_extension("a2l");
 
     // Upload A2L the file from XCP server and load it into the registry
@@ -576,17 +715,17 @@ async fn xcp_client(
         // Get segment and page information
         for i in 0..xcp_client.max_segments {
             let (addr_ext, addr, length, name) = xcp_client.get_segment_info(i).await?;
-            info!("Segment {}: {} addr={}:{} length={} ", i, name, addr_ext, addr, length);
+            info!("Segment {}: {} addr={}:0x{:08X} length={} ", i, name, addr_ext, addr, length);
             // Segment relative addressing
             // reg.cal_seg_list.add_cal_seg(name, i as u16, length as u32).unwrap();
             // Absolute addressing
             reg.cal_seg_list.add_cal_seg_by_addr(name, i as u16, addr_ext, addr, length as u32).unwrap();
         }
 
-        // Read binary file if specified
-        if !_elf_name.is_empty() {
-            info!("Reading binary file: {}", _elf_name);
-            read_elf(&mut reg, &_elf_name)?;
+        // Read binary file if specified and create calibration variables in segments and all global measurement variables
+        if !elf_name.is_empty() {
+            info!("Reading ELF file: {}", elf_name);
+            read_elf(&mut reg, &elf_name)?;
         }
 
         // Write the generated A2L file
@@ -766,7 +905,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Run the test executor if --test is specified
     if args.test {
-        test_executor(dest_addr, local_addr, TEST_CAL, TEST_DAQ, TEST_DURATION_MS).await
+        test_executor(args.tcp, dest_addr, local_addr, TEST_CAL, TEST_DAQ, TEST_DURATION_MS).await
     }
     // Run the XCP client
     else {
@@ -781,7 +920,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             args.list_cal,
             args.list_mea,
             args.mea,
-            args.time_ms,
+            if args.time_ms > 0 { args.time_ms } else { args.time * 1000 },
             args.cal,
         )
         .await;

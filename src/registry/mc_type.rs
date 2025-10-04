@@ -191,6 +191,30 @@ impl McValueType {
         }
     }
 
+    // Create from size and signed flag
+    pub fn from_integer_size(size: usize, signed: bool) -> McValueType {
+        match (size, signed) {
+            (1, false) => McValueType::Ubyte,
+            (1, true) => McValueType::Sbyte,
+            (2, false) => McValueType::Uword,
+            (2, true) => McValueType::Sword,
+            (4, false) => McValueType::Ulong,
+            (4, true) => McValueType::Slong,
+            (8, false) => McValueType::Ulonglong,
+            (8, true) => McValueType::Slonglong,
+            _ => McValueType::Unknown,
+        }
+    }
+
+    // Create from size for floating point
+    pub fn from_float_size(size: usize) -> McValueType {
+        match size {
+            4 => McValueType::Float32Ieee,
+            8 => McValueType::Float64Ieee,
+            _ => McValueType::Unknown,
+        }
+    }
+
     // Convert from Rust basic type as str
     // Used by the register macros
     fn from_rust_basic_type(s: &'static str) -> McValueType {
