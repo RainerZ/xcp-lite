@@ -627,11 +627,21 @@ pub trait XcpDaqDecoder {
     /// Decoding information: ODT entry table and 64 bit start timestamp
     fn start(&mut self, odt_entries: Vec<Vec<OdtEntry>>, timestamp_raw64: u64);
 
-    // Measurement stop
+    /// Measurement stop
     fn stop(&mut self) {}
 
     /// Set measurement timestamp resolution in ns per raw timestamp tick and DAQ header size (2 (ODTB/DAQB or 4 (ODTB,_,DAQW))
     fn set_daq_properties(&mut self, timestamp_resolution: u64, daq_header_size: u8);
+
+    /// Get the event count
+    fn get_event_count(&self) -> usize {
+        0
+    }
+
+    /// Get the byte count
+    fn get_byte_count(&self) -> usize {
+        0
+    }
 }
 
 //--------------------------------------------------------------------------------------------------------------------------------------------------
@@ -1126,6 +1136,10 @@ impl XcpClient {
         self.daq_decoder = Some(daq_decoder);
 
         Ok(())
+    }
+
+    pub fn get_daq_decoder(&mut self) -> Option<Arc<Mutex<dyn XcpDaqDecoder>>> {
+        self.daq_decoder.as_ref().map(|d| d.clone())
     }
 
     //------------------------------------------------------------------------
@@ -1727,9 +1741,11 @@ impl XcpClient {
                 let mut o = XcpClientCalibrationObject::new(instance.get_name(), a2l_addr, a2l_type, a2l_limits);
                 let size = o.get_type.size;
                 assert!(size < 256, "xcp_client currently supports only <256 byte values");
-                let resp = self.short_upload(o.a2l_addr.addr, o.a2l_addr.ext, size as u8).await?;
-                o.value = resp[1..=o.get_type.size].to_vec();
-                trace!("upload {}: addr = {:?} type = {:?} limit={:?} value={:?}\n", name, a2l_addr, a2l_type, a2l_limits, o.value);
+                if self.is_connected() {
+                    let resp = self.short_upload(o.a2l_addr.addr, o.a2l_addr.ext, size as u8).await?;
+                    o.value = resp[1..=o.get_type.size].to_vec();
+                    trace!("upload {}: addr = {:?} type = {:?} limit={:?} value={:?}\n", name, a2l_addr, a2l_type, a2l_limits, o.value);
+                }
                 self.calibration_object_list.push(o);
                 Ok(XcpCalibrationObjectHandle(self.calibration_object_list.len() - 1))
             }

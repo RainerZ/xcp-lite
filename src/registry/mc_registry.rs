@@ -139,7 +139,11 @@ impl Registry {
 
     /// Get application name
     pub fn get_app_name(&self) -> &'static str {
-        self.application.name.as_str()
+        if !self.application.name.is_empty() {
+            self.application.name.as_str()
+        } else {
+            "application"
+        }
     }
 
     /// Set application version

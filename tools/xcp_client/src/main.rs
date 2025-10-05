@@ -42,6 +42,12 @@ struct Args {
     #[arg(short, long, default_value_t = 3)]
     log_level: u8,
 
+    // -v --verbose
+    /// Verbose output
+    /// Enables additional output when reading ELF files and creating A2L files
+    #[arg(short, long, default_value_t = false)]
+    verbose: bool,
+
     // -d --dest_addr
     /// XCP server address
     #[arg(short, long, default_value = "127.0.0.1:5555")]
@@ -58,13 +64,17 @@ struct Args {
     bind_addr: String,
 
     // --tcp
-    /// Use TCP instead of UDP for XCP communication
+    /// Use TCP for XCP communication
     #[arg(long, default_value_t = false)]
     tcp: bool,
+    // --udp
+    /// Use UDP for XCP communication
+    #[arg(long, default_value_t = false)]
+    udp: bool,
 
     // -a, --a2l
-    /// Specify and overide the name of the A2L file
-    /// Usually, the A2L file name is obtained from the XCP server
+    /// Specify and overide the name of the A2L file name
+    /// If not specified, The A2L file name is read from the XCP server
     #[arg(short, long, default_value = "")]
     a2l: String,
 
@@ -75,22 +85,16 @@ struct Args {
     upload_a2l: bool,
 
     // --create-a2l
-    /// Build an A2L file template from XCP server information about its events and memory segments
+    /// Build an A2L file template from XCP server information about events and memory segments
     /// Requires that the XCP server supports the GET_EVENT_INFO and GET_SEGMENT_INFO commands
     #[arg(long, default_value_t = false)]
     create_a2l: bool,
 
     // -e, --elf
-    /// In addition to the create-a2l option:
-    /// Specify the name of a ELF file to automatically insert calibration variables located in calibration segments
+    /// Specifiy the name of an ELF file, create an A2L file from ELF debug information
+    /// If connected to a XCP server, events and memory segments will be extracted from the XCP server
     #[arg(short, long, default_value = "")]
     elf: String,
-
-    // -a, --add
-    /// In addition to the create-a2l/elf option:
-    /// Add specified measurement variables (regex)to the A2L file
-    #[arg(long, default_value = "")]
-    add_mea: String,
 
     // --list_mea
     /// Lists all specified measurement variables (regex) found in the A2L file
@@ -352,7 +356,7 @@ impl XcpTextDecoder for ServTextDecoder {
 }
 
 //------------------------------------------------------------------------
-//  Binary reader (ELF and Mach-O)
+//  ELF reader and A2L creator
 
 // Print summary statistics
 // println!("  Variables: {} unique names", debug_data.variables.len());
@@ -389,7 +393,7 @@ fn print_type_info(type_info: &TypeInfo) {
     let type_name = if let Some(name) = &type_info.name { name } else { "" };
     let type_size = type_info.get_size();
 
-    print!("    TypeInfo: {}", type_name);
+    println!("    TypeInfo: {}", type_name);
     // print!(" (unit_idx = {}, dbginfo_offset = {})",type_info.unit_idx, type_info.dbginfo_offset);
 
     match &type_info.datatype {
@@ -445,7 +449,7 @@ fn get_field_type(type_info: &TypeInfo) -> McValueType {
         DbgDataType::Float => McValueType::Float32Ieee,
         DbgDataType::Double => McValueType::Float64Ieee,
         _ => {
-            error!("Unsupported type for McValueType: {:?}", &type_info.datatype);
+            warn!("Unsupported type for McValueType: {:?}", &type_info.datatype);
             McValueType::Ubyte
         }
     }
@@ -461,17 +465,31 @@ fn register_struct(reg: &mut Registry, mc_object_type: McObjectType, type_name: 
     Ok(())
 }
 
-fn read_elf(reg: &mut Registry, file_name: &str) -> Result<(), Box<dyn Error>> {
+fn read_elf(reg: &mut Registry, file_name: &str, verbose: bool) -> Result<(), Box<dyn Error>> {
     // Load debug information from the ELF file
     info!("Loading debug information from ELF file: {}", file_name);
     let debug_data = DebugData::load_dwarf(OsStr::new(file_name), true).map_err(|e| format!("Failed to load debug info from '{}': {}", file_name, e))?;
 
     // Iterate over variables
-    println!("\nVariables:");
+    if verbose {
+        println!("\nVariables:");
+    }
     for (var_name, var_infos) in &debug_data.variables {
         // Skip internal variables
         if var_name.starts_with("__") || var_name.starts_with("gXcp") || var_name.starts_with("gA2l") {
             continue;
+        }
+
+        // Check for calibration segments
+        if var_name.starts_with("cal__") {
+            // remove the "cal__" prefix
+            let seg_name = var_name.strip_prefix("cal__").unwrap_or(var_name);
+            // Find the segment in the registry
+            if let Some(_seg) = reg.cal_seg_list.find_cal_seg(seg_name) {
+            } else {
+                warn!("Calibration segment '{}' for calibration variable '{}' not found in registry", seg_name, seg_name);
+                continue; // skip this variable
+            }
         }
 
         // Check for captured variables with format "daq__<event_name>__<var_name>"
@@ -494,82 +512,81 @@ fn read_elf(reg: &mut Registry, file_name: &str) -> Result<(), Box<dyn Error>> {
             }
         }
 
-        assert!(var_infos.len() == 1); // @@@@ TODO: Handle multiple variables with the same name
-        let var_info = &var_infos[0]; // Use the first variable info
-        let a2l_addr = var_info.address.try_into().unwrap(); // @@@@ TODO: Handle 64 bit addresses
-        let a2l_addr_ext = 0;
+        // Process all variable infos (same name, different types or addresses)
+        for var_info in var_infos {
+            let a2l_name = a2l_name.clone();
+            let a2l_addr = var_info.address.try_into().unwrap(); // @@@@ TODO: Handle 64 bit addresses
+            let a2l_addr_ext = 0;
 
-        // Check if the address is in a calibration segment
-        let (mc_object_type, mc_addr) = if reg.cal_seg_list.find_cal_seg_by_address(a2l_addr).is_some() {
-            (McObjectType::Characteristic, McAddress::new_a2l(a2l_addr, a2l_addr_ext))
-        } else {
-            (McObjectType::Measurement, McAddress::new_a2l_with_event(xcp_event_id, a2l_addr, a2l_addr_ext))
-        };
+            // Check if the address is in a calibration segment
+            let (mc_object_type, mc_addr) = if reg.cal_seg_list.find_cal_seg_by_address(a2l_addr).is_some() {
+                (McObjectType::Characteristic, McAddress::new_a2l(a2l_addr, a2l_addr_ext))
+            } else {
+                (McObjectType::Measurement, McAddress::new_a2l_with_event(xcp_event_id, a2l_addr, a2l_addr_ext))
+            };
 
-        // Register measurement variable if possible
-        if let Some(type_info) = debug_data.types.get(&var_info.typeref) {
-            // Print variable info
-            println!("  {}: addr = 0x{:08x}", a2l_name, var_info.address);
-            //println!("  {}: addr = 0x{:08x}, typeref = {}, unit = {}",a2l_name, var_info.address, var_info.typeref, var_info.unit_idx;
-
-            // Print type info
-            print_type_info(type_info);
-            //  let type_name = if let Some(name) = &type_info.name { name } else { "" };
-            //     let type_size = type_info.get_size();
-            //     let data_type = &type_info.datatype;
-
-            // Register variables and types in the registry
-            let type_size = type_info.get_size();
-            let type_name = &type_info.name;
-            match &type_info.datatype {
-                DbgDataType::Uint8 | DbgDataType::Uint16 | DbgDataType::Uint32 | DbgDataType::Uint64 => {
-                    //println!("    Integer: {} byte unsigned", data_size);
-                    let _ = reg.instance_list.add_instance(
-                        a2l_name,
-                        McDimType::new(McValueType::from_integer_size(type_size as usize, false), 1, 1),
-                        McSupportData::new(mc_object_type).set_comment("created by xcp_client"),
-                        mc_addr,
-                    );
-                }
-                DbgDataType::Sint8 | DbgDataType::Sint16 | DbgDataType::Sint32 | DbgDataType::Sint64 => {
-                    //println!("    Integer: {} byte signed", data_size);
-                    let _ = reg.instance_list.add_instance(
-                        a2l_name,
-                        McDimType::new(McValueType::from_integer_size(type_size as usize, true), 1, 1),
-                        McSupportData::new(mc_object_type).set_comment("created by xcp_client"),
-                        mc_addr,
-                    );
-                }
-                DbgDataType::Float | DbgDataType::Double => {
-                    //println!("    Floating point: {} byte", data_size);
-                    let _ = reg.instance_list.add_instance(
-                        a2l_name,
-                        McDimType::new(McValueType::from_float_size(type_size as usize), 1, 1),
-                        McSupportData::new(mc_object_type).set_comment("created by xcp_client"),
-                        mc_addr,
-                    );
+            // Register measurement variable if possible
+            if let Some(type_info) = debug_data.types.get(&var_info.typeref) {
+                // Print variable info
+                if verbose {
+                    println!("  {}: addr = 0x{:08x}", a2l_name, var_info.address);
+                    //println!("  {}: addr = 0x{:08x}, typeref = {}, unit = {}",a2l_name, var_info.address, var_info.typeref, var_info.unit_idx);
                 }
 
-                DbgDataType::Struct { size, members } => {
-                    // If the type has a name
-                    if let Some(type_name) = type_name {
-                        // Register the struct type
-                        register_struct(reg, mc_object_type, type_name.clone(), *size as usize, members)?;
+                // Print type info
+                if verbose {
+                    print_type_info(type_info);
+                }
 
-                        // Register the variable as an instance of the struct type
+                // Register variables and types in the registry
+                let type_size = type_info.get_size();
+                let type_name = &type_info.name;
+                match &type_info.datatype {
+                    DbgDataType::Uint8 | DbgDataType::Uint16 | DbgDataType::Uint32 | DbgDataType::Uint64 => {
                         let _ = reg.instance_list.add_instance(
                             a2l_name,
-                            McDimType::new(McValueType::new_typedef(type_name.clone()), 1, 1),
+                            McDimType::new(McValueType::from_integer_size(type_size as usize, false), 1, 1),
                             McSupportData::new(mc_object_type).set_comment("created by xcp_client"),
                             mc_addr,
                         );
                     }
+                    DbgDataType::Sint8 | DbgDataType::Sint16 | DbgDataType::Sint32 | DbgDataType::Sint64 => {
+                        let _ = reg.instance_list.add_instance(
+                            a2l_name,
+                            McDimType::new(McValueType::from_integer_size(type_size as usize, true), 1, 1),
+                            McSupportData::new(mc_object_type).set_comment("created by xcp_client"),
+                            mc_addr,
+                        );
+                    }
+                    DbgDataType::Float | DbgDataType::Double => {
+                        let _ = reg.instance_list.add_instance(
+                            a2l_name,
+                            McDimType::new(McValueType::from_float_size(type_size as usize), 1, 1),
+                            McSupportData::new(mc_object_type).set_comment("created by xcp_client"),
+                            mc_addr,
+                        );
+                    }
+
+                    DbgDataType::Struct { size, members } => {
+                        // If the type has a name
+                        if let Some(type_name) = type_name {
+                            // Register the struct type
+                            register_struct(reg, mc_object_type, type_name.clone(), *size as usize, members)?;
+
+                            // Register the variable as an instance of the struct type
+                            let _ = reg.instance_list.add_instance(
+                                a2l_name,
+                                McDimType::new(McValueType::new_typedef(type_name.clone()), 1, 1),
+                                McSupportData::new(mc_object_type).set_comment("created by xcp_client"),
+                                mc_addr,
+                            );
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
         }
-    }
-
+    } // var_infos
     Ok(())
 }
 
@@ -577,7 +594,9 @@ fn read_elf(reg: &mut Registry, file_name: &str) -> Result<(), Box<dyn Error>> {
 //  XCP client
 
 async fn xcp_client(
+    verbose: bool,
     tcp: bool,
+    udp: bool,
     dest_addr: std::net::SocketAddr,
     local_addr: std::net::SocketAddr,
     a2l_name: String,
@@ -593,64 +612,83 @@ async fn xcp_client(
     // Create xcp_client
     let mut xcp_client = XcpClient::new(tcp, dest_addr, local_addr);
 
-    // Connect to the XCP server
-    info!("XCP Connect using {}", if tcp { "TCP" } else { "UDP" });
-    let daq_decoder = Arc::new(Mutex::new(DaqDecoder::new()));
-    xcp_client.connect(Arc::clone(&daq_decoder), ServTextDecoder::new()).await?;
-    info!("XCP MAX_CTO = {}", xcp_client.max_cto_size);
-    info!("XCP MAX_DTO = {}", xcp_client.max_dto_size);
-    info!(
-        "XCP RESOURCES = 0x{:02X} {} {} {} {}",
-        xcp_client.resources,
-        if (xcp_client.resources & 0x01) != 0 { "CAL" } else { "" },
-        if (xcp_client.resources & 0x04) != 0 { "DAQ" } else { "" },
-        if (xcp_client.resources & 0x10) != 0 { "PGM" } else { "" },
-        if (xcp_client.resources & 0x40) != 0 { "STM" } else { "" }
-    );
-    info!("XCP COMM_MODE_BASIC = 0x{:02X}", xcp_client.comm_mode_basic);
-    assert!((xcp_client.comm_mode_basic & 0x07) == 0); // Address granularity != 1 and motorola format not supported
-    info!("XCP PROTOCOL_VERSION = 0x{:04X}", xcp_client.protocol_version);
-    info!("XCP TRANSPORT_LAYER_VERSION = 0x{:04X}", xcp_client.transport_layer_version);
-    info!("XCP DRIVER_VERSION = 0x{:02X}", xcp_client.driver_version);
-    info!("XCP MAX_SEGMENTS = {}", xcp_client.max_segments);
-    info!("XCP FREEZE_SUPPORTED = {}", xcp_client.freeze_supported);
-    info!("XCP MAX_EVENTS = {}", xcp_client.max_events);
+    // Target ECU name
+    let mut ecu_name = String::new();
 
-    // Get target name
-    let res = xcp_client.get_id(XCP_IDT_ASCII).await;
-    let ecu_name = match res {
-        Ok((_, Some(id))) => id,
-        Err(e) => {
-            panic!("GET_ID failed, Error: {}", e);
-        }
-        _ => {
-            panic!("Empty string");
-        }
-    };
-    info!("GET_ID XCP_IDT_ASCII = {}", ecu_name);
+    // A2L default name
+    let a2l_default_name = "xcp_client".to_string();
 
-    // Get EPK
-    let res = xcp_client.get_id(XCP_IDT_ASAM_EPK).await;
-    let _ecu_epk = match res {
-        Ok((_, Some(id))) => {
-            info!("GET_ID IDT_EPK = {}", id);
-            id
-        }
-        Err(e) => {
-            warn!("GET_ID XCP_IDT_ASAM_EPK failed, Error: {}", e);
-            "".into()
-        }
-        _ => {
-            panic!("Empty string");
-        }
-    };
+    // Connect the XCP server if required
+    let go_online = tcp || udp || upload_a2l || !measurement_list.is_empty() || !cal_args.is_empty();
+    if go_online {
+        // Connect to the XCP server
+        info!("XCP Connect using {}", if tcp { "TCP" } else { "UDP" });
+        let daq_decoder = Arc::new(Mutex::new(DaqDecoder::new()));
+        xcp_client.connect(Arc::clone(&daq_decoder), ServTextDecoder::new()).await?;
+        info!("XCP MAX_CTO = {}", xcp_client.max_cto_size);
+        info!("XCP MAX_DTO = {}", xcp_client.max_dto_size);
+        info!(
+            "XCP RESOURCES = 0x{:02X} {} {} {} {}",
+            xcp_client.resources,
+            if (xcp_client.resources & 0x01) != 0 { "CAL" } else { "" },
+            if (xcp_client.resources & 0x04) != 0 { "DAQ" } else { "" },
+            if (xcp_client.resources & 0x10) != 0 { "PGM" } else { "" },
+            if (xcp_client.resources & 0x40) != 0 { "STM" } else { "" }
+        );
+        info!("XCP COMM_MODE_BASIC = 0x{:02X}", xcp_client.comm_mode_basic);
+        assert!((xcp_client.comm_mode_basic & 0x07) == 0); // Address granularity != 1 and motorola format not supported
+        info!("XCP PROTOCOL_VERSION = 0x{:04X}", xcp_client.protocol_version);
+        info!("XCP TRANSPORT_LAYER_VERSION = 0x{:04X}", xcp_client.transport_layer_version);
+        info!("XCP DRIVER_VERSION = 0x{:02X}", xcp_client.driver_version);
+        info!("XCP MAX_SEGMENTS = {}", xcp_client.max_segments);
+        info!("XCP FREEZE_SUPPORTED = {}", xcp_client.freeze_supported);
+        info!("XCP MAX_EVENTS = {}", xcp_client.max_events);
+
+        // Get target name
+        let res = xcp_client.get_id(XCP_IDT_ASCII).await;
+        ecu_name = match res {
+            Ok((_, Some(id))) => id,
+            Err(e) => {
+                panic!("GET_ID failed, Error: {}", e);
+            }
+            _ => {
+                panic!("Empty string");
+            }
+        };
+        info!("GET_ID XCP_IDT_ASCII = {}", ecu_name);
+
+        // Get EPK
+        let res = xcp_client.get_id(XCP_IDT_ASAM_EPK).await;
+        let _ecu_epk = match res {
+            Ok((_, Some(id))) => {
+                info!("GET_ID IDT_EPK = {}", id);
+                id
+            }
+            Err(e) => {
+                warn!("GET_ID XCP_IDT_ASAM_EPK failed, Error: {}", e);
+                "".into()
+            }
+            _ => {
+                panic!("Empty string");
+            }
+        };
+    } // go online
 
     // Create a new empty A2L registry
     let mut reg = xcp_lite::registry::Registry::new();
-    reg.set_app_info(ecu_name.clone(), "-", 0);
+    if !ecu_name.is_empty() {
+        reg.set_app_info(ecu_name.clone(), "-", 0);
+    }
 
-    // Set A2L default file path to given command line argument 'a2l' or target name 'ecu_name' if empty
-    let mut a2l_path = std::path::Path::new(if a2l_name.is_empty() { &ecu_name } else { &a2l_name }).with_extension("a2l");
+    // Set A2L default file path to given command line argument 'a2l' or target name 'ecu_name' if available
+    let mut a2l_path = std::path::Path::new(if !a2l_name.is_empty() {
+        &a2l_name
+    } else if !ecu_name.is_empty() {
+        &ecu_name
+    } else {
+        &a2l_default_name
+    })
+    .with_extension("a2l");
 
     // Upload A2L the file from XCP server and load it into the registry
     if upload_a2l {
@@ -727,12 +765,20 @@ async fn xcp_client(
         // Read binary file if specified and create calibration variables in segments and all global measurement variables
         if !elf_name.is_empty() {
             info!("Reading ELF file: {}", elf_name);
-            read_elf(&mut reg, &elf_name)?;
+            read_elf(&mut reg, &elf_name, verbose)?;
         }
 
         // Write the generated A2L file
-        reg.write_a2l(&a2l_path, &ecu_name, &ecu_name, "xcp_client", true).unwrap();
-        info!("Created A2L file: {:?}", a2l_path);
+        if !a2l_path.as_os_str().is_empty() {
+            if a2l_path.exists() {
+                warn!("Overwriting existing A2L file: {}", a2l_path.display());
+            }
+            if ecu_name.is_empty() {
+                ecu_name = "_".into();
+            }
+            reg.write_a2l(&a2l_path, &ecu_name, &ecu_name, "_", true).unwrap();
+            info!("Created A2L file: {}", a2l_path.display());
+        }
     }
     // Load existing A2L file into registry
     else {
@@ -752,25 +798,36 @@ async fn xcp_client(
         println!("Calibration variables:");
         if !cal_objects.is_empty() {
             for name in &cal_objects {
-                let h: XcpCalibrationObjectHandle = xcp_client.create_calibration_object(name).await?;
-                match xcp_client.get_calibration_object(h).get_a2l_type().encoding {
-                    A2lTypeEncoding::Signed => {
-                        let v = xcp_client.get_value_i64(h);
-                        let o = xcp_client.get_calibration_object(h);
-                        println!(" {} {}:{:08X} = {}", o.get_name(), o.get_a2l_addr().ext, o.get_a2l_addr().addr, v);
-                    }
-                    A2lTypeEncoding::Unsigned => {
-                        let v = xcp_client.get_value_u64(h);
-                        let o = xcp_client.get_calibration_object(h);
-                        println!(" {} {}:{:08X} = {}", o.get_name(), o.get_a2l_addr().ext, o.get_a2l_addr().addr, v);
-                    }
-                    A2lTypeEncoding::Float => {
-                        let v = xcp_client.get_value_f64(h);
-                        let o = xcp_client.get_calibration_object(h);
-                        println!(" {} {}:{:08X} = {}", o.get_name(), o.get_a2l_addr().ext, o.get_a2l_addr().addr, v);
-                    }
-                    A2lTypeEncoding::Blob => {
-                        println!(" {} = [...]", name);
+                {
+                    let h: XcpCalibrationObjectHandle = xcp_client.create_calibration_object(name).await?;
+                    match xcp_client.get_calibration_object(h).get_a2l_type().encoding {
+                        A2lTypeEncoding::Signed => {
+                            let o = xcp_client.get_calibration_object(h);
+                            print!(" {} {}:{:08X}", o.get_name(), o.get_a2l_addr().ext, o.get_a2l_addr().addr);
+                            if xcp_client.is_connected() {
+                                let v = xcp_client.get_value_i64(h);
+                                print!(" ={}", v);
+                            }
+                        }
+                        A2lTypeEncoding::Unsigned => {
+                            let o = xcp_client.get_calibration_object(h);
+                            print!(" {} {}:{:08X} ", o.get_name(), o.get_a2l_addr().ext, o.get_a2l_addr().addr);
+                            if xcp_client.is_connected() {
+                                let v = xcp_client.get_value_u64(h);
+                                print!(" = {}", v);
+                            }
+                        }
+                        A2lTypeEncoding::Float => {
+                            let o = xcp_client.get_calibration_object(h);
+                            print!(" {} {}:{:08X}", o.get_name(), o.get_a2l_addr().ext, o.get_a2l_addr().addr);
+                            if xcp_client.is_connected() {
+                                let v = xcp_client.get_value_f64(h);
+                                print!(" = {}", v);
+                            }
+                        }
+                        A2lTypeEncoding::Blob => {
+                            print!(" {} = [...]", name);
+                        }
                     }
                 }
             }
@@ -781,7 +838,7 @@ async fn xcp_client(
     }
 
     // Set calibration variable
-    if !cal_args.is_empty() {
+    if xcp_client.is_connected() && !cal_args.is_empty() {
         if cal_args.len() != 2 {
             return Err("Calibration command requires exactly 2 arguments: variable name and value".into());
         }
@@ -792,8 +849,7 @@ async fn xcp_client(
         // Parse the value as a double
         let value: f64 = value_str.parse().map_err(|_| format!("Failed to parse '{}' as a double value", value_str))?;
 
-        println!();
-        println!("Setting calibration variable '{}' to {}", var_name, value);
+        info!("Setting calibration variable '{}' to {}", var_name, value);
 
         // Create calibration object
         let handle = xcp_client
@@ -807,8 +863,8 @@ async fn xcp_client(
             .await
             .map_err(|e| format!("Failed to set value for '{}': {}", var_name, e))?;
 
-        println!("Successfully set '{}' = {}", var_name, value);
-        println!();
+        info!("Successfully set '{}' = {}", var_name, value);
+        println!("Ok");
     }
 
     // Print all known measurement objects
@@ -830,7 +886,7 @@ async fn xcp_client(
     }
 
     // Measurement
-    if !measurement_list.is_empty() {
+    if xcp_client.is_connected() && !measurement_list.is_empty() {
         // Create list of measurement variable names
         let list = if measurement_list.len() == 1 {
             // Regular expression
@@ -862,19 +918,28 @@ async fn xcp_client(
             let elapsed_time = start_time.elapsed().as_micros();
 
             // Print statistics from DAQ decoder
-            let event_count = daq_decoder.lock().event_count;
-            let byte_count = daq_decoder.lock().byte_count;
-            info!(
-                "Measurement done, {} events, {:.0} event/s, {:.3} Mbytes/s",
-                event_count,
-                event_count as f64 * 1_000_000.0 / elapsed_time as f64,
-                byte_count as f64 / elapsed_time as f64
-            );
+            {
+                let daq_decoder = xcp_client.get_daq_decoder();
+                if let Some(daq_decoder) = daq_decoder {
+                    let daq_decoder = daq_decoder.lock();
+                    let event_count = daq_decoder.get_event_count();
+                    let byte_count = daq_decoder.get_byte_count();
+                    info!(
+                        "Measurement done, {} events, {:.0} event/s, {:.3} Mbytes/s",
+                        event_count,
+                        event_count as f64 * 1_000_000.0 / elapsed_time as f64,
+                        byte_count as f64 / elapsed_time as f64
+                    );
+                }
+            }
         }
     }
 
     // Disconnect
-    xcp_client.disconnect().await?;
+    if xcp_client.is_connected() {
+        xcp_client.disconnect().await?;
+        info!("XCP Disconnected");
+    }
 
     Ok(())
 }
@@ -912,7 +977,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Run the XCP client
     else {
         let res = xcp_client(
+            args.verbose,
             args.tcp,
+            args.udp,
             dest_addr,
             local_addr,
             args.a2l,

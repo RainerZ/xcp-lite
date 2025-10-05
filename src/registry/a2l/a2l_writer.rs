@@ -1064,6 +1064,7 @@ ASAP2_VERSION 1 71
     }
 
     pub fn write_a2l(&mut self, project_name: &str, module_name: &str, project_no: &str) -> Result<(), std::io::Error> {
+        assert!(!project_name.is_empty() && !module_name.is_empty() && !project_no.is_empty());
         self.write_a2l_head(project_name, module_name, project_no)?;
         self.write_a2l_modpar()?;
         if self.registry.has_xcp_params() {
