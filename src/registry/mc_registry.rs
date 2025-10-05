@@ -195,7 +195,7 @@ impl Registry {
     // Typedefs
 
     /// Add a typedef component to a typedef
-    pub fn add_typedef_component<T: Into<McIdentifier>>(
+    pub fn add_typedef_field<T: Into<McIdentifier>>(
         &mut self,
         type_name: &str,
         field_name: T,
@@ -204,7 +204,7 @@ impl Registry {
         offset: u16,
     ) -> Result<(), RegistryError> {
         let field_name = field_name.into();
-        log::debug!("Registry add_typedef_component: {}.{} dim_type={} offset={}", type_name, field_name, dim_type, offset);
+        log::debug!("Registry add_typedef_field: {}.{} dim_type={} offset={}", type_name, field_name, dim_type, offset);
 
         if let Some(typedef) = self.typedef_list.find_typedef_mut(type_name) {
             // Duplicate field name
@@ -235,7 +235,6 @@ impl Registry {
         }
 
         // Add to typedef list
-
         self.typedef_list.push(McTypeDef::new(type_name, size));
         let index = self.typedef_list.len() - 1;
         Ok(self.typedef_list.get_mut(index))

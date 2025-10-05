@@ -253,7 +253,7 @@ fn get_matrix_dim(matrix_dim: Option<&a2lfile::MatrixDim>) -> (u16, u16) {
 // Update any TYPEDEF_COMPONENT with a TYPEDEF_MEASUREMENT, TYPEDEF_CHARACTERISTIC or TYPEDEF_AXIS
 // This will result in a leaf node in the registry typedef structure
 #[allow(clippy::too_many_arguments)]
-fn update_typedef_component(
+fn update_typedef_field(
     registry: &mut Registry,
     typedef_name: &str,
     object_type: McObjectType,
@@ -533,7 +533,7 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
             let value_type = McValueType::TypeDef(field.component_type.clone().into());
             let mc_support_data = McSupportData::new(McObjectType::Unspecified);
             let dim_type = McDimType::new(value_type, x_dim, y_dim);
-            let res = registry.add_typedef_component(typedef_name, field_name, dim_type, mc_support_data, offset);
+            let res = registry.add_typedef_field(typedef_name, field_name, dim_type, mc_support_data, offset);
             match res {
                 Ok(_) => {}
                 Err(e) => {
@@ -552,7 +552,7 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
         let max = typedef.upper_limit;
         let unit = typedef.phys_unit.as_ref().map(|u| &u.unit);
         let value_type = get_value_type_from_datatype(typedef.datatype);
-        update_typedef_component(
+        update_typedef_field(
             registry,
             name,
             McObjectType::Measurement,
@@ -577,7 +577,7 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
         let unit = typedef.phys_unit.as_ref().map(|u| &u.unit);
         let value_type = get_value_type_from_record_layout(record_layout);
         let _sub_type = typedef.characteristic_type; // ValBlk, Value, Ascii, Curve, Cuboid, Cube4, Cube5
-        update_typedef_component(
+        update_typedef_field(
             registry,
             name,
             McObjectType::Characteristic,
@@ -601,7 +601,7 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
         let max = typedef.upper_limit;
         let unit = typedef.phys_unit.as_ref().map(|u| &u.unit);
         let value_type = get_value_type_from_record_layout(record_layout);
-        update_typedef_component(registry, name, McObjectType::Axis, value_type, None, comment, min, max, unit, factor, offset);
+        update_typedef_field(registry, name, McObjectType::Axis, value_type, None, comment, min, max, unit, factor, offset);
     }
 
     //----------------------------------------------------------------------------------------------------------------

@@ -64,7 +64,7 @@ pub(crate) enum DbgDataType {
         stride: u64,
         arraytype: Box<TypeInfo>,
     },
-    TypeRef(usize, u64),
+    TypeRef(usize, u64), // dbginfo_offset of the referenced type
     FuncPtr(u64),
     Other(u64),
 }

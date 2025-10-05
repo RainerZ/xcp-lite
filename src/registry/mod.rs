@@ -172,7 +172,7 @@ where
                 let _ = get_lock()
                     .as_mut()
                     .unwrap()
-                    .add_typedef_component(type_name, field.name(), dim_type, mc_support_data, field.addr_offset());
+                    .add_typedef_field(type_name, field.name(), dim_type, mc_support_data, field.addr_offset());
             }
 
             // Register the instance only if an instance name is provided

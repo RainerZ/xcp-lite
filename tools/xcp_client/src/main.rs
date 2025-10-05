@@ -393,7 +393,7 @@ fn print_type_info(type_info: &TypeInfo) {
     let type_name = if let Some(name) = &type_info.name { name } else { "" };
     let type_size = type_info.get_size();
 
-    println!("    TypeInfo: {}", type_name);
+    print!("    TypeInfo: {}", type_name);
     // print!(" (unit_idx = {}, dbginfo_offset = {})",type_info.unit_idx, type_info.dbginfo_offset);
 
     match &type_info.datatype {
@@ -429,165 +429,251 @@ fn print_type_info(type_info: &TypeInfo) {
                 println!("      Variant '{}': value={}", name, value);
             }
         }
+        DbgDataType::Bitfield { basetype, bit_offset, bit_size } => {
+            println!(" Bitfield: base type = {:?}, offset = {} bits, size = {} bits", basetype.datatype, bit_offset, bit_size);
+        }
+        DbgDataType::Class { size, inheritance, members } => {
+            println!(" Class: {} members, size = {} bytes", members.len(), size);
+        }
+        DbgDataType::FuncPtr(size) => {
+            println!(" Function pointer: size = {} bytes", size);
+        }
+        DbgDataType::TypeRef(typeref, size) => {
+            println!(" TypeRef: typeref = {}, size = {} bytes", typeref, size);
+        }
         _ => {
             println!(" Other type: {:?}", &type_info.datatype);
         }
     }
 }
 
-fn get_field_type(type_info: &TypeInfo) -> McValueType {
-    let type_size = type_info.get_size();
-    match &type_info.datatype {
-        DbgDataType::Uint8 => McValueType::Ubyte,
-        DbgDataType::Uint16 => McValueType::Uword,
-        DbgDataType::Uint32 => McValueType::Ulong,
-        DbgDataType::Uint64 => McValueType::Ulonglong,
-        DbgDataType::Sint8 => McValueType::Sbyte,
-        DbgDataType::Sint16 => McValueType::Sword,
-        DbgDataType::Sint32 => McValueType::Slong,
-        DbgDataType::Sint64 => McValueType::Slonglong,
-        DbgDataType::Float => McValueType::Float32Ieee,
-        DbgDataType::Double => McValueType::Float64Ieee,
-        _ => {
-            warn!("Unsupported type for McValueType: {:?}", &type_info.datatype);
-            McValueType::Ubyte
-        }
-    }
+struct ElfReader {
+    debug_data: DebugData,
 }
 
-fn register_struct(reg: &mut Registry, mc_object_type: McObjectType, type_name: String, size: usize, members: &IndexMap<String, (TypeInfo, u64)>) -> Result<(), Box<dyn Error>> {
-    let mc_typedef = reg.add_typedef(type_name, size)?;
-    for (field_name, (type_info, field_offset)) in members {
-        let field_dim_type = McDimType::new(get_field_type(&type_info), 1, 1);
-        let field_mc_support_data = McSupportData::new(mc_object_type);
-        mc_typedef.add_field(field_name.clone(), field_dim_type, field_mc_support_data, (*field_offset).try_into().unwrap())?;
-    }
-    Ok(())
-}
-
-fn read_elf(reg: &mut Registry, file_name: &str, verbose: bool) -> Result<(), Box<dyn Error>> {
-    // Load debug information from the ELF file
-    info!("Loading debug information from ELF file: {}", file_name);
-    let debug_data = DebugData::load_dwarf(OsStr::new(file_name), true).map_err(|e| format!("Failed to load debug info from '{}': {}", file_name, e))?;
-
-    // Iterate over variables
-    if verbose {
-        println!("\nVariables:");
-    }
-    for (var_name, var_infos) in &debug_data.variables {
-        // Skip internal variables
-        if var_name.starts_with("__") || var_name.starts_with("gXcp") || var_name.starts_with("gA2l") {
-            continue;
-        }
-
-        // Check for calibration segments
-        if var_name.starts_with("cal__") {
-            // remove the "cal__" prefix
-            let seg_name = var_name.strip_prefix("cal__").unwrap_or(var_name);
-            // Find the segment in the registry
-            if let Some(_seg) = reg.cal_seg_list.find_cal_seg(seg_name) {
-            } else {
-                warn!("Calibration segment '{}' for calibration variable '{}' not found in registry", seg_name, seg_name);
-                continue; // skip this variable
+impl ElfReader {
+    fn new(file_name: &str) -> Option<ElfReader> {
+        // Load debug information from the ELF file
+        info!("Loading debug information from ELF file: {}", file_name);
+        let debug_data = DebugData::load_dwarf(OsStr::new(file_name), true);
+        match debug_data {
+            Ok(debug_data) => Some(ElfReader { debug_data }),
+            Err(e) => {
+                error!("Failed to load debug info from '{}': {}", file_name, e);
+                None
             }
         }
+    }
 
-        // Check for captured variables with format "daq__<event_name>__<var_name>"
-        let mut a2l_name = var_name.to_string();
-        let mut xcp_event_id = 0u16;
-        if var_name.starts_with("daq__") {
-            // remove the "daq__" prefix
-            let new_name = var_name.strip_prefix("daq__").unwrap_or(var_name);
-            // get event name and variable name
-            let mut parts = new_name.split("__");
-            let event_name = parts.next().unwrap_or("");
-            let var_name = parts.next().unwrap_or("");
-            // Find the event in the registry
-            if let Some(id) = reg.event_list.find_event(event_name, 0) {
-                xcp_event_id = id.id;
-                a2l_name = format!("{}.{}", event_name, var_name);
-            } else {
-                warn!("Event '{}' for captured variable '{}' not found in registry", event_name, var_name);
-                continue; // skip this variable
+    fn get_value_type(&self, reg: &mut Registry, type_info: &TypeInfo, object_type: McObjectType) -> McValueType {
+        let type_size = type_info.get_size();
+        match &type_info.datatype {
+            DbgDataType::Uint8 => McValueType::Ubyte,
+            DbgDataType::Uint16 => McValueType::Uword,
+            DbgDataType::Uint32 => McValueType::Ulong,
+            DbgDataType::Uint64 => McValueType::Ulonglong,
+            DbgDataType::Sint8 => McValueType::Sbyte,
+            DbgDataType::Sint16 => McValueType::Sword,
+            DbgDataType::Sint32 => McValueType::Slong,
+            DbgDataType::Sint64 => McValueType::Slonglong,
+            DbgDataType::Float => McValueType::Float32Ieee,
+            DbgDataType::Double => McValueType::Float64Ieee,
+            DbgDataType::Struct { size, members } => {
+                if let Some(type_name) = &type_info.name {
+                    // Register the typedef struct for the value type typedef
+                    if let Some(name) = type_info.name.as_ref() {
+                        let _ = self.register_struct(reg, object_type, name.clone(), *size as usize, members);
+                    }
+                    McValueType::new_typedef(type_name.clone())
+                } else {
+                    warn!("Struct type without name in get_field_type");
+                    McValueType::Ubyte
+                }
+            }
+            DbgDataType::Enum { size, signed, enumerators } => McValueType::from_integer_size(*size as usize, *signed),
+
+            DbgDataType::TypeRef(typeref, size) => {
+                if let Some(typeinfo) = self.debug_data.types.get(typeref) {
+                    self.get_value_type(reg, typeinfo, object_type)
+                } else {
+                    error!("TypeRef {} to unknown in get_field_type", typeref);
+                    McValueType::Ubyte
+                }
+            }
+
+            // These type are not a supported value type
+            // DbgDataType::Bitfield | DbgDataType::Pointer | DbgDataType::FuncPtr | DbgDataType::Class | DbgDataType::Union | DbgDataType::Enum  | DbgDataType::Other =>
+            _ => {
+                error!("Unsupported type in get_field_type: {:?}", &type_info.datatype);
+                assert!(false, "Unsupported type in get_field_type: {:?}", &type_info.datatype);
+                McValueType::Ubyte
             }
         }
+    }
 
-        // Process all variable infos (same name, different types or addresses)
-        for var_info in var_infos {
-            let a2l_name = a2l_name.clone();
-            let a2l_addr = var_info.address.try_into().unwrap(); // @@@@ TODO: Handle 64 bit addresses
-            let a2l_addr_ext = 0;
-
-            // Check if the address is in a calibration segment
-            let (mc_object_type, mc_addr) = if reg.cal_seg_list.find_cal_seg_by_address(a2l_addr).is_some() {
-                (McObjectType::Characteristic, McAddress::new_a2l(a2l_addr, a2l_addr_ext))
-            } else {
-                (McObjectType::Measurement, McAddress::new_a2l_with_event(xcp_event_id, a2l_addr, a2l_addr_ext))
-            };
-
-            // Register measurement variable if possible
-            if let Some(type_info) = debug_data.types.get(&var_info.typeref) {
-                // Print variable info
-                if verbose {
-                    println!("  {}: addr = 0x{:08x}", a2l_name, var_info.address);
-                    //println!("  {}: addr = 0x{:08x}, typeref = {}, unit = {}",a2l_name, var_info.address, var_info.typeref, var_info.unit_idx);
+    fn get_dim_type(&self, reg: &mut Registry, type_info: &TypeInfo, object_type: McObjectType) -> McDimType {
+        let type_size = type_info.get_size();
+        match &type_info.datatype {
+            DbgDataType::Array { arraytype, dim, stride, size } => {
+                assert!(dim.len() != 0);
+                let elem_type = self.get_value_type(reg, arraytype, object_type);
+                if dim.len() > 2 {
+                    warn!("Only 1D and 2D arrays supported, got {}D", dim.len());
+                    McDimType::new(McValueType::Ubyte, 1, 1)
+                } else if dim.len() == 1 {
+                    McDimType::new(elem_type, dim[0] as u16, 1)
+                } else {
+                    McDimType::new(elem_type, dim[0] as u16, dim[1] as u16)
                 }
+            }
+            _ => McDimType::new(self.get_value_type(reg, type_info, object_type), 1, 1),
+        }
+    }
 
-                // Print type info
-                if verbose {
-                    print_type_info(type_info);
+    fn register_struct(
+        &self,
+        reg: &mut Registry,
+        object_type: McObjectType,
+        type_name: String,
+        size: usize,
+        members: &IndexMap<String, (TypeInfo, u64)>,
+    ) -> Result<(), Box<dyn Error>> {
+        let typedef = reg.add_typedef(type_name.clone(), size)?;
+
+        //let mut fields = McTypeDefFieldList::new();
+        for (field_name, (type_info, field_offset)) in members {
+            let field_dim_type = self.get_dim_type(reg, type_info, object_type);
+            let field_mc_support_data = McSupportData::new(object_type);
+            // Borrow checker does not like this
+            //mc_typedef.add_field(field_name.clone(), field_dim_type, field_mc_support_data, (*field_offset).try_into().unwrap())?;
+            reg.add_typedef_field(&type_name, field_name.clone(), field_dim_type, field_mc_support_data, (*field_offset).try_into().unwrap())?;
+            // fields.push(McTypeDefField::new(
+            //     field_name.clone(),
+            //     field_dim_type,
+            //     field_mc_support_data,
+            //     (*field_offset).try_into().unwrap(),
+            // ));
+        }
+
+        //reg.add_typedef_with_fields(type_name, size, fields)?;
+        Ok(())
+    }
+
+    fn register(&self, reg: &mut Registry, verbose: bool) -> Result<(), Box<dyn Error>> {
+        // Load debug information from the ELF file
+        info!("Registering debug information");
+        //let debug_data = DebugData::load_dwarf(OsStr::new(file_name), true).map_err(|e| format!("Failed to load debug info from '{}': {}", file_name, e))?;
+
+        // Iterate over variables
+        if verbose {
+            println!("\nVariables:");
+        }
+        for (var_name, var_infos) in &self.debug_data.variables {
+            // Skip internal variables
+            if var_name.starts_with("__") || var_name.starts_with("gXcp") || var_name.starts_with("gA2l") {
+                continue;
+            }
+
+            // Check for calibration segments
+            if var_name.starts_with("cal__") {
+                // remove the "cal__" prefix
+                let seg_name = var_name.strip_prefix("cal__").unwrap_or(var_name);
+                // Find the segment in the registry
+                if let Some(_seg) = reg.cal_seg_list.find_cal_seg(seg_name) {
+                } else {
+                    warn!("Calibration segment '{}' for calibration variable '{}' not found in registry", seg_name, seg_name);
+                    continue; // skip this variable
                 }
+            }
 
-                // Register variables and types in the registry
-                let type_size = type_info.get_size();
-                let type_name = &type_info.name;
-                match &type_info.datatype {
-                    DbgDataType::Uint8 | DbgDataType::Uint16 | DbgDataType::Uint32 | DbgDataType::Uint64 => {
-                        let _ = reg.instance_list.add_instance(
-                            a2l_name,
-                            McDimType::new(McValueType::from_integer_size(type_size as usize, false), 1, 1),
-                            McSupportData::new(mc_object_type).set_comment("created by xcp_client"),
-                            mc_addr,
-                        );
-                    }
-                    DbgDataType::Sint8 | DbgDataType::Sint16 | DbgDataType::Sint32 | DbgDataType::Sint64 => {
-                        let _ = reg.instance_list.add_instance(
-                            a2l_name,
-                            McDimType::new(McValueType::from_integer_size(type_size as usize, true), 1, 1),
-                            McSupportData::new(mc_object_type).set_comment("created by xcp_client"),
-                            mc_addr,
-                        );
-                    }
-                    DbgDataType::Float | DbgDataType::Double => {
-                        let _ = reg.instance_list.add_instance(
-                            a2l_name,
-                            McDimType::new(McValueType::from_float_size(type_size as usize), 1, 1),
-                            McSupportData::new(mc_object_type).set_comment("created by xcp_client"),
-                            mc_addr,
-                        );
+            // Check for captured variables with format "daq__<event_name>__<var_name>"
+            let mut a2l_name = var_name.to_string();
+            let mut xcp_event_id = 0u16;
+            if var_name.starts_with("daq__") {
+                // remove the "daq__" prefix
+                let new_name = var_name.strip_prefix("daq__").unwrap_or(var_name);
+                // get event name and variable name
+                let mut parts = new_name.split("__");
+                let event_name = parts.next().unwrap_or("");
+                let var_name = parts.next().unwrap_or("");
+                // Find the event in the registry
+                if let Some(id) = reg.event_list.find_event(event_name, 0) {
+                    xcp_event_id = id.id;
+                    a2l_name = format!("{}.{}", event_name, var_name);
+                } else {
+                    warn!("Event '{}' for captured variable '{}' not found in registry", event_name, var_name);
+                    continue; // skip this variable
+                }
+            }
+
+            // Process all variable infos (same name, different types or addresses)
+            for var_info in var_infos {
+                let a2l_name = a2l_name.clone();
+                let a2l_addr = var_info.address.try_into().unwrap(); // @@@@ TODO: Handle 64 bit addresses
+                let a2l_addr_ext = 0;
+
+                // Check if the address is in a calibration segment
+                let (object_type, mc_addr) = if reg.cal_seg_list.find_cal_seg_by_address(a2l_addr).is_some() {
+                    (McObjectType::Characteristic, McAddress::new_a2l(a2l_addr, a2l_addr_ext))
+                } else {
+                    (McObjectType::Measurement, McAddress::new_a2l_with_event(xcp_event_id, a2l_addr, a2l_addr_ext))
+                };
+
+                // Register measurement variable if possible
+                if let Some(type_info) = self.debug_data.types.get(&var_info.typeref) {
+                    // Print variable info
+                    if verbose {
+                        println!("  {}: addr = 0x{:08x}", a2l_name, var_info.address);
+                        //println!("  {}: addr = 0x{:08x}, typeref = {}, unit = {}",a2l_name, var_info.address, var_info.typeref, var_info.unit_idx);
                     }
 
-                    DbgDataType::Struct { size, members } => {
-                        // If the type has a name
-                        if let Some(type_name) = type_name {
-                            // Register the struct type
-                            register_struct(reg, mc_object_type, type_name.clone(), *size as usize, members)?;
+                    // Print type info
+                    if verbose {
+                        print_type_info(type_info);
+                    }
 
-                            // Register the variable as an instance of the struct type
-                            let _ = reg.instance_list.add_instance(
-                                a2l_name,
-                                McDimType::new(McValueType::new_typedef(type_name.clone()), 1, 1),
-                                McSupportData::new(mc_object_type).set_comment("created by xcp_client"),
-                                mc_addr,
-                            );
+                    // Register supported variable types in the registry
+                    let type_size = type_info.get_size();
+                    let type_name = &type_info.name;
+                    match &type_info.datatype {
+                        DbgDataType::Uint8
+                        | DbgDataType::Uint16
+                        | DbgDataType::Uint32
+                        | DbgDataType::Uint64
+                        | DbgDataType::Sint8
+                        | DbgDataType::Sint16
+                        | DbgDataType::Sint32
+                        | DbgDataType::Sint64
+                        | DbgDataType::Float
+                        | DbgDataType::Double
+                        | DbgDataType::Array { .. }
+                        | DbgDataType::Struct { .. } => {
+                            let dim_type = self.get_dim_type(reg, type_info, object_type);
+                            let _ = reg.instance_list.add_instance(a2l_name, dim_type, McSupportData::new(object_type), mc_addr);
                         }
+
+                        // DbgDataType::Struct { size, members } => {
+                        //     // If the type has a name
+                        //     if let Some(type_name) = type_name {
+                        //         // Register the struct type
+                        //         //self.register_struct(reg, mc_object_type, type_name.clone(), *size as usize, members)?;
+
+                        //         // Register the variable as an instance of the struct type
+                        //         let _ = reg.instance_list.add_instance(
+                        //             a2l_name,
+                        //             McDimType::new(McValueType::new_typedef(type_name.clone()), 1, 1),
+                        //             McSupportData::new(mc_object_type).set_comment("created by xcp_client"),
+                        //             mc_addr,
+                        //         );
+                        //     }
+                        // }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
-        }
-    } // var_infos
-    Ok(())
+        } // var_infos
+        Ok(())
+    }
 }
 
 //------------------------------------------------------------------------
@@ -765,7 +851,10 @@ async fn xcp_client(
         // Read binary file if specified and create calibration variables in segments and all global measurement variables
         if !elf_name.is_empty() {
             info!("Reading ELF file: {}", elf_name);
-            read_elf(&mut reg, &elf_name, verbose)?;
+            //register_elf(&mut reg, &elf_name, verbose)?;
+
+            let elf_reader = ElfReader::new(&elf_name).ok_or(format!("Failed to read ELF file '{}'", elf_name))?;
+            elf_reader.register(&mut reg, verbose)?;
         }
 
         // Write the generated A2L file
