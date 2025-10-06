@@ -1,3 +1,5 @@
+// Taken from Github repository a2ltool by DanielT
+
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::ffi::OsStr;

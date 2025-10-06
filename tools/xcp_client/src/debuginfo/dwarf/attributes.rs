@@ -1,3 +1,5 @@
+// Taken from Github repository a2ltool by DanielT
+
 use super::{DebugDataReader, UnitList};
 use gimli::{DebugAddrBase, DebuggingInformationEntry, EndianSlice, RunTimeEndian, UnitHeader};
 
@@ -5,10 +7,7 @@ type SliceType<'a> = EndianSlice<'a, RunTimeEndian>;
 type OptionalAttribute<'data> = Option<gimli::AttributeValue<SliceType<'data>>>;
 
 // try to get the attribute of the type attrtype for the DIE
-pub(crate) fn get_attr_value<'unit>(
-    entry: &DebuggingInformationEntry<'_, 'unit, SliceType, usize>,
-    attrtype: gimli::DwAt,
-) -> OptionalAttribute<'unit> {
+pub(crate) fn get_attr_value<'unit>(entry: &DebuggingInformationEntry<'_, 'unit, SliceType, usize>, attrtype: gimli::DwAt) -> OptionalAttribute<'unit> {
     entry.attr_value(attrtype).unwrap_or(None)
 }
 
@@ -18,8 +17,7 @@ pub(crate) fn get_name_attribute(
     dwarf: &gimli::Dwarf<EndianSlice<RunTimeEndian>>,
     unit_header: &gimli::UnitHeader<EndianSlice<RunTimeEndian>>,
 ) -> Result<String, String> {
-    let name_attr = get_attr_value(entry, gimli::constants::DW_AT_name)
-        .ok_or_else(|| "failed to get name attribute".to_string())?;
+    let name_attr = get_attr_value(entry, gimli::constants::DW_AT_name).ok_or_else(|| "failed to get name attribute".to_string())?;
     match name_attr {
         gimli::AttributeValue::String(slice) => {
             if let Ok(utf8string) = slice.to_string() {
@@ -41,15 +39,11 @@ pub(crate) fn get_name_attribute(
             }
         }
         gimli::AttributeValue::DebugStrOffsetsIndex(index) => {
-            let unit = dwarf
-                .unit(*unit_header)
-                .map_err(|_| "failed to get name attribute (invalid unit header)".to_string())?;
+            let unit = dwarf.unit(*unit_header).map_err(|_| "failed to get name attribute (invalid unit header)".to_string())?;
             let offset = dwarf
                 .debug_str_offsets
                 .get_str_offset(unit.encoding().format, unit.str_offsets_base, index)
-                .map_err(|_| {
-                    "failed to get name attribute (invalid debug_str_offsets index)".to_string()
-                })?;
+                .map_err(|_| "failed to get name attribute (invalid debug_str_offsets index)".to_string())?;
             match dwarf.debug_str.get_str(offset) {
                 Ok(slice) => {
                     if let Ok(utf8string) = slice.to_string() {
@@ -67,16 +61,10 @@ pub(crate) fn get_name_attribute(
 
 // get a type reference as an offset relative to the start of .debug_info from a DW_AT_type attribute
 // it the type reference is a UnitRef (relative to the unit header) it will be converted first
-pub(crate) fn get_typeref_attribute(
-    entry: &DebuggingInformationEntry<SliceType, usize>,
-    unit: &UnitHeader<SliceType>,
-) -> Result<usize, String> {
-    let type_attr = get_attr_value(entry, gimli::constants::DW_AT_type)
-        .ok_or_else(|| "failed to get type reference attribute".to_string())?;
+pub(crate) fn get_typeref_attribute(entry: &DebuggingInformationEntry<SliceType, usize>, unit: &UnitHeader<SliceType>) -> Result<usize, String> {
+    let type_attr = get_attr_value(entry, gimli::constants::DW_AT_type).ok_or_else(|| "failed to get type reference attribute".to_string())?;
     match type_attr {
-        gimli::AttributeValue::UnitRef(unitoffset) => {
-            Ok(unitoffset.to_debug_info_offset(unit).unwrap().0)
-        }
+        gimli::AttributeValue::UnitRef(unitoffset) => Ok(unitoffset.to_debug_info_offset(unit).unwrap().0),
         gimli::AttributeValue::DebugInfoRef(infooffset) => Ok(infooffset.0),
         gimli::AttributeValue::DebugTypesRef(_typesig) => {
             // .debug_types was added in DWARF v4 and removed again in v5.
@@ -115,9 +103,7 @@ pub(crate) fn get_data_member_location_attribute(
 ) -> Option<u64> {
     let loc_attr = get_attr_value(entry, gimli::constants::DW_AT_data_member_location)?;
     match loc_attr {
-        gimli::AttributeValue::Exprloc(expression) => {
-            evaluate_exprloc(debug_data_reader, expression, encoding, current_unit)
-        }
+        gimli::AttributeValue::Exprloc(expression) => evaluate_exprloc(debug_data_reader, expression, encoding, current_unit),
         gimli::AttributeValue::Udata(val) => Some(val),
         gimli::AttributeValue::Data1(val) => Some(u64::from(val)),
         gimli::AttributeValue::Data2(val) => Some(u64::from(val)),
@@ -131,9 +117,7 @@ pub(crate) fn get_data_member_location_attribute(
 }
 
 // get the element size stored in the DW_AT_byte_size attribute
-pub(crate) fn get_byte_size_attribute(
-    entry: &DebuggingInformationEntry<SliceType, usize>,
-) -> Option<u64> {
+pub(crate) fn get_byte_size_attribute(entry: &DebuggingInformationEntry<SliceType, usize>) -> Option<u64> {
     let byte_size_attr = get_attr_value(entry, gimli::constants::DW_AT_byte_size)?;
     match byte_size_attr {
         gimli::AttributeValue::Sdata(byte_size) => Some(byte_size as u64),
@@ -147,21 +131,13 @@ pub(crate) fn get_byte_size_attribute(
 }
 
 // get the encoding of a variable from the DW_AT_encoding attribute
-pub(crate) fn get_encoding_attribute(
-    entry: &DebuggingInformationEntry<SliceType, usize>,
-) -> Option<gimli::DwAte> {
+pub(crate) fn get_encoding_attribute(entry: &DebuggingInformationEntry<SliceType, usize>) -> Option<gimli::DwAte> {
     let encoding_attr = get_attr_value(entry, gimli::constants::DW_AT_encoding)?;
-    if let gimli::AttributeValue::Encoding(enc) = encoding_attr {
-        Some(enc)
-    } else {
-        None
-    }
+    if let gimli::AttributeValue::Encoding(enc) = encoding_attr { Some(enc) } else { None }
 }
 
 // get the upper bound of an array from the DW_AT_upper_bound attribute
-pub(crate) fn get_lower_bound_attribute(
-    entry: &DebuggingInformationEntry<SliceType, usize>,
-) -> Option<u64> {
+pub(crate) fn get_lower_bound_attribute(entry: &DebuggingInformationEntry<SliceType, usize>) -> Option<u64> {
     let lbound_attr = get_attr_value(entry, gimli::constants::DW_AT_lower_bound)?;
     match lbound_attr {
         gimli::AttributeValue::Sdata(lbound) => Some(lbound as u64),
@@ -175,9 +151,7 @@ pub(crate) fn get_lower_bound_attribute(
 }
 
 // get the upper bound of an array from the DW_AT_upper_bound attribute
-pub(crate) fn get_upper_bound_attribute(
-    entry: &DebuggingInformationEntry<SliceType, usize>,
-) -> Option<u64> {
+pub(crate) fn get_upper_bound_attribute(entry: &DebuggingInformationEntry<SliceType, usize>) -> Option<u64> {
     let ubound_attr = get_attr_value(entry, gimli::constants::DW_AT_upper_bound)?;
     match ubound_attr {
         gimli::AttributeValue::Sdata(ubound) => Some(ubound as u64),
@@ -191,9 +165,7 @@ pub(crate) fn get_upper_bound_attribute(
 }
 
 // get the upper bound of an array from the DW_AT_upper_bound attribute
-pub(crate) fn get_count_attribute(
-    entry: &DebuggingInformationEntry<SliceType, usize>,
-) -> Option<u64> {
+pub(crate) fn get_count_attribute(entry: &DebuggingInformationEntry<SliceType, usize>) -> Option<u64> {
     let count_attr = get_attr_value(entry, gimli::constants::DW_AT_count)?;
     match count_attr {
         gimli::AttributeValue::Sdata(count) => Some(count as u64),
@@ -208,9 +180,7 @@ pub(crate) fn get_count_attribute(
 
 // get the byte stride of an array from the DW_AT_upper_bound attribute
 // this attribute is only present if the stride is different from the element size
-pub(crate) fn get_byte_stride_attribute(
-    entry: &DebuggingInformationEntry<SliceType, usize>,
-) -> Option<u64> {
+pub(crate) fn get_byte_stride_attribute(entry: &DebuggingInformationEntry<SliceType, usize>) -> Option<u64> {
     let stride_attr = get_attr_value(entry, gimli::constants::DW_AT_byte_stride)?;
     match stride_attr {
         gimli::AttributeValue::Sdata(stride) => Some(stride as u64),
@@ -224,9 +194,7 @@ pub(crate) fn get_byte_stride_attribute(
 }
 
 // get the const value of an enumerator from the DW_AT_const_value attribute
-pub(crate) fn get_const_value_attribute(
-    entry: &DebuggingInformationEntry<SliceType, usize>,
-) -> Option<i64> {
+pub(crate) fn get_const_value_attribute(entry: &DebuggingInformationEntry<SliceType, usize>) -> Option<i64> {
     let constval_attr = get_attr_value(entry, gimli::constants::DW_AT_const_value)?;
     match constval_attr {
         gimli::AttributeValue::Sdata(value) => Some(value),
@@ -241,9 +209,7 @@ pub(crate) fn get_const_value_attribute(
 
 // get the bit size of a variable from the DW_AT_bit_size attribute
 // this attribute is only present if the variable is in a bitfield
-pub(crate) fn get_bit_size_attribute(
-    entry: &DebuggingInformationEntry<SliceType, usize>,
-) -> Option<u64> {
+pub(crate) fn get_bit_size_attribute(entry: &DebuggingInformationEntry<SliceType, usize>) -> Option<u64> {
     let bit_size_attr = get_attr_value(entry, gimli::constants::DW_AT_bit_size)?;
     if let gimli::AttributeValue::Udata(bit_size) = bit_size_attr {
         Some(bit_size)
@@ -254,9 +220,7 @@ pub(crate) fn get_bit_size_attribute(
 
 // get the bit offset of a variable from the DW_AT_bit_offset attribute
 // this attribute is only present if the variable is in a bitfield
-pub(crate) fn get_bit_offset_attribute(
-    entry: &DebuggingInformationEntry<SliceType, usize>,
-) -> Option<u64> {
+pub(crate) fn get_bit_offset_attribute(entry: &DebuggingInformationEntry<SliceType, usize>) -> Option<u64> {
     let data_bit_offset_attr = get_attr_value(entry, gimli::constants::DW_AT_bit_offset)?;
     // DW_AT_bit_offset: up to Dwarf 3
     // DW_AT_data_bit_offset: Dwarf 4 and following
@@ -273,9 +237,7 @@ pub(crate) fn get_bit_offset_attribute(
 
 // get the bit offset of a variable from the DW_AT_data_bit_offset attribute
 // this attribute is only present if the variable is in a bitfield
-pub(crate) fn get_data_bit_offset_attribute(
-    entry: &DebuggingInformationEntry<SliceType, usize>,
-) -> Option<u64> {
+pub(crate) fn get_data_bit_offset_attribute(entry: &DebuggingInformationEntry<SliceType, usize>) -> Option<u64> {
     let data_bit_offset_attr = get_attr_value(entry, gimli::constants::DW_AT_data_bit_offset)?;
     // DW_AT_bit_offset: up to Dwarf 3
     // DW_AT_data_bit_offset: Dwarf 4 and following
@@ -320,9 +282,7 @@ pub(crate) fn get_abstract_origin_attribute<'data, 'abbrev, 'unit>(
     }
 }
 
-pub(crate) fn get_addr_base_attribute(
-    entry: &DebuggingInformationEntry<SliceType, usize>,
-) -> Option<DebugAddrBase> {
+pub(crate) fn get_addr_base_attribute(entry: &DebuggingInformationEntry<SliceType, usize>) -> Option<DebugAddrBase> {
     let origin_attr = get_attr_value(entry, gimli::constants::DW_AT_addr_base)?;
     match origin_attr {
         gimli::AttributeValue::DebugAddrBase(addr_base) => Some(addr_base),
@@ -331,12 +291,7 @@ pub(crate) fn get_addr_base_attribute(
 }
 
 // evaluate an exprloc expression to get a variable address or struct member offset
-fn evaluate_exprloc(
-    debug_data_reader: &DebugDataReader,
-    expression: gimli::Expression<EndianSlice<RunTimeEndian>>,
-    encoding: gimli::Encoding,
-    current_unit: usize,
-) -> Option<u64> {
+fn evaluate_exprloc(debug_data_reader: &DebugDataReader, expression: gimli::Expression<EndianSlice<RunTimeEndian>>, encoding: gimli::Encoding, current_unit: usize) -> Option<u64> {
     let mut evaluation = expression.evaluation(encoding);
     evaluation.set_object_address(0);
     evaluation.set_initial_value(0);
@@ -364,11 +319,7 @@ fn evaluate_exprloc(
                 let mut entries = unit_header.entries(abbrev);
                 let (_, entry) = entries.next_dfs().ok()??;
                 let base = get_addr_base_attribute(entry)?;
-                let addr = debug_data_reader
-                    .dwarf
-                    .debug_addr
-                    .get_address(address_size, base, index)
-                    .ok()?;
+                let addr = debug_data_reader.dwarf.debug_addr.get_address(address_size, base, index).ok()?;
                 eval_result = evaluation.resume_with_indexed_address(addr).ok()?;
             }
             _other => {
@@ -415,13 +366,7 @@ pub(crate) fn get_type_attribute(
 }
 
 // get the DW_AT_declaration attribute
-pub(crate) fn get_declaration_attribute(
-    entry: &DebuggingInformationEntry<SliceType, usize>,
-) -> Option<bool> {
+pub(crate) fn get_declaration_attribute(entry: &DebuggingInformationEntry<SliceType, usize>) -> Option<bool> {
     let decl_attr = get_attr_value(entry, gimli::constants::DW_AT_declaration)?;
-    if let gimli::AttributeValue::Flag(flag) = decl_attr {
-        Some(flag)
-    } else {
-        None
-    }
+    if let gimli::AttributeValue::Flag(flag) = decl_attr { Some(flag) } else { None }
 }

@@ -1,3 +1,5 @@
+// Taken from Github repository a2ltool by DanielT
+
 use super::{DbgDataType, TypeInfo, VarInfo};
 use super::{DebugDataReader, attributes::*};
 use gimli::{DebugInfoOffset, DwTag, EndianSlice, EntriesTreeNode, RunTimeEndian, UnitOffset};
@@ -21,10 +23,7 @@ struct TypeReaderData {
 
 impl DebugDataReader<'_> {
     // load all the types referenced by variables in given HashMap
-    pub(crate) fn load_types(
-        &mut self,
-        variables: &IndexMap<String, Vec<VarInfo>>,
-    ) -> (HashMap<usize, TypeInfo>, HashMap<String, Vec<usize>>) {
+    pub(crate) fn load_types(&mut self, variables: &IndexMap<String, Vec<VarInfo>>) -> (HashMap<usize, TypeInfo>, HashMap<String, Vec<usize>>) {
         let mut typereader_data = TypeReaderData {
             types: HashMap::<usize, TypeInfo>::new(),
             typenames: HashMap::<String, Vec<usize>>::new(),
@@ -55,12 +54,7 @@ impl DebugDataReader<'_> {
         (typereader_data.types, typereader_data.typenames)
     }
 
-    fn get_type(
-        &self,
-        current_unit: usize,
-        dbginfo_offset: DebugInfoOffset,
-        typereader_data: &mut TypeReaderData,
-    ) -> Result<TypeInfo, String> {
+    fn get_type(&self, current_unit: usize, dbginfo_offset: DebugInfoOffset, typereader_data: &mut TypeReaderData) -> Result<TypeInfo, String> {
         let wip_items_orig_len = typereader_data.wip_items.len();
         match self.get_type_wrapped(current_unit, dbginfo_offset, typereader_data) {
             Ok(typeinfo) => Ok(typeinfo),
@@ -81,42 +75,27 @@ impl DebugDataReader<'_> {
                 typereader_data.wip_items.truncate(wip_items_orig_len);
                 let replacement_type = TypeInfo {
                     datatype: DbgDataType::Other(0),
-                    name: typereader_data
-                        .wip_items
-                        .last()
-                        .and_then(|wip| wip.name.clone()),
+                    name: typereader_data.wip_items.last().and_then(|wip| wip.name.clone()),
                     unit_idx: current_unit,
                     dbginfo_offset: dbginfo_offset.0,
                 };
-                typereader_data
-                    .types
-                    .insert(dbginfo_offset.0, replacement_type.clone());
+                typereader_data.types.insert(dbginfo_offset.0, replacement_type.clone());
                 Ok(replacement_type)
             }
         }
     }
 
     // get one type from the debug info
-    fn get_type_wrapped(
-        &self,
-        current_unit: usize,
-        dbginfo_offset: DebugInfoOffset,
-        typereader_data: &mut TypeReaderData,
-    ) -> Result<TypeInfo, String> {
+    fn get_type_wrapped(&self, current_unit: usize, dbginfo_offset: DebugInfoOffset, typereader_data: &mut TypeReaderData) -> Result<TypeInfo, String> {
         if let Some(t) = typereader_data.types.get(&dbginfo_offset.0) {
             return Ok(t.clone());
         }
 
         let (unit, abbrev) = &self.units[current_unit];
-        let offset = dbginfo_offset.to_unit_offset(unit).ok_or_else(|| {
-            format!(
-                "invalid type offset 0x{:X} for unit {}",
-                dbginfo_offset.0, current_unit
-            )
-        })?;
-        let mut entries_tree = unit
-            .entries_tree(abbrev, Some(offset))
-            .map_err(|err| err.to_string())?;
+        let offset = dbginfo_offset
+            .to_unit_offset(unit)
+            .ok_or_else(|| format!("invalid type offset 0x{:X} for unit {}", dbginfo_offset.0, current_unit))?;
+        let mut entries_tree = unit.entries_tree(abbrev, Some(offset)).map_err(|err| err.to_string())?;
         let entries_tree_node = entries_tree.root().map_err(|err| err.to_string())?;
         let entry = entries_tree_node.entry();
         let typename = get_name_attribute(entry, &self.dwarf, unit).ok();
@@ -135,29 +114,17 @@ impl DebugDataReader<'_> {
         }
 
         // track in-progress items to prevent infinite recursion
-        typereader_data.wip_items.push(WipItemInfo::new(
-            dbginfo_offset.0,
-            typename.clone(),
-            entry.tag(),
-        ));
+        typereader_data.wip_items.push(WipItemInfo::new(dbginfo_offset.0, typename.clone(), entry.tag()));
 
         let (datatype, inner_name) = match entry.tag() {
             gimli::constants::DW_TAG_base_type => {
                 let (datatype, name) = get_base_type(entry, &self.units[current_unit].0);
                 (datatype, Some(name))
             }
-            gimli::constants::DW_TAG_pointer_type
-            | gimli::constants::DW_TAG_reference_type
-            | gimli::constants::DW_TAG_rvalue_reference_type => {
+            gimli::constants::DW_TAG_pointer_type | gimli::constants::DW_TAG_reference_type | gimli::constants::DW_TAG_rvalue_reference_type => {
                 let (unit, _) = &self.units[current_unit];
-                if let Ok((new_cur_unit, ptype_offset)) =
-                    get_type_attribute(entry, &self.units, current_unit)
-                {
-                    if let Some(idx) = typereader_data
-                        .wip_items
-                        .iter()
-                        .position(|item| item.offset == ptype_offset.0)
-                    {
+                if let Ok((new_cur_unit, ptype_offset)) = get_type_attribute(entry, &self.units, current_unit) {
+                    if let Some(idx) = typereader_data.wip_items.iter().position(|item| item.offset == ptype_offset.0) {
                         // this is a linked list or similar self-referential data structure, and one of the callers
                         // of this function is already working to get this type
                         // Trying to recursively decode this type would result in an infinite loop
@@ -165,66 +132,32 @@ impl DebugDataReader<'_> {
                         // Unfortunately the name in wip_items could be None: pointer names propagate backward from items
                         // e.g pointer -> const -> volatile -> typedef (name comes from here!) -> any
                         let name = typereader_data.get_pointer_name(idx);
-                        (
-                            DbgDataType::Pointer(
-                                u64::from(unit.encoding().address_size),
-                                ptype_offset.0,
-                            ),
-                            name.clone(),
-                        )
+                        (DbgDataType::Pointer(u64::from(unit.encoding().address_size), ptype_offset.0), name.clone())
                     } else {
                         let pt_type = self.get_type(new_cur_unit, ptype_offset, typereader_data)?;
-                        (
-                            DbgDataType::Pointer(
-                                u64::from(unit.encoding().address_size),
-                                ptype_offset.0,
-                            ),
-                            pt_type.name,
-                        )
+                        (DbgDataType::Pointer(u64::from(unit.encoding().address_size), ptype_offset.0), pt_type.name)
                     }
                 } else {
                     // void*
-                    (
-                        DbgDataType::Pointer(u64::from(unit.encoding().address_size), 0),
-                        Some("void".to_string()),
-                    )
+                    (DbgDataType::Pointer(u64::from(unit.encoding().address_size), 0), Some("void".to_string()))
                 }
                 //DwarfDataType::Pointer(u64::from(unit.encoding().address_size), dest_type)
             }
-            gimli::constants::DW_TAG_array_type => {
-                self.get_array_type(entry, current_unit, offset, typereader_data)?
-            }
-            gimli::constants::DW_TAG_enumeration_type => (
-                self.get_enumeration_type(current_unit, offset, typereader_data)?,
-                None,
-            ),
+            gimli::constants::DW_TAG_array_type => self.get_array_type(entry, current_unit, offset, typereader_data)?,
+            gimli::constants::DW_TAG_enumeration_type => (self.get_enumeration_type(current_unit, offset, typereader_data)?, None),
             gimli::constants::DW_TAG_structure_type => {
-                let size = get_byte_size_attribute(entry)
-                    .ok_or_else(|| "missing struct byte size attribute".to_string())?;
-                let members = self.get_struct_or_union_members(
-                    entries_tree_node,
-                    current_unit,
-                    typereader_data,
-                )?;
+                let size = get_byte_size_attribute(entry).ok_or_else(|| "missing struct byte size attribute".to_string())?;
+                let members = self.get_struct_or_union_members(entries_tree_node, current_unit, typereader_data)?;
                 (DbgDataType::Struct { size, members }, None)
             }
-            gimli::constants::DW_TAG_class_type => (
-                self.get_class_type(current_unit, offset, typereader_data)?,
-                None,
-            ),
+            gimli::constants::DW_TAG_class_type => (self.get_class_type(current_unit, offset, typereader_data)?, None),
             gimli::constants::DW_TAG_union_type => {
-                let size = get_byte_size_attribute(entry)
-                    .ok_or_else(|| "missing union byte size attribute".to_string())?;
-                let members = self.get_struct_or_union_members(
-                    entries_tree_node,
-                    current_unit,
-                    typereader_data,
-                )?;
+                let size = get_byte_size_attribute(entry).ok_or_else(|| "missing union byte size attribute".to_string())?;
+                let members = self.get_struct_or_union_members(entries_tree_node, current_unit, typereader_data)?;
                 (DbgDataType::Union { size, members }, None)
             }
             gimli::constants::DW_TAG_typedef => {
-                let (new_cur_unit, dbginfo_offset) =
-                    get_type_attribute(entry, &self.units, current_unit)?;
+                let (new_cur_unit, dbginfo_offset) = get_type_attribute(entry, &self.units, current_unit)?;
                 let reftype = self.get_type(new_cur_unit, dbginfo_offset, typereader_data)?;
                 (reftype.datatype, None)
             }
@@ -236,37 +169,24 @@ impl DebugDataReader<'_> {
             | gimli::constants::DW_TAG_atomic_type => {
                 // ignore these tags, they don't matter in the context of a2l files
                 // note: some compilers might omit the type reference if the type is void / void*
-                if let Ok((new_cur_unit, dbginfo_offset)) =
-                    get_type_attribute(entry, &self.units, current_unit)
-                {
+                if let Ok((new_cur_unit, dbginfo_offset)) = get_type_attribute(entry, &self.units, current_unit) {
                     let typeinfo = self.get_type(new_cur_unit, dbginfo_offset, typereader_data)?;
                     (typeinfo.datatype, typeinfo.name)
                 } else {
                     // const void* / volatile void* / packed void*???
-                    (
-                        DbgDataType::Other(u64::from(unit.encoding().address_size)),
-                        None,
-                    )
+                    (DbgDataType::Other(u64::from(unit.encoding().address_size)), None)
                 }
             }
             gimli::constants::DW_TAG_subroutine_type => {
                 // function pointer
-                (
-                    DbgDataType::FuncPtr(u64::from(unit.encoding().address_size)),
-                    Some("p_function".to_string()),
-                )
+                (DbgDataType::FuncPtr(u64::from(unit.encoding().address_size)), Some("p_function".to_string()))
             }
             gimli::constants::DW_TAG_unspecified_type => {
                 // ?
-                (
-                    DbgDataType::Other(get_byte_size_attribute(entry).unwrap_or(0)),
-                    None,
-                )
+                (DbgDataType::Other(get_byte_size_attribute(entry).unwrap_or(0)), None)
             }
             other_tag => {
-                return Err(format!(
-                    "unexpected DWARF tag {other_tag} in type definition"
-                ));
+                return Err(format!("unexpected DWARF tag {other_tag} in type definition"));
             }
         };
 
@@ -286,17 +206,13 @@ impl DebugDataReader<'_> {
             if let Some(tnvec) = typereader_data.typenames.get_mut(&name) {
                 tnvec.push(dbginfo_offset.0);
             } else {
-                typereader_data
-                    .typenames
-                    .insert(name, vec![dbginfo_offset.0]);
+                typereader_data.typenames.insert(name, vec![dbginfo_offset.0]);
             }
         }
         typereader_data.wip_items.pop();
 
         // store the type for access-by-offset
-        typereader_data
-            .types
-            .insert(dbginfo_offset.0, typeinfo.clone());
+        typereader_data.types.insert(dbginfo_offset.0, typeinfo.clone());
 
         Ok(typeinfo)
     }
@@ -309,20 +225,13 @@ impl DebugDataReader<'_> {
         typereader_data: &mut TypeReaderData,
     ) -> Result<(DbgDataType, Option<String>), String> {
         let (unit, abbrev) = &self.units[current_unit];
-        let mut entries_tree = unit
-            .entries_tree(abbrev, Some(offset))
-            .map_err(|err| err.to_string())?;
+        let mut entries_tree = unit.entries_tree(abbrev, Some(offset)).map_err(|err| err.to_string())?;
         let entries_tree_node = entries_tree.root().map_err(|err| err.to_string())?;
 
         let maybe_size = get_byte_size_attribute(entry);
-        let (new_cur_unit, arraytype_offset) =
-            get_type_attribute(entry, &self.units, current_unit)?;
+        let (new_cur_unit, arraytype_offset) = get_type_attribute(entry, &self.units, current_unit)?;
 
-        let arraytype = if typereader_data
-            .wip_items
-            .iter()
-            .any(|item| item.offset == arraytype_offset.0)
-        {
+        let arraytype = if typereader_data.wip_items.iter().any(|item| item.offset == arraytype_offset.0) {
             // exceptional case: the array and its element type are recursive
             // it seems it is possible to construct declarations where the element type is the array itself?!
             self.make_arraytype_ref(new_cur_unit, arraytype_offset)?
@@ -349,11 +258,7 @@ impl DebugDataReader<'_> {
                     let lbound = get_lower_bound_attribute(child_entry).unwrap_or(0);
                     // compilers may use the bit pattern FFF.. to mean that the array size is unknown
                     // this can happen when a pointer to an array is declared
-                    if ubound != u64::from(u32::MAX) && ubound != u64::MAX {
-                        ubound - lbound + 1
-                    } else {
-                        0
-                    }
+                    if ubound != u64::from(u32::MAX) && ubound != u64::MAX { ubound - lbound + 1 } else { 0 }
                 } else {
                     // clang generates DW_AT_count instead of DW_AT_ubound
                     get_count_attribute(child_entry).unwrap_or_default()
@@ -395,21 +300,12 @@ impl DebugDataReader<'_> {
 
     /// create a type reference for the element type of an array
     /// this is (very rarely) needed to break a circular dependency while loading array types
-    fn make_arraytype_ref(
-        &self,
-        at_unit_idx: usize,
-        arraytype_offset: DebugInfoOffset,
-    ) -> Result<TypeInfo, String> {
+    fn make_arraytype_ref(&self, at_unit_idx: usize, arraytype_offset: DebugInfoOffset) -> Result<TypeInfo, String> {
         let (at_unit, at_abbrev) = &self.units[at_unit_idx];
-        let at_offset = arraytype_offset.to_unit_offset(at_unit).ok_or_else(|| {
-            format!(
-                "invalid type offset 0x{:X} for unit {}",
-                arraytype_offset.0, at_unit_idx
-            )
-        })?;
-        let mut at_entries_tree = at_unit
-            .entries_tree(at_abbrev, Some(at_offset))
-            .map_err(|err| err.to_string())?;
+        let at_offset = arraytype_offset
+            .to_unit_offset(at_unit)
+            .ok_or_else(|| format!("invalid type offset 0x{:X} for unit {}", arraytype_offset.0, at_unit_idx))?;
+        let mut at_entries_tree = at_unit.entries_tree(at_abbrev, Some(at_offset)).map_err(|err| err.to_string())?;
         let at_entries_tree_node = at_entries_tree.root().map_err(|err| err.to_string())?;
         let at_entry = at_entries_tree_node.entry();
         let arraytype_size = get_byte_size_attribute(at_entry).unwrap_or(0);
@@ -422,16 +318,9 @@ impl DebugDataReader<'_> {
         })
     }
 
-    fn get_enumeration_type(
-        &self,
-        current_unit: usize,
-        offset: UnitOffset,
-        typereader_data: &mut TypeReaderData,
-    ) -> Result<DbgDataType, String> {
+    fn get_enumeration_type(&self, current_unit: usize, offset: UnitOffset, typereader_data: &mut TypeReaderData) -> Result<DbgDataType, String> {
         let (unit, abbrev) = &self.units[current_unit];
-        let mut entries_tree = unit
-            .entries_tree(abbrev, Some(offset))
-            .map_err(|err| err.to_string())?;
+        let mut entries_tree = unit.entries_tree(abbrev, Some(offset)).map_err(|err| err.to_string())?;
         let entries_tree_node = entries_tree.root().map_err(|err| err.to_string())?;
         let entry = entries_tree_node.entry();
 
@@ -442,27 +331,16 @@ impl DebugDataReader<'_> {
         // The enumeration type entry may have a DW_AT_type attribute which refers to the underlying
         // data type used to implement the enumeration
         let (mut signed, opt_ut_size) = if let Ok(utype) =
-            get_type_attribute(entry, &self.units, current_unit).and_then(
-                |(utype_unit, utype_dbginfo_offset)| {
-                    self.get_type(utype_unit, utype_dbginfo_offset, typereader_data)
-                },
-            ) {
+            get_type_attribute(entry, &self.units, current_unit).and_then(|(utype_unit, utype_dbginfo_offset)| self.get_type(utype_unit, utype_dbginfo_offset, typereader_data))
+        {
             // get size and signedness of the underlying type
-            let signed = matches!(
-                utype.datatype,
-                DbgDataType::Sint8
-                    | DbgDataType::Sint16
-                    | DbgDataType::Sint32
-                    | DbgDataType::Sint64
-            );
+            let signed = matches!(utype.datatype, DbgDataType::Sint8 | DbgDataType::Sint16 | DbgDataType::Sint32 | DbgDataType::Sint64);
             (signed, Some(utype.get_size()))
         } else {
             (false, None)
         };
         // if no byte size is given, use the size of the underlying type
-        let size = opt_size
-            .or(opt_ut_size)
-            .ok_or_else(|| "missing enum byte size attribute".to_string())?;
+        let size = opt_size.or(opt_ut_size).ok_or_else(|| "missing enum byte size attribute".to_string())?;
 
         if size == 0 || size > 8 {
             return Err(format!("invalid enum size {size}"));
@@ -472,10 +350,8 @@ impl DebugDataReader<'_> {
         while let Ok(Some(child_node)) = iter.next() {
             let child_entry = child_node.entry();
             if child_entry.tag() == gimli::constants::DW_TAG_enumerator {
-                let name = get_name_attribute(child_entry, &self.dwarf, unit)
-                    .map_err(|_| "missing enum item name".to_string())?;
-                let value = get_const_value_attribute(child_entry)
-                    .ok_or_else(|| "missing enum item value".to_string())?;
+                let name = get_name_attribute(child_entry, &self.dwarf, unit).map_err(|_| "missing enum item name".to_string())?;
+                let value = get_const_value_attribute(child_entry).ok_or_else(|| "missing enum item value".to_string())?;
                 enumerators.push((name, value));
             }
         }
@@ -489,59 +365,31 @@ impl DebugDataReader<'_> {
             signed = true;
         }
 
-        Ok(DbgDataType::Enum {
-            size,
-            signed,
-            enumerators,
-        })
+        Ok(DbgDataType::Enum { size, signed, enumerators })
     }
 
-    fn get_class_type(
-        &self,
-        current_unit: usize,
-        offset: UnitOffset,
-        typereader_data: &mut TypeReaderData,
-    ) -> Result<DbgDataType, String> {
+    fn get_class_type(&self, current_unit: usize, offset: UnitOffset, typereader_data: &mut TypeReaderData) -> Result<DbgDataType, String> {
         let (unit, abbrev) = &self.units[current_unit];
-        let mut entries_tree = unit
-            .entries_tree(abbrev, Some(offset))
-            .map_err(|err| err.to_string())?;
+        let mut entries_tree = unit.entries_tree(abbrev, Some(offset)).map_err(|err| err.to_string())?;
         let entries_tree_node = entries_tree.root().map_err(|err| err.to_string())?;
         let entry = entries_tree_node.entry();
 
-        let size = get_byte_size_attribute(entry)
-            .ok_or_else(|| "missing class byte size attribute".to_string())?;
+        let size = get_byte_size_attribute(entry).ok_or_else(|| "missing class byte size attribute".to_string())?;
         let (unit, abbrev) = &self.units[current_unit];
-        let mut entries_tree2 = unit
-            .entries_tree(abbrev, Some(entries_tree_node.entry().offset()))
-            .unwrap();
+        let mut entries_tree2 = unit.entries_tree(abbrev, Some(entries_tree_node.entry().offset())).unwrap();
         let entries_tree_node2 = entries_tree2.root().unwrap();
-        let inheritance = self
-            .get_class_inheritance(entries_tree_node2, current_unit, typereader_data)
-            .unwrap_or_default();
-        let mut members =
-            self.get_struct_or_union_members(entries_tree_node, current_unit, typereader_data)?;
+        let inheritance = self.get_class_inheritance(entries_tree_node2, current_unit, typereader_data).unwrap_or_default();
+        let mut members = self.get_struct_or_union_members(entries_tree_node, current_unit, typereader_data)?;
         // copy all inherited members from the base classes
         // this allows the inherited members ot be accessed without naming the base class
         for (baseclass_type, baseclass_offset) in inheritance.values() {
-            if let DbgDataType::Class {
-                members: baseclass_members,
-                ..
-            } = &baseclass_type.datatype
-            {
+            if let DbgDataType::Class { members: baseclass_members, .. } = &baseclass_type.datatype {
                 for (name, (m_type, m_offset)) in baseclass_members {
-                    members.insert(
-                        name.to_owned(),
-                        (m_type.clone(), m_offset + baseclass_offset),
-                    );
+                    members.insert(name.to_owned(), (m_type.clone(), m_offset + baseclass_offset));
                 }
             }
         }
-        Ok(DbgDataType::Class {
-            size,
-            inheritance,
-            members,
-        })
+        Ok(DbgDataType::Class { size, inheritance, members })
     }
 
     // get all the members of a struct or union or class
@@ -558,30 +406,14 @@ impl DebugDataReader<'_> {
             let child_entry = child_node.entry();
             if child_entry.tag() == gimli::constants::DW_TAG_member {
                 // the name can be missing if this struct/union contains an anonymous struct/union
-                let opt_name = get_name_attribute(child_entry, &self.dwarf, unit)
-                    .map_err(|_| "missing struct/union member name".to_string());
+                let opt_name = get_name_attribute(child_entry, &self.dwarf, unit).map_err(|_| "missing struct/union member name".to_string());
 
-                let mut offset = get_data_member_location_attribute(
-                    self,
-                    child_entry,
-                    unit.encoding(),
-                    current_unit,
-                )
-                .unwrap_or(0);
-                let (new_cur_unit, new_dbginfo_offset) =
-                    get_type_attribute(child_entry, &self.units, current_unit)?;
-                if let Ok(mut membertype) =
-                    self.get_type(new_cur_unit, new_dbginfo_offset, typereader_data)
-                {
+                let mut offset = get_data_member_location_attribute(self, child_entry, unit.encoding(), current_unit).unwrap_or(0);
+                let (new_cur_unit, new_dbginfo_offset) = get_type_attribute(child_entry, &self.units, current_unit)?;
+                if let Ok(mut membertype) = self.get_type(new_cur_unit, new_dbginfo_offset, typereader_data) {
                     // wrap bitfield members in a TypeInfo::Bitfield to store bit_size and bit_offset
                     if let Some(bit_size) = get_bit_size_attribute(child_entry) {
-                        membertype = self.get_bitfield_entry(
-                            unit,
-                            child_entry,
-                            &mut offset,
-                            bit_size,
-                            membertype,
-                        );
+                        membertype = self.get_bitfield_entry(unit, child_entry, &mut offset, bit_size, membertype);
                     }
                     if let Ok(name) = opt_name {
                         // in bitfields it's actually possible for the name to be empty!
@@ -592,10 +424,7 @@ impl DebugDataReader<'_> {
                                 || matches!(membertype.datatype, DbgDataType::Union { .. })
                                 || matches!(membertype.datatype, DbgDataType::Class { .. })
                             {
-                                membertype.datatype = DbgDataType::TypeRef(
-                                    new_dbginfo_offset.0,
-                                    membertype.get_size(),
-                                );
+                                membertype.datatype = DbgDataType::TypeRef(new_dbginfo_offset.0, membertype.get_size());
                             }
                             members.insert(name, (membertype, offset));
                         }
@@ -603,18 +432,9 @@ impl DebugDataReader<'_> {
                         // no name: the member is an anon struct / union
                         // In this case, the contained members are transferred
                         match membertype.datatype {
-                            DbgDataType::Class {
-                                members: anon_members,
-                                ..
-                            }
-                            | DbgDataType::Struct {
-                                members: anon_members,
-                                ..
-                            }
-                            | DbgDataType::Union {
-                                members: anon_members,
-                                ..
-                            } => {
+                            DbgDataType::Class { members: anon_members, .. }
+                            | DbgDataType::Struct { members: anon_members, .. }
+                            | DbgDataType::Union { members: anon_members, .. } => {
                                 for (am_name, (am_type, am_offset)) in anon_members {
                                     members.insert(am_name, (am_type, offset + am_offset));
                                 }
@@ -653,8 +473,7 @@ impl DebugDataReader<'_> {
             && (bit_offset != 0 || type_size_bits != bit_size)
         {
             // Dwarf 2 / 3
-            let bit_offset_le =
-                (Wrapping(type_size_bits) - Wrapping(bit_offset) - Wrapping(bit_size)).0;
+            let bit_offset_le = (Wrapping(type_size_bits) - Wrapping(bit_offset) - Wrapping(bit_size)).0;
 
             // bit_offset can be negative(!) so it is not guaranteed that the bitfield is fully inside the containing type
             // in this case we'll try to increase the containing type's size
@@ -716,32 +535,20 @@ impl DebugDataReader<'_> {
         while let Ok(Some(child_node)) = iter.next() {
             let child_entry = child_node.entry();
             if child_entry.tag() == gimli::constants::DW_TAG_inheritance {
-                let data_location = get_data_member_location_attribute(
-                    self,
-                    child_entry,
-                    unit.encoding(),
-                    current_unit,
-                )
-                .ok_or_else(|| "missing byte offset for inherited class".to_string())?;
-                let (new_cur_unit, new_dbginfo_offset) =
-                    get_type_attribute(child_entry, &self.units, current_unit)?;
+                let data_location =
+                    get_data_member_location_attribute(self, child_entry, unit.encoding(), current_unit).ok_or_else(|| "missing byte offset for inherited class".to_string())?;
+                let (new_cur_unit, new_dbginfo_offset) = get_type_attribute(child_entry, &self.units, current_unit)?;
 
                 let (unit, abbrev) = &self.units[new_cur_unit];
-                let new_unit_offset = new_dbginfo_offset.to_unit_offset(unit).ok_or_else(|| {
-                    format!(
-                        "invalid type offset 0x{:X} for unit {}",
-                        new_dbginfo_offset.0, new_cur_unit
-                    )
-                })?;
-                let mut baseclass_tree = unit
-                    .entries_tree(abbrev, Some(new_unit_offset))
-                    .map_err(|err| err.to_string())?;
+                let new_unit_offset = new_dbginfo_offset
+                    .to_unit_offset(unit)
+                    .ok_or_else(|| format!("invalid type offset 0x{:X} for unit {}", new_dbginfo_offset.0, new_cur_unit))?;
+                let mut baseclass_tree = unit.entries_tree(abbrev, Some(new_unit_offset)).map_err(|err| err.to_string())?;
                 let baseclass_tree_node = baseclass_tree.root().map_err(|err| err.to_string())?;
                 let baseclass_entry = baseclass_tree_node.entry();
                 let baseclass_name = get_name_attribute(baseclass_entry, &self.dwarf, unit)?;
 
-                let baseclass_type =
-                    self.get_type(new_cur_unit, new_dbginfo_offset, typereader_data)?;
+                let baseclass_type = self.get_type(new_cur_unit, new_dbginfo_offset, typereader_data)?;
 
                 inheritance.insert(baseclass_name, (baseclass_type, data_location));
             }
@@ -750,12 +557,7 @@ impl DebugDataReader<'_> {
     }
 }
 
-fn fix_bitfield_container_type(
-    membertype: &mut TypeInfo,
-    offset: u64,
-    bit_size: u64,
-    bit_offset: u64,
-) {
+fn fix_bitfield_container_type(membertype: &mut TypeInfo, offset: u64, bit_size: u64, bit_offset: u64) {
     let type_size = membertype.get_size();
     if bit_offset + bit_size > type_size * 8 {
         let adjusted_type_size = type_size * 2;
@@ -783,20 +585,14 @@ fn fix_bitfield_container_type(
     }
 }
 
-fn get_base_type(
-    entry: &gimli::DebuggingInformationEntry<EndianSlice<RunTimeEndian>, usize>,
-    unit: &gimli::UnitHeader<EndianSlice<RunTimeEndian>>,
-) -> (DbgDataType, String) {
+fn get_base_type(entry: &gimli::DebuggingInformationEntry<EndianSlice<RunTimeEndian>, usize>, unit: &gimli::UnitHeader<EndianSlice<RunTimeEndian>>) -> (DbgDataType, String) {
     let byte_size = get_byte_size_attribute(entry).unwrap_or(1u64);
     let encoding = get_encoding_attribute(entry).unwrap_or(gimli::constants::DW_ATE_unsigned);
     match encoding {
         gimli::constants::DW_ATE_address => {
             // if compilers use DW_TAG_base_type with DW_AT_encoding = DW_ATE_address, then it is only used for void pointers
             // in all other cases DW_AT_pointer is used
-            (
-                DbgDataType::Pointer(u64::from(unit.encoding().address_size), 0),
-                "unknown".to_string(),
-            )
+            (DbgDataType::Pointer(u64::from(unit.encoding().address_size), 0), "unknown".to_string())
         }
         gimli::constants::DW_ATE_float => {
             if byte_size == 8 {
@@ -812,9 +608,7 @@ fn get_base_type(
             8 => (DbgDataType::Sint64, "sint64".to_string()),
             _ => (DbgDataType::Other(byte_size), "double".to_string()),
         },
-        gimli::constants::DW_ATE_boolean
-        | gimli::constants::DW_ATE_unsigned
-        | gimli::constants::DW_ATE_unsigned_char => match byte_size {
+        gimli::constants::DW_ATE_boolean | gimli::constants::DW_ATE_unsigned | gimli::constants::DW_ATE_unsigned_char => match byte_size {
             1 => (DbgDataType::Uint8, "uint8".to_string()),
             2 => (DbgDataType::Uint16, "uint16".to_string()),
             4 => (DbgDataType::Uint32, "uint32".to_string()),

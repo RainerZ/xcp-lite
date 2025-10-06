@@ -1,3 +1,5 @@
+// Taken from Github repository a2ltool by DanielT
+
 use crate::debuginfo::{DbgDataType, DebugData, TypeInfo, VarInfo};
 use gimli::{Abbreviations, DebuggingInformationEntry, Dwarf, UnitHeader};
 use gimli::{EndianSlice, RunTimeEndian};
@@ -11,10 +13,7 @@ use std::{collections::HashMap, fs::File};
 type SliceType<'a> = EndianSlice<'a, RunTimeEndian>;
 
 mod attributes;
-use attributes::{
-    get_abstract_origin_attribute, get_location_attribute, get_name_attribute,
-    get_specification_attribute, get_typeref_attribute,
-};
+use attributes::{get_abstract_origin_attribute, get_location_attribute, get_name_attribute, get_specification_attribute, get_typeref_attribute};
 mod typereader;
 
 pub(crate) struct UnitList<'a> {
@@ -35,10 +34,7 @@ pub(crate) fn load_dwarf(filename: &OsStr, verbose: bool) -> Result<DebugData, S
     let filedata = load_filedata(filename)?;
     let elffile = load_elf_file(&filename.to_string_lossy(), &filedata)?;
 
-    if !elffile
-        .sections()
-        .any(|section| section.name() == Ok(".debug_info"))
-    {
+    if !elffile.sections().any(|section| section.name() == Ok(".debug_info")) {
         return Err(format!(
             "Error: {} does not contain DWARF2+ debug info. The section .debug_info is missing.",
             filename.to_string_lossy()
@@ -73,27 +69,18 @@ fn load_filedata(filename: &OsStr) -> Result<memmap2::Mmap, String> {
     let file = match File::open(filename) {
         Ok(file) => file,
         Err(error) => {
-            return Err(format!(
-                "Error: could not open file {}: {error}",
-                filename.to_string_lossy()
-            ));
+            return Err(format!("Error: could not open file {}: {error}", filename.to_string_lossy()));
         }
     };
 
     match unsafe { memmap2::Mmap::map(&file) } {
         Ok(mmap) => Ok(mmap),
-        Err(err) => Err(format!(
-            "Error: Failed to map file '{}': {err}",
-            filename.to_string_lossy()
-        )),
+        Err(err) => Err(format!("Error: Failed to map file '{}': {err}", filename.to_string_lossy())),
     }
 }
 
 // read the headers and sections of an elf/object file
-fn load_elf_file<'data>(
-    filename: &str,
-    filedata: &'data [u8],
-) -> Result<object::read::File<'data>, String> {
+fn load_elf_file<'data>(filename: &str, filedata: &'data [u8]) -> Result<object::read::File<'data>, String> {
     match object::File::parse(filedata) {
         Ok(file) => Ok(file),
         Err(err) => Err(format!("Error: Failed to parse file '{filename}': {err}")),
@@ -118,9 +105,7 @@ fn get_elf_sections(elffile: &object::read::File) -> HashMap<String, (u64, u64)>
 }
 
 // load the DWARF debug info from the .debug_<xyz> sections
-fn load_dwarf_sections<'data>(
-    elffile: &object::read::File<'data>,
-) -> Result<gimli::Dwarf<SliceType<'data>>, String> {
+fn load_dwarf_sections<'data>(elffile: &object::read::File<'data>) -> Result<gimli::Dwarf<SliceType<'data>>, String> {
     // Dwarf::load takes two closures / functions and uses them to load all the required debug sections
     let loader = |section: gimli::SectionId| get_file_section_reader(elffile, section.name());
     gimli::Dwarf::load(loader)
@@ -139,10 +124,7 @@ fn verify_dwarf_compile_units(dwarf: &gimli::Dwarf<SliceType>) -> bool {
 
 // get a section from the elf file.
 // returns a slice referencing the section data if it exists, or an empty slice otherwise
-fn get_file_section_reader<'data>(
-    elffile: &object::read::File<'data>,
-    section_name: &str,
-) -> Result<SliceType<'data>, String> {
+fn get_file_section_reader<'data>(elffile: &object::read::File<'data>, section_name: &str) -> Result<SliceType<'data>, String> {
     if let Some(dbginfo) = elffile.section_by_name(section_name) {
         match dbginfo.data() {
             Ok(val) => Ok(EndianSlice::new(val, get_endian(elffile))),
@@ -155,11 +137,7 @@ fn get_file_section_reader<'data>(
 
 // get the endianity of the elf file
 fn get_endian(elffile: &object::read::File) -> RunTimeEndian {
-    if elffile.is_little_endian() {
-        RunTimeEndian::Little
-    } else {
-        RunTimeEndian::Big
-    }
+    if elffile.is_little_endian() { RunTimeEndian::Little } else { RunTimeEndian::Big }
 }
 
 impl DebugDataReader<'_> {
@@ -191,11 +169,7 @@ impl DebugDataReader<'_> {
         while let Ok(Some(unit)) = iter.next() {
             let Ok(abbreviations) = unit.abbreviations(&self.dwarf.debug_abbrev) else {
                 if self.verbose {
-                    let offset = unit
-                        .offset()
-                        .as_debug_info_offset()
-                        .unwrap_or(gimli::DebugInfoOffset(0))
-                        .0;
+                    let offset = unit.offset().as_debug_info_offset().unwrap_or(gimli::DebugInfoOffset(0)).0;
                     println!("Error: Failed to get abbreviations for unit @{offset:x}");
                 }
                 continue;
@@ -210,11 +184,9 @@ impl DebugDataReader<'_> {
             // We can easily find all of them by using depth-first traversal of the tree
             let mut entries_cursor = unit.entries(abbreviations);
             if let Ok(Some((_, entry))) = entries_cursor.next_dfs()
-                && (entry.tag() == gimli::constants::DW_TAG_compile_unit
-                    || entry.tag() == gimli::constants::DW_TAG_partial_unit)
+                && (entry.tag() == gimli::constants::DW_TAG_compile_unit || entry.tag() == gimli::constants::DW_TAG_partial_unit)
             {
-                self.unit_names
-                    .push(get_name_attribute(entry, &self.dwarf, unit).ok());
+                self.unit_names.push(get_name_attribute(entry, &self.dwarf, unit).ok());
             }
 
             let mut depth = 0;
@@ -227,9 +199,7 @@ impl DebugDataReader<'_> {
                 // It's essential to only get those names that might actually be needed.
                 // Getting all names unconditionally doubled the runtime of the program
                 // as a result of countless useless string allocations and deallocations.
-                if tag == gimli::constants::DW_TAG_namespace
-                    || tag == gimli::constants::DW_TAG_subprogram
-                {
+                if tag == gimli::constants::DW_TAG_namespace || tag == gimli::constants::DW_TAG_subprogram {
                     context.push((tag, get_name_attribute(entry, &self.dwarf, unit).ok()));
                 } else {
                     context.push((tag, None));
@@ -253,11 +223,7 @@ impl DebugDataReader<'_> {
                         }
                         Err(errmsg) => {
                             if self.verbose {
-                                let offset = entry
-                                    .offset()
-                                    .to_debug_info_offset(unit)
-                                    .unwrap_or(gimli::DebugInfoOffset(0))
-                                    .0;
+                                let offset = entry.offset().to_debug_info_offset(unit).unwrap_or(gimli::DebugInfoOffset(0)).0;
                                 println!("Error loading variable @{offset:x}: {errmsg}");
                             }
                         }
@@ -281,22 +247,16 @@ impl DebugDataReader<'_> {
             Some(address) => {
                 // if debugging information entry A has a DW_AT_specification or DW_AT_abstract_origin attribute
                 // pointing to another debugging information entry B, any attributes of B are considered to be part of A.
-                if let Some(specification_entry) = get_specification_attribute(entry, unit, abbrev)
-                {
+                if let Some(specification_entry) = get_specification_attribute(entry, unit, abbrev) {
                     // the entry refers to a specification, which contains the name and type reference
                     let name = get_name_attribute(&specification_entry, &self.dwarf, unit)?;
                     let typeref = get_typeref_attribute(&specification_entry, unit)?;
 
                     Ok(Some((name, typeref, address)))
-                } else if let Some(abstract_origin_entry) =
-                    get_abstract_origin_attribute(entry, unit, abbrev)
-                {
+                } else if let Some(abstract_origin_entry) = get_abstract_origin_attribute(entry, unit, abbrev) {
                     // the entry refers to an abstract origin, which should also be considered when getting the name and type ref
-                    let name = get_name_attribute(entry, &self.dwarf, unit).or_else(|_| {
-                        get_name_attribute(&abstract_origin_entry, &self.dwarf, unit)
-                    })?;
-                    let typeref = get_typeref_attribute(entry, unit)
-                        .or_else(|_| get_typeref_attribute(&abstract_origin_entry, unit))?;
+                    let name = get_name_attribute(entry, &self.dwarf, unit).or_else(|_| get_name_attribute(&abstract_origin_entry, &self.dwarf, unit))?;
+                    let typeref = get_typeref_attribute(entry, unit).or_else(|_| get_typeref_attribute(&abstract_origin_entry, unit))?;
 
                     Ok(Some((name, typeref, address)))
                 } else {
@@ -309,15 +269,16 @@ impl DebugDataReader<'_> {
             }
             None => {
                 // it's a local variable, no error
+                // @@@@ TODO: implement local variable handling
+                let name = get_name_attribute(entry, &self.dwarf, unit).ok().unwrap_or("unknown".to_string());
+                log::warn!("Ignored local variable: {}", name);
                 Ok(None)
             }
         }
     }
 }
 
-fn get_varinfo_from_context(
-    context: &[(gimli::DwTag, Option<String>)],
-) -> (Option<String>, Vec<String>) {
+fn get_varinfo_from_context(context: &[(gimli::DwTag, Option<String>)]) -> (Option<String>, Vec<String>) {
     let function = context
         .iter()
         .rev()
@@ -326,20 +287,14 @@ fn get_varinfo_from_context(
     let namespaces: Vec<String> = context
         .iter()
         .rev()
-        .filter_map(|(tag, ns)| {
-            (*tag == gimli::constants::DW_TAG_namespace)
-                .then(|| ns.clone())
-                .flatten()
-        })
+        .filter_map(|(tag, ns)| (*tag == gimli::constants::DW_TAG_namespace).then(|| ns.clone()).flatten())
         .collect();
     (function, namespaces)
 }
 
 fn demangle_cpp_varnames(input: &[&String]) -> HashMap<String, String> {
     let mut demangled_symbols = HashMap::<String, String>::new();
-    let demangle_opts = cpp_demangle::DemangleOptions::new()
-        .no_params()
-        .no_return_type();
+    let demangle_opts = cpp_demangle::DemangleOptions::new().no_params().no_return_type();
     for varname in input {
         // some really simple strings can be processed by the demangler, e.g "c" -> "const", which is wrong here.
         // by only processing symbols that start with _Z (variables in classes/namespaces) this problem is avoided
@@ -427,12 +382,7 @@ mod test {
                 }
             ));
             if let TypeInfo {
-                datatype:
-                    DbgDataType::Class {
-                        inheritance,
-                        members,
-                        ..
-                    },
+                datatype: DbgDataType::Class { inheritance, members, .. },
                 ..
             } = typeinfo
             {
@@ -538,11 +488,7 @@ mod test {
                     members.get("var"),
                     Some((
                         TypeInfo {
-                            datatype: DbgDataType::Bitfield {
-                                bit_offset: 0,
-                                bit_size: 5,
-                                ..
-                            },
+                            datatype: DbgDataType::Bitfield { bit_offset: 0, bit_size: 5, .. },
                             ..
                         },
                         0
@@ -552,11 +498,7 @@ mod test {
                     members.get("var2"),
                     Some((
                         TypeInfo {
-                            datatype: DbgDataType::Bitfield {
-                                bit_offset: 5,
-                                bit_size: 5,
-                                ..
-                            },
+                            datatype: DbgDataType::Bitfield { bit_offset: 5, bit_size: 5, .. },
                             ..
                         },
                         0
@@ -566,11 +508,7 @@ mod test {
                     members.get("var3"),
                     Some((
                         TypeInfo {
-                            datatype: DbgDataType::Bitfield {
-                                bit_offset: 0,
-                                bit_size: 23,
-                                ..
-                            },
+                            datatype: DbgDataType::Bitfield { bit_offset: 0, bit_size: 23, .. },
                             ..
                         },
                         4
@@ -580,11 +518,7 @@ mod test {
                     members.get("var4"),
                     Some((
                         TypeInfo {
-                            datatype: DbgDataType::Bitfield {
-                                bit_offset: 23,
-                                bit_size: 1,
-                                ..
-                            },
+                            datatype: DbgDataType::Bitfield { bit_offset: 23, bit_size: 1, .. },
                             ..
                         },
                         4
@@ -621,13 +555,7 @@ mod test {
 
             let varinfo = debugdata.variables.get("var_array").unwrap();
             let typeinfo = debugdata.types.get(&varinfo[0].typeref).unwrap();
-            let DbgDataType::Array {
-                size,
-                dim,
-                arraytype,
-                ..
-            } = &typeinfo.datatype
-            else {
+            let DbgDataType::Array { size, dim, arraytype, .. } = &typeinfo.datatype else {
                 panic!("Expected array type, got {:?}", typeinfo.datatype);
             };
             assert_eq!(*size, 33);
@@ -652,10 +580,8 @@ mod test {
         // (update_test.exe) as well as with gcc for arm (update_test.elf).
         // Both file contain the same debug information, though the windows exe
         // file has some additional items from the starup code.
-        let debugdata_exe =
-            DebugData::load_dwarf(OsStr::new("fixtures/bin/update_test.exe"), true).unwrap();
-        let debugdata_elf =
-            DebugData::load_dwarf(OsStr::new("fixtures/bin/update_test.elf"), true).unwrap();
+        let debugdata_exe = DebugData::load_dwarf(OsStr::new("fixtures/bin/update_test.exe"), true).unwrap();
+        let debugdata_elf = DebugData::load_dwarf(OsStr::new("fixtures/bin/update_test.elf"), true).unwrap();
 
         // every variable in the elf file should also be in the exe file
         for var in debugdata_elf.variables.keys() {
@@ -667,10 +593,8 @@ mod test {
     fn test_load_mingw_exe2() {
         // Both file contain the same debug information, though the windows exe
         // file has some additional items from the starup code.
-        let debugdata_exe =
-            DebugData::load_dwarf(OsStr::new("fixtures/bin/debugdata_gcc.exe"), true).unwrap();
-        let debugdata_elf =
-            DebugData::load_dwarf(OsStr::new("fixtures/bin/debugdata_gcc.elf"), true).unwrap();
+        let debugdata_exe = DebugData::load_dwarf(OsStr::new("fixtures/bin/debugdata_gcc.exe"), true).unwrap();
+        let debugdata_elf = DebugData::load_dwarf(OsStr::new("fixtures/bin/debugdata_gcc.elf"), true).unwrap();
 
         // every variable in the elf file should also be in the exe file
         for var in debugdata_elf.variables.keys() {
