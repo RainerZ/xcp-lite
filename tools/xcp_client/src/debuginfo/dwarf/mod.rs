@@ -244,14 +244,14 @@ impl DebugDataReader<'_> {
                     */
 
                     // @@@@ xcp_client: Get all variables, including local variables
-                    //match self.get_variable(entry, unit, abbreviations) {
-                    //    Ok((name, typeref, address)) => {
-                    // @@@@ xcp_client: Get global variables, including special local variables used by the xcp_client creator
-                    match self.get_global_variable(entry, unit, abbreviations) {
-                        Ok(None) => {
-                            // unremarkable, the variable is not a global variable
-                        }
-                        Ok(Some((name, typeref, address))) => {
+                    match self.get_variable(entry, unit, abbreviations) {
+                        Ok((name, typeref, address)) => {
+                            // @@@@ xcp_client: Get global variables, including special local variables used by the xcp_client creator
+                            //match self.get_global_variable(entry, unit, abbreviations) {
+                            //    Ok(None) => {
+                            //        // unremarkable, the variable is not a global variable
+                            //    }
+                            //    Ok(Some((name, typeref, address))) => {
                             // @@@@ xcp_client: Skip internal compiler variables starting with "__"
                             if !name.starts_with("__") {
                                 let (function, namespaces) = get_varinfo_from_context(&context);
@@ -282,6 +282,7 @@ impl DebugDataReader<'_> {
     // an entry of the type DW_TAG_variable only describes a global variable if there is a name, a type and an address
     // this function tries to get all three and returns them
     // returns None if the entry does not describe a global variable
+    /*
     fn get_global_variable(
         &self,
         entry: &DebuggingInformationEntry<SliceType, usize>,
@@ -289,24 +290,24 @@ impl DebugDataReader<'_> {
         abbrev: &gimli::Abbreviations,
     ) -> Result<Option<(String, usize, u64)>, String> {
         match get_location_attribute(self, entry, unit.encoding(), &self.units.list.len() - 1) {
-            Some(address) => {
+            Some((addr_ext,addr) => {
                 // if debugging information entry A has a DW_AT_specification or DW_AT_abstract_origin attribute
                 // pointing to another debugging information entry B, any attributes of B are considered to be part of A.
                 if let Some(specification_entry) = get_specification_attribute(entry, unit, abbrev) {
                     // the entry refers to a specification, which contains the name and type reference
                     let name = get_name_attribute(&specification_entry, &self.dwarf, unit)?;
                     let typeref = get_typeref_attribute(&specification_entry, unit)?;
-                    Ok(Some((name, typeref, address)))
+                    Ok(Some((name, typeref, addr)))
                 } else if let Some(abstract_origin_entry) = get_abstract_origin_attribute(entry, unit, abbrev) {
                     // the entry refers to an abstract origin, which should also be considered when getting the name and type ref
                     let name = get_name_attribute(entry, &self.dwarf, unit).or_else(|_| get_name_attribute(&abstract_origin_entry, &self.dwarf, unit))?;
                     let typeref = get_typeref_attribute(entry, unit).or_else(|_| get_typeref_attribute(&abstract_origin_entry, unit))?;
-                    Ok(Some((name, typeref, address)))
+                    Ok(Some((name, typeref, addr)))
                 } else {
                     // usual case: there is no specification or abstract origin and all info is part of this entry
                     let name = get_name_attribute(entry, &self.dwarf, unit)?;
                     let typeref = get_typeref_attribute(entry, unit)?;
-                    Ok(Some((name, typeref, address)))
+                    Ok(Some((name, typeref, addr)))
                 }
             }
             None => {
@@ -330,6 +331,7 @@ impl DebugDataReader<'_> {
             }
         }
     }
+    */
 
     // @@@@ xcp_client: Get all variables, including local variables
     // Return variable information
@@ -340,8 +342,8 @@ impl DebugDataReader<'_> {
         entry: &DebuggingInformationEntry<SliceType, usize>,
         unit: &UnitHeader<SliceType>,
         abbrev: &gimli::Abbreviations,
-    ) -> Result<(String, usize, u64), String> {
-        let address = get_location_attribute(self, entry, unit.encoding(), &self.units.list.len() - 1).unwrap_or(0);
+    ) -> Result<(String, usize, (u8, u64)), String> {
+        let address = get_location_attribute(self, entry, unit.encoding(), &self.units.list.len() - 1).unwrap_or((0u8, 0u64));
 
         // if debugging information entry A has a DW_AT_specification or DW_AT_abstract_origin attribute
         // pointing to another debugging information entry B, any attributes of B are considered to be part of A.

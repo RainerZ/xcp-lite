@@ -9,7 +9,7 @@ mod dwarf;
 
 #[derive(Debug)]
 pub(crate) struct VarInfo {
-    pub(crate) address: u64,
+    pub(crate) address: (u8, u64), // addr_ext, addr
     pub(crate) typeref: usize,
     pub(crate) unit_idx: usize,
     pub(crate) function: Option<String>,

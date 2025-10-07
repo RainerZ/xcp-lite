@@ -97,7 +97,7 @@ pub(crate) fn get_location_attribute(
     entry: &DebuggingInformationEntry<SliceType, usize>,
     encoding: gimli::Encoding,
     current_unit: usize,
-) -> Option<u64> {
+) -> Option<(u8, u64)> {
     let loc_attr = get_attr_value(entry, gimli::constants::DW_AT_location)?;
     if let gimli::AttributeValue::Exprloc(expression) = loc_attr {
         evaluate_exprloc(debug_data_reader, expression, encoding, current_unit)
@@ -115,7 +115,13 @@ pub(crate) fn get_data_member_location_attribute(
 ) -> Option<u64> {
     let loc_attr = get_attr_value(entry, gimli::constants::DW_AT_data_member_location)?;
     match loc_attr {
-        gimli::AttributeValue::Exprloc(expression) => evaluate_exprloc(debug_data_reader, expression, encoding, current_unit),
+        gimli::AttributeValue::Exprloc(expression) => {
+            if let Some((addr_ext, addr)) = evaluate_exprloc(debug_data_reader, expression, encoding, current_unit) {
+                Some(addr)
+            } else {
+                None
+            }
+        }
         gimli::AttributeValue::Udata(val) => Some(val),
         gimli::AttributeValue::Data1(val) => Some(u64::from(val)),
         gimli::AttributeValue::Data2(val) => Some(u64::from(val)),
@@ -303,7 +309,13 @@ pub(crate) fn get_addr_base_attribute(entry: &DebuggingInformationEntry<SliceTyp
 }
 
 // evaluate an exprloc expression to get a variable address or struct member offset
-fn evaluate_exprloc(debug_data_reader: &DebugDataReader, expression: gimli::Expression<EndianSlice<RunTimeEndian>>, encoding: gimli::Encoding, current_unit: usize) -> Option<u64> {
+fn evaluate_exprloc(
+    debug_data_reader: &DebugDataReader,
+    expression: gimli::Expression<EndianSlice<RunTimeEndian>>,
+    encoding: gimli::Encoding,
+    current_unit: usize,
+) -> Option<(u8, u64)> {
+    let mut addr_ext = 0;
     let mut evaluation = expression.evaluation(encoding);
     evaluation.set_object_address(0);
     evaluation.set_initial_value(0);
@@ -317,12 +329,16 @@ fn evaluate_exprloc(debug_data_reader: &DebugDataReader, expression: gimli::Expr
                 eval_result = evaluation.resume_with_relocated_address(address).ok()?;
             }
             gimli::EvaluationResult::RequiresFrameBase => {
-                // a variable in the stack frame of a function. Not useful in the conext of A2l files, where we only care about global values
-                return None;
+                // a variable in the stack frame of a function.
+                // @@@@ xcp_client: allow framepointer relative addresses
+                addr_ext = 2;
+                eval_result = evaluation.resume_with_frame_base(0x8000000000000000).ok()?;
             }
             gimli::EvaluationResult::RequiresRegister { .. } => {
                 // the value is relative to a register (e.g. the stack base)
                 // this means it cannot be referenced at a unique global address and is not suitable for use in a2l
+
+                log::warn!("unsupported expression evaluation result: RequiresRegister {eval_result:?}");
                 return None;
             }
             gimli::EvaluationResult::RequiresIndexedAddress { index, .. } => {
@@ -337,6 +353,7 @@ fn evaluate_exprloc(debug_data_reader: &DebugDataReader, expression: gimli::Expr
             _other => {
                 // there are a lot of other types of address expressions that can only be evaluated by a debugger while a program is running
                 // none of these can be handled in the a2lfile use-case.
+                log::warn!("unsupported expression evaluation result");
                 return None;
             }
         };
@@ -347,7 +364,7 @@ fn evaluate_exprloc(debug_data_reader: &DebugDataReader, expression: gimli::Expr
         ..
     } = result[0]
     {
-        Some(address)
+        Some((addr_ext, address))
     } else {
         None
     }

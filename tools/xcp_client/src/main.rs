@@ -429,9 +429,35 @@ fn printf_debug_info(debug_data: &DebugData, verbose: bool) {
         // }
 
         // Print variables
+        /*
+        struct VarInfo {
+            address: (u8, u64), // addr_ext, addr
+            typeref: usize,
+            unit_idx: usize,
+            function: Option<String>,
+            namespaces: Vec<String>,
+        }
+        */
+
         println!("\nVariables:");
         for (var_name, var_info) in &debug_data.variables {
-            println!("Variable '{}': {:?}", var_name, var_info);
+            println!("Variable '{}': ", var_name);
+            for var in var_info {
+                let unit_name = make_simple_unit_name(debug_data, var.unit_idx);
+                let unit_name = if let Some(name) = unit_name { name } else { "<unnamed>".to_string() };
+                let function_name = if let Some(name) = &var.function { name } else { "<global>" };
+                let name_space = if var.namespaces.len() > 0 { var.namespaces.join("::") } else { "".to_string() };
+                print!(
+                    "  unit '{}', function '{}', namespace '{}': address=({:#x},{:#x})",
+                    unit_name, function_name, name_space, var.address.0, var.address.1
+                );
+                if let Some(type_info) = debug_data.types.get(&var.typeref) {
+                    let type_name = if let Some(name) = &type_info.name { name } else { "" };
+                    print!(" type='{}', size={} bytes", type_name, type_info.get_size());
+                    // print_type_info(type_info);
+                }
+                println!();
+            }
         }
     }
     println!();
@@ -647,8 +673,8 @@ impl ElfReader {
                         warn!("Could not find calibration segment reference page {}", seg_name);
                         0
                     };
-                    let addr = var_info.address.try_into().unwrap(); // @@@@ TODO: Handle 64 bit addresses
-                    let addr_ext = 0; // Absolute addressing
+                    let addr: u32 = var_info.address.1.try_into().unwrap(); // @@@@ TODO: Handle 64 bit addresses and signed relative 
+                    let addr_ext: u8 = var_info.address.0;
                     reg.cal_seg_list
                         .add_cal_seg_by_addr(seg_name.to_string(), next_segment_number, addr_ext, addr, length as u32)
                         .unwrap();
@@ -718,13 +744,13 @@ impl ElfReader {
             }
             for var_info in var_infos {
                 // Register only global variables
-                if var_info.address == 0 {
+                if var_info.address.0 != 0 || var_info.address.1 == 0 {
                     continue;
                 }
 
                 let a2l_name = a2l_name.clone();
-                let a2l_addr = var_info.address.try_into().unwrap(); // @@@@ TODO: Handle 64 bit addresses
-                let a2l_addr_ext = 0;
+                let a2l_addr = var_info.address.1.try_into().unwrap(); // @@@@ TODO: Handle 64 bit addresses
+                let a2l_addr_ext = var_info.address.0;
 
                 // Check if the address is in a calibration segment
                 let (object_type, mc_addr) = if reg.cal_seg_list.find_cal_seg_by_address(a2l_addr).is_some() {
@@ -737,7 +763,7 @@ impl ElfReader {
                 if let Some(type_info) = self.debug_data.types.get(&var_info.typeref) {
                     // Print variable info
                     if verbose {
-                        println!("  {}: addr = 0x{:08x}", a2l_name, var_info.address);
+                        println!("  {}: addr = {}:0x{:08x}", a2l_name, var_info.address.0, var_info.address.1);
                         //println!("  {}: addr = 0x{:08x}, typeref = {}, unit = {}",a2l_name, var_info.address, var_info.typeref, var_info.unit_idx);
                     }
 
