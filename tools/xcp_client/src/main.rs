@@ -371,15 +371,15 @@ fn print_debug_stats(debug_data: &DebugData) {
         variable_count += var_infos.len();
     }
     println!("  Variables {} with {} unique names", variable_count, debug_data.variables.len());
-}
 
-fn printf_debug_info(debug_data: &DebugData) {
     //Print compilation units
-    println!("\nCompilation Units (debug_data.unit_names)");
+    println!("\nCompilation Units:");
     for (idx, unit_name) in debug_data.unit_names.iter().enumerate() {
         println!("  Unit {}: {:?}", idx, unit_name);
     }
+}
 
+fn printf_debug_info(debug_data: &DebugData) {
     //Print sections information
     println!("\nMemory Sections (debug_data.sections)");
     for (name, (addr, size)) in &debug_data.sections {
@@ -964,7 +964,7 @@ async fn xcp_client(
             if ecu_name.is_empty() {
                 ecu_name = "_".into();
             }
-            reg.write_a2l(&a2l_path, &ecu_name, "created by xcp_client", &ecu_name, "_", true).unwrap();
+            reg.write_a2l(&a2l_path, "xcp_client A2L creator", &ecu_name, "", &ecu_name, "_", true).unwrap();
             info!("Created A2L file: {}", a2l_path.display());
         }
     }

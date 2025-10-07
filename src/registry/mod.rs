@@ -623,7 +623,8 @@ pub mod registry_test {
             .unwrap();
 
         // Write A2L file and check syntax
-        reg.write_a2l(&"test_registry_1.a2l", "project_name", "module_name", "project_no", true).unwrap();
+        reg.write_a2l(&"test_registry_1.a2l", "xcp-lite test", "project_name", "", "module_name", "project_no", true)
+            .unwrap();
     }
 
     //-----------------------------------------------------------------------------
@@ -907,7 +908,17 @@ pub mod registry_test {
 
         // Write A2L file and check syntax
         {
-            reg.write_a2l(&"test_registry_api.a2l", "project_name", "module_name", "project_no", false).unwrap();
+            reg.write_a2l(
+                &"test_registry_api.a2l",
+                "xcp-lite test",
+                "xcp-lite test",
+                "project_name",
+                "",
+                "module_name",
+                "project_no",
+                false,
+            )
+            .unwrap();
 
             // Load the A2L file into another registry
             let mut reg2 = Registry::new();
@@ -955,7 +966,8 @@ pub mod registry_test {
 
         // Write A2L file and check syntax
         log::info!("Write A2L file test_registry_load_a2l.a2l");
-        reg.write_a2l(&"test_registry_load_a2l.a2l", "project_name", "module_name", "project_no", true).unwrap();
+        reg.write_a2l(&"test_registry_load_a2l.a2l", "xcp-lite test", "project_name", "", "module_name", "project_no", true)
+            .unwrap();
 
         // Compare xcp_lite.a2l and xcp_lite2.a2l
         // let file1 = "xcp_lite.a2l";

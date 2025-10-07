@@ -108,6 +108,7 @@ impl Registry {
     pub fn write_a2l<P: AsRef<std::path::Path>>(
         &self,
         path: &P,
+        title_comment: &str,
         project_name: &str,
         project_description: &str,
         module_name: &str,
@@ -120,7 +121,7 @@ impl Registry {
         let writer: &mut dyn std::io::Write = &mut std::io::LineWriter::new(a2l_file);
         let mut a2l_writer = a2l_writer::A2lWriter::new(writer, self);
 
-        a2l_writer.write_a2l(project_name, project_description, module_name, project_no)?;
+        a2l_writer.write_a2l(title_comment, project_name, project_description, module_name, project_no)?;
 
         // Check A2L file just written
         #[cfg(not(feature = "a2l_reader"))]
