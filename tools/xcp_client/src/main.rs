@@ -137,6 +137,8 @@ struct Args {
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn};
 
+use crate::debuginfo::make_simple_unit_name;
+
 trait ToLogLevelFilter {
     fn to_log_level_filter(self) -> log::LevelFilter;
 }
@@ -359,7 +361,7 @@ impl XcpTextDecoder for ServTextDecoder {
 //  ELF reader and A2L creator
 
 fn print_debug_stats(debug_data: &DebugData) {
-    println!("Debug information summary:");
+    println!("\nDebug information summary:");
     println!("  Compilation units: {} units", debug_data.unit_names.len());
     println!("  Sections: {} sections", debug_data.sections.len());
     println!("  Type names: {} named types", debug_data.typenames.len());
@@ -375,58 +377,62 @@ fn print_debug_stats(debug_data: &DebugData) {
     //Print compilation units
     println!("\nCompilation Units:");
     for (idx, unit_name) in debug_data.unit_names.iter().enumerate() {
-        println!("  Unit {}: {:?}", idx, unit_name);
-    }
-}
-
-fn printf_debug_info(debug_data: &DebugData) {
-    //Print sections information
-    println!("\nMemory Sections (debug_data.sections)");
-    for (name, (addr, size)) in &debug_data.sections {
-        println!("  Section '{}': address=0x{:08x}, size=0x{:x} ({} bytes)", name, addr, size, size);
-    }
-
-    //Print type names
-    println!("\nType Names (debug_data.typenames)");
-    for (type_name, type_refs) in &debug_data.typenames {
-        println!("Type name '{}': {} references", type_name, type_refs.len());
-        for type_ref in type_refs {
-            if let Some(type_info) = debug_data.types.get(type_ref) {
-                println!("  -> type_ref={}, size={} bytes, unit={}", type_ref, type_info.get_size(), type_info.unit_idx);
-            }
+        let unit_name = make_simple_unit_name(debug_data, idx);
+        if unit_name.is_none() {
+            println!("  Unit {}: <unnamed>", idx);
+        } else {
+            println!("  Unit {}: {}", idx, unit_name.as_ref().unwrap());
         }
     }
+    println!();
+}
 
-    // Print types
-    println!("\nTypes:");
-    for (type_ref, type_info) in &debug_data.types {
-        let type_name = if let Some(name) = &type_info.name { name } else { "" };
-        let unit_name: &Option<String> = if let Some(unit_name) = debug_data.unit_names.get(type_info.unit_idx) {
-            unit_name
-        } else {
-            &None
-        };
-        println!(
-            "TypeRef {}: name = '{}', size = {} bytes, unit = {} ({:?})",
-            type_ref,
-            type_name,
-            type_info.get_size(),
-            type_info.unit_idx,
-            unit_name
-        );
-        print_type_info(type_info);
-    }
+fn printf_debug_info(debug_data: &DebugData, verbose: bool) {
+    print_debug_stats(debug_data);
 
-    // Print demangled names
-    println!("\nDemangled Names");
-    for (mangled_name, demangled_name) in &debug_data.demangled_names {
-        println!("  '{}' -> '{}'", mangled_name, demangled_name);
-    }
+    if verbose {
+        //Print sections information
+        println!("\nMemory Sections (debug_data.sections)");
+        for (name, (addr, size)) in &debug_data.sections {
+            println!("  Section '{}': address=0x{:08x}, size=0x{:x} ({} bytes)", name, addr, size, size);
+        }
 
-    // Print variables
-    println!("\nVariables:");
-    for (var_name, var_info) in &debug_data.variables {
-        println!("Variable '{}': {:?}", var_name, var_info);
+        //Print type names
+        // println!("\nType Names (debug_data.typenames)");
+        // for (type_name, type_refs) in &debug_data.typenames {
+        //     println!("Type name '{}': {} references", type_name, type_refs.len());
+        //     for type_ref in type_refs {
+        //         if let Some(type_info) = debug_data.types.get(type_ref) {
+        //             println!("  -> type_ref={}, size={} bytes, unit={}", type_ref, type_info.get_size(), type_info.unit_idx);
+        //         }
+        //     }
+        // }
+
+        // Print types
+        // println!("\nTypes:");
+        // for (type_ref, type_info) in &debug_data.types {
+        //     let type_name = if let Some(name) = &type_info.name { name } else { "" };
+        //     println!(
+        //         "TypeRef {}: name = '{}', size = {} bytes, unit = {}",
+        //         type_ref,
+        //         type_name,
+        //         type_info.get_size(),
+        //         type_info.unit_idx
+        //     );
+        //     print_type_info(type_info);
+        // }
+
+        // Print demangled names
+        // println!("\nDemangled Names");
+        // for (mangled_name, demangled_name) in &debug_data.demangled_names {
+        //     println!("  '{}' -> '{}'", mangled_name, demangled_name);
+        // }
+
+        // Print variables
+        println!("\nVariables:");
+        for (var_name, var_info) in &debug_data.variables {
+            println!("Variable '{}': {:?}", var_name, var_info);
+        }
     }
     println!();
 }
@@ -912,7 +918,21 @@ async fn xcp_client(
     // Read segment and event information obtained from the XCP server into registry
     // Add measurement and calibration variables from ELF file if specified
     } else if create_a2l || !elf_name.is_empty() {
-        info!("Generate A2L file {} from XCP server event and segment information", a2l_path.display());
+        let mode = if xcp_client.is_connected() {
+            if !elf_name.is_empty() {
+                info!(
+                    "Generate A2L file {} from XCP server event and segment information and elf/dwarf information",
+                    a2l_path.display()
+                );
+                "online+elf/dwarf"
+            } else {
+                info!("Generate A2L file {} from XCP server event and segment information", a2l_path.display());
+                "online"
+            }
+        } else {
+            info!("Generate A2L file {} from elf/dwarf information", a2l_path.display());
+            "elf/dwarf"
+        };
 
         reg.set_vector_xcp_mode(false); // Don't activate standard xcp-lite addressing modes and EPK segment
         //reg.set_app_version(epk, 0x80000000); // @@@@ TODO
@@ -927,32 +947,32 @@ async fn xcp_client(
         let port: u16 = dest_addr.port();
         reg.set_xcp_params(protocol, ipv4_addr, port);
 
-        // Get event information
-        for i in 0..xcp_client.max_events {
-            let name = xcp_client.get_daq_event_info(i).await?;
-            info!("Event {}: {}", i, name);
-            reg.event_list.add_event(McEvent::new(name, 0, i, 0)).unwrap();
-        }
+        if xcp_client.is_connected() {
+            // Get event information
+            for i in 0..xcp_client.max_events {
+                let name = xcp_client.get_daq_event_info(i).await?;
+                info!("Event {}: {}", i, name);
+                reg.event_list.add_event(McEvent::new(name, 0, i, 0)).unwrap();
+            }
 
-        // Get segment and page information
-        for i in 0..xcp_client.max_segments {
-            let (addr_ext, addr, length, name) = xcp_client.get_segment_info(i).await?;
-            info!("Segment {}: {} addr={}:0x{:08X} length={} ", i, name, addr_ext, addr, length);
-            // Segment relative addressing
-            // reg.cal_seg_list.add_cal_seg(name, i as u16, length as u32).unwrap();
-            // Absolute addressing
-            reg.cal_seg_list.add_cal_seg_by_addr(name, i as u16, addr_ext, addr, length as u32).unwrap();
+            // Get segment and page information
+            for i in 0..xcp_client.max_segments {
+                let (addr_ext, addr, length, name) = xcp_client.get_segment_info(i).await?;
+                info!("Segment {}: {} addr={}:0x{:08X} length={} ", i, name, addr_ext, addr, length);
+                // Segment relative addressing
+                // reg.cal_seg_list.add_cal_seg(name, i as u16, length as u32).unwrap();
+                // Absolute addressing
+                reg.cal_seg_list.add_cal_seg_by_addr(name, i as u16, addr_ext, addr, length as u32).unwrap();
+            }
         }
 
         // Read binary file if specified and create calibration variables in segments and all global measurement variables
         if !elf_name.is_empty() {
             info!("Reading ELF file: {}", elf_name);
             let elf_reader = ElfReader::new(&elf_name).ok_or(format!("Failed to read ELF file '{}'", elf_name))?;
-            if verbose {
-                printf_debug_info(&elf_reader.debug_data);
-            } else {
-                print_debug_stats(&elf_reader.debug_data);
-            }
+
+            printf_debug_info(&elf_reader.debug_data, verbose);
+
             elf_reader.register(&mut reg, verbose)?;
         }
 
@@ -964,8 +984,9 @@ async fn xcp_client(
             if ecu_name.is_empty() {
                 ecu_name = "_".into();
             }
-            reg.write_a2l(&a2l_path, "xcp_client A2L creator", &ecu_name, "", &ecu_name, "_", true).unwrap();
-            info!("Created A2L file: {}", a2l_path.display());
+            reg.write_a2l(&a2l_path, format!("xcp_client A2L creator in {mode} mode").as_str(), &ecu_name, "", &ecu_name, "_", true)
+                .unwrap();
+            info!("Created A2L file: {} in {}", a2l_path.display(), mode);
         }
     }
     // Load existing A2L file into registry

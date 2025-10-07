@@ -150,12 +150,8 @@ impl DebugDataReader<'_> {
         let (types, typenames) = self.load_types(&variables);
         let varname_list: Vec<&String> = variables.keys().collect();
         let demangled_names = demangle_cpp_varnames(&varname_list);
-
-        // @@@@
-        log::info!("unit names: {:?}", self.unit_names);
         let mut unit_names = Vec::new();
         std::mem::swap(&mut unit_names, &mut self.unit_names);
-
         DebugData {
             variables,
             types,
@@ -187,11 +183,11 @@ impl DebugDataReader<'_> {
             // The global variables are among the immediate children of the unit; static variables
             // in functions are declared inside of DW_TAG_subprogram[/DW_TAG_lexical_block]*.
             // We can easily find all of them by using depth-first traversal of the tree
-            // @@@@ And this does not work
             let mut entries_cursor = unit.entries(abbreviations);
             if let Ok(Some((_, entry))) = entries_cursor.next_dfs()
                 && (entry.tag() == gimli::constants::DW_TAG_compile_unit || entry.tag() == gimli::constants::DW_TAG_partial_unit)
             {
+                // @@@@ warn if unit name is missing
                 let unit_name = match get_name_attribute(entry, &self.dwarf, unit) {
                     Ok(name) => {
                         log::info!(" unit name: {}", &name);
@@ -223,7 +219,7 @@ impl DebugDataReader<'_> {
                 debug_assert_eq!(depth as usize, context.len());
 
                 if entry.tag() == gimli::constants::DW_TAG_variable {
-                    /* Global variables only
+                    /* @@@@ xcp_client: Removed, original code for global variables only
                     match self.get_global_variable(entry, unit, abbreviations) {
                         Ok(Some((name, typeref, address))) => {
                             let (function, namespaces) = get_varinfo_from_context(&context);
@@ -247,16 +243,26 @@ impl DebugDataReader<'_> {
                     }
                     */
 
-                    match self.get_variable(entry, unit, abbreviations) {
-                        Ok((name, typeref, address)) => {
-                            let (function, namespaces) = get_varinfo_from_context(&context);
-                            variables.entry(name).or_default().push(VarInfo {
-                                address, // may be 0 for local variables
-                                typeref,
-                                unit_idx,
-                                function,
-                                namespaces,
-                            });
+                    // @@@@ xcp_client: Get all variables, including local variables
+                    //match self.get_variable(entry, unit, abbreviations) {
+                    //    Ok((name, typeref, address)) => {
+                    // @@@@ xcp_client: Get global variables, including special local variables used by the xcp_client creator
+                    match self.get_global_variable(entry, unit, abbreviations) {
+                        Ok(None) => {
+                            // unremarkable, the variable is not a global variable
+                        }
+                        Ok(Some((name, typeref, address))) => {
+                            // @@@@ xcp_client: Skip internal compiler variables starting with "__"
+                            if !name.starts_with("__") {
+                                let (function, namespaces) = get_varinfo_from_context(&context);
+                                variables.entry(name).or_default().push(VarInfo {
+                                    address, // may be 0 for local variables
+                                    typeref,
+                                    unit_idx,
+                                    function,
+                                    namespaces,
+                                });
+                            }
                         }
                         Err(errmsg) => {
                             if self.verbose {
@@ -290,26 +296,23 @@ impl DebugDataReader<'_> {
                     // the entry refers to a specification, which contains the name and type reference
                     let name = get_name_attribute(&specification_entry, &self.dwarf, unit)?;
                     let typeref = get_typeref_attribute(&specification_entry, unit)?;
-
                     Ok(Some((name, typeref, address)))
                 } else if let Some(abstract_origin_entry) = get_abstract_origin_attribute(entry, unit, abbrev) {
                     // the entry refers to an abstract origin, which should also be considered when getting the name and type ref
                     let name = get_name_attribute(entry, &self.dwarf, unit).or_else(|_| get_name_attribute(&abstract_origin_entry, &self.dwarf, unit))?;
                     let typeref = get_typeref_attribute(entry, unit).or_else(|_| get_typeref_attribute(&abstract_origin_entry, unit))?;
-
                     Ok(Some((name, typeref, address)))
                 } else {
                     // usual case: there is no specification or abstract origin and all info is part of this entry
                     let name = get_name_attribute(entry, &self.dwarf, unit)?;
                     let typeref = get_typeref_attribute(entry, unit)?;
-
                     Ok(Some((name, typeref, address)))
                 }
             }
             None => {
-                // @@@@ TODO: implement local variable handling
                 let name = get_name_attribute(entry, &self.dwarf, unit).ok().unwrap_or("unknown".to_string());
-                // If name starts with cal__, seg__ or evt__, it's a XCPlite marker variable, don't skip it
+
+                // @@@@ xcp_client: If name starts with cal__, seg__ or evt__, it's a XCPlite marker variable, don't skip it
                 if let Some(prefix) = name
                     .strip_prefix("daq__")
                     .or_else(|| name.strip_prefix("trg__"))
@@ -317,6 +320,7 @@ impl DebugDataReader<'_> {
                     .or_else(|| name.strip_prefix("cal__"))
                 {
                     log::trace!("Found XCPlite marker variable: {}", name);
+                    // @@@@ xcp_client: Return local variables used by the xcp_client creator with address 0
                     Ok(Some((name, 0, 0)))
                 } else {
                     // it's a local variable, skip, no error
@@ -327,6 +331,7 @@ impl DebugDataReader<'_> {
         }
     }
 
+    // @@@@ xcp_client: Get all variables, including local variables
     // Return variable information
     // returns name, type reference and address
     // address may be 0 if a local variable is requested
