@@ -123,7 +123,7 @@ impl DebugDataReader<'_> {
             }
             gimli::constants::DW_TAG_pointer_type | gimli::constants::DW_TAG_reference_type | gimli::constants::DW_TAG_rvalue_reference_type => {
                 let (unit, _) = &self.units[current_unit];
-                if let Ok((new_cur_unit, ptype_offset)) = get_type_attribute(entry, &self.units, current_unit) {
+                if let Ok(Some((new_cur_unit, ptype_offset))) = get_type_attribute(entry, &self.units, current_unit) {
                     if let Some(idx) = typereader_data.wip_items.iter().position(|item| item.offset == ptype_offset.0) {
                         // this is a linked list or similar self-referential data structure, and one of the callers
                         // of this function is already working to get this type
@@ -157,9 +157,13 @@ impl DebugDataReader<'_> {
                 (DbgDataType::Union { size, members }, None)
             }
             gimli::constants::DW_TAG_typedef => {
-                let (new_cur_unit, dbginfo_offset) = get_type_attribute(entry, &self.units, current_unit)?;
-                let reftype = self.get_type(new_cur_unit, dbginfo_offset, typereader_data)?;
-                (reftype.datatype, None)
+                if let Some((new_cur_unit, dbginfo_offset)) = get_type_attribute(entry, &self.units, current_unit)? {
+                    let reftype = self.get_type(new_cur_unit, dbginfo_offset, typereader_data)?;
+                    (reftype.datatype, None)
+                } else {
+                    // possibly typedef void? Whatever it is, we can't do anything with it
+                    (DbgDataType::Other(0), None)
+                }
             }
             gimli::constants::DW_TAG_const_type
             | gimli::constants::DW_TAG_volatile_type
@@ -169,7 +173,7 @@ impl DebugDataReader<'_> {
             | gimli::constants::DW_TAG_atomic_type => {
                 // ignore these tags, they don't matter in the context of a2l files
                 // note: some compilers might omit the type reference if the type is void / void*
-                if let Ok((new_cur_unit, dbginfo_offset)) = get_type_attribute(entry, &self.units, current_unit) {
+                if let Ok(Some((new_cur_unit, dbginfo_offset))) = get_type_attribute(entry, &self.units, current_unit) {
                     let typeinfo = self.get_type(new_cur_unit, dbginfo_offset, typereader_data)?;
                     (typeinfo.datatype, typeinfo.name)
                 } else {
@@ -229,7 +233,10 @@ impl DebugDataReader<'_> {
         let entries_tree_node = entries_tree.root().map_err(|err| err.to_string())?;
 
         let maybe_size = get_byte_size_attribute(entry);
-        let (new_cur_unit, arraytype_offset) = get_type_attribute(entry, &self.units, current_unit)?;
+        let Some((new_cur_unit, arraytype_offset)) = get_type_attribute(entry, &self.units, current_unit)? else {
+            // it seems unlikely that any compiler would ever generate an array type without an element type
+            return Err("missing array element type attribute".to_string());
+        };
 
         let arraytype = if typereader_data.wip_items.iter().any(|item| item.offset == arraytype_offset.0) {
             // exceptional case: the array and its element type are recursive
@@ -330,8 +337,8 @@ impl DebugDataReader<'_> {
 
         // The enumeration type entry may have a DW_AT_type attribute which refers to the underlying
         // data type used to implement the enumeration
-        let (mut signed, opt_ut_size) = if let Ok(utype) =
-            get_type_attribute(entry, &self.units, current_unit).and_then(|(utype_unit, utype_dbginfo_offset)| self.get_type(utype_unit, utype_dbginfo_offset, typereader_data))
+        let (mut signed, opt_ut_size) = if let Ok(Some((utype_unit, utype_dbginfo_offset))) = get_type_attribute(entry, &self.units, current_unit)
+            && let Ok(utype) = self.get_type(utype_unit, utype_dbginfo_offset, typereader_data)
         {
             // get size and signedness of the underlying type
             let signed = matches!(utype.datatype, DbgDataType::Sint8 | DbgDataType::Sint16 | DbgDataType::Sint32 | DbgDataType::Sint64);
@@ -339,6 +346,7 @@ impl DebugDataReader<'_> {
         } else {
             (false, None)
         };
+
         // if no byte size is given, use the size of the underlying type
         let size = opt_size.or(opt_ut_size).ok_or_else(|| "missing enum byte size attribute".to_string())?;
 
@@ -409,8 +417,11 @@ impl DebugDataReader<'_> {
                 let opt_name = get_name_attribute(child_entry, &self.dwarf, unit).map_err(|_| "missing struct/union member name".to_string());
 
                 let mut offset = get_data_member_location_attribute(self, child_entry, unit.encoding(), current_unit).unwrap_or(0);
-                let (new_cur_unit, new_dbginfo_offset) = get_type_attribute(child_entry, &self.units, current_unit)?;
-                if let Ok(mut membertype) = self.get_type(new_cur_unit, new_dbginfo_offset, typereader_data) {
+
+                // get the type of the member
+                if let Some((new_cur_unit, new_dbginfo_offset)) = get_type_attribute(child_entry, &self.units, current_unit)?
+                    && let Ok(mut membertype) = self.get_type(new_cur_unit, new_dbginfo_offset, typereader_data)
+                {
                     // wrap bitfield members in a TypeInfo::Bitfield to store bit_size and bit_offset
                     if let Some(bit_size) = get_bit_size_attribute(child_entry) {
                         membertype = self.get_bitfield_entry(unit, child_entry, &mut offset, bit_size, membertype);
@@ -537,7 +548,11 @@ impl DebugDataReader<'_> {
             if child_entry.tag() == gimli::constants::DW_TAG_inheritance {
                 let data_location =
                     get_data_member_location_attribute(self, child_entry, unit.encoding(), current_unit).ok_or_else(|| "missing byte offset for inherited class".to_string())?;
-                let (new_cur_unit, new_dbginfo_offset) = get_type_attribute(child_entry, &self.units, current_unit)?;
+
+                let Some((new_cur_unit, new_dbginfo_offset)) = get_type_attribute(child_entry, &self.units, current_unit)? else {
+                    // a member whose type is "nothing"? Skip it
+                    continue;
+                };
 
                 let (unit, abbrev) = &self.units[new_cur_unit];
                 let new_unit_offset = new_dbginfo_offset
