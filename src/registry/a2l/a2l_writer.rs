@@ -773,12 +773,12 @@ impl<'a> A2lWriter<'a> {
         false
     }
 
-    fn write_a2l_head(&mut self, project_name: &str, module_name: &str, project_no: &str) -> std::io::Result<()> {
+    fn write_a2l_head(&mut self, project_name: &str, project_description: &str, module_name: &str, project_no: &str) -> std::io::Result<()> {
         writeln!(
             self,
             r#"
 ASAP2_VERSION 1 71
-/begin PROJECT {project_name} ""
+/begin PROJECT {project_name} "{project_description}"
 /begin HEADER "" VERSION "1.0" PROJECT_NO {project_no} /end HEADER
 
 /begin MODULE {module_name} ""
@@ -1063,9 +1063,9 @@ ASAP2_VERSION 1 71
         self.write_all("\n/end MODULE\n/end PROJECT\n".as_bytes())
     }
 
-    pub fn write_a2l(&mut self, project_name: &str, module_name: &str, project_no: &str) -> Result<(), std::io::Error> {
+    pub fn write_a2l(&mut self, project_name: &str, project_description: &str, module_name: &str, project_no: &str) -> Result<(), std::io::Error> {
         assert!(!project_name.is_empty() && !module_name.is_empty() && !project_no.is_empty());
-        self.write_a2l_head(project_name, module_name, project_no)?;
+        self.write_a2l_head(project_name, project_description, module_name, project_no)?;
         self.write_a2l_modpar()?;
         if self.registry.has_xcp_params() {
             self.write_a2l_if_data()?;

@@ -590,7 +590,7 @@ impl Xcp {
                 #[cfg(not(test))]
                 let check = false;
 
-                registry::get().write_a2l(&path, app_name, app_name, "VECTOR", check)?;
+                registry::get().write_a2l(&path, app_name, "", app_name, "VECTOR", check)?;
                 registry::get().has_xcp_params()
             };
 

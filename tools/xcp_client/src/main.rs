@@ -964,7 +964,7 @@ async fn xcp_client(
             if ecu_name.is_empty() {
                 ecu_name = "_".into();
             }
-            reg.write_a2l(&a2l_path, &ecu_name, &ecu_name, "_", true).unwrap();
+            reg.write_a2l(&a2l_path, &ecu_name, "created by xcp_client", &ecu_name, "_", true).unwrap();
             info!("Created A2L file: {}", a2l_path.display());
         }
     }

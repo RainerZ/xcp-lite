@@ -105,14 +105,22 @@ impl Registry {
     /// # Arguments
     /// path - path to A2L file on disk
     /// check - check A2L file after writing (by reading it again with a2lfile crate)
-    pub fn write_a2l<P: AsRef<std::path::Path>>(&self, path: &P, project_name: &str, module_name: &str, project_no: &str, check: bool) -> Result<(), std::io::Error> {
+    pub fn write_a2l<P: AsRef<std::path::Path>>(
+        &self,
+        path: &P,
+        project_name: &str,
+        project_description: &str,
+        module_name: &str,
+        project_no: &str,
+        check: bool,
+    ) -> Result<(), std::io::Error> {
         // Write to A2L file
         log::info!("Write A2L file {:?}", path.as_ref());
         let a2l_file = std::fs::File::create(path)?;
         let writer: &mut dyn std::io::Write = &mut std::io::LineWriter::new(a2l_file);
         let mut a2l_writer = a2l_writer::A2lWriter::new(writer, self);
 
-        a2l_writer.write_a2l(project_name, module_name, project_no)?;
+        a2l_writer.write_a2l(project_name, project_description, module_name, project_no)?;
 
         // Check A2L file just written
         #[cfg(not(feature = "a2l_reader"))]
