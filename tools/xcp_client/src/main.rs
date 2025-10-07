@@ -358,36 +358,78 @@ impl XcpTextDecoder for ServTextDecoder {
 //------------------------------------------------------------------------
 //  ELF reader and A2L creator
 
-// Print summary statistics
-// println!("  Variables: {} unique names", debug_data.variables.len());
-// println!("  Types: {} total types", debug_data.types.len());
-// println!("  Type names: {} named types", debug_data.typenames.len());
-// println!("  Demangled names: {} entries", debug_data.demangled_names.len());
-// println!("  Compilation units: {} units", debug_data.unit_names.len());
-// println!("  Sections: {} sections", debug_data.sections.len());
+fn print_debug_stats(debug_data: &DebugData) {
+    println!("Debug information summary:");
+    println!("  Compilation units: {} units", debug_data.unit_names.len());
+    println!("  Sections: {} sections", debug_data.sections.len());
+    println!("  Type names: {} named types", debug_data.typenames.len());
+    println!("  Types: {} total types", debug_data.types.len());
+    println!("  Demangled names: {} entries", debug_data.demangled_names.len());
 
-// Print compilation units
-// println!("\nCompilation Units:");
-// for (idx, unit_name) in debug_data.unit_names.iter().enumerate() {
-//     println!("  Unit {}: {:?}", idx, unit_name);
-// }
+    let mut variable_count = 0;
+    for (name, var_infos) in &debug_data.variables {
+        variable_count += var_infos.len();
+    }
+    println!("  Variables {} with {} unique names", variable_count, debug_data.variables.len());
+}
 
-// Print sections information
-// println!("\nMemory Sections:");
-// for (name, (addr, size)) in &debug_data.sections {
-//     println!("  Section '{}': address=0x{:08x}, size=0x{:x} ({} bytes)", name, addr, size, size);
-// }
+fn printf_debug_info(debug_data: &DebugData) {
+    //Print compilation units
+    println!("\nCompilation Units (debug_data.unit_names)");
+    for (idx, unit_name) in debug_data.unit_names.iter().enumerate() {
+        println!("  Unit {}: {:?}", idx, unit_name);
+    }
 
-// Print type names
-// println!("\nType Names");
-// for (type_name, type_refs) in &debug_data.typenames {
-//     println!("Type name '{}': {} references", type_name, type_refs.len());
-//     for type_ref in type_refs {
-//         if let Some(type_info) = debug_data.types.get(type_ref) {
-//             println!("  -> type_ref={}, size={} bytes, unit={}", type_ref, type_info.get_size(), type_info.unit_idx);
-//         }
-//     }
-// }
+    //Print sections information
+    println!("\nMemory Sections (debug_data.sections)");
+    for (name, (addr, size)) in &debug_data.sections {
+        println!("  Section '{}': address=0x{:08x}, size=0x{:x} ({} bytes)", name, addr, size, size);
+    }
+
+    //Print type names
+    println!("\nType Names (debug_data.typenames)");
+    for (type_name, type_refs) in &debug_data.typenames {
+        println!("Type name '{}': {} references", type_name, type_refs.len());
+        for type_ref in type_refs {
+            if let Some(type_info) = debug_data.types.get(type_ref) {
+                println!("  -> type_ref={}, size={} bytes, unit={}", type_ref, type_info.get_size(), type_info.unit_idx);
+            }
+        }
+    }
+
+    // Print types
+    println!("\nTypes:");
+    for (type_ref, type_info) in &debug_data.types {
+        let type_name = if let Some(name) = &type_info.name { name } else { "" };
+        let unit_name: &Option<String> = if let Some(unit_name) = debug_data.unit_names.get(type_info.unit_idx) {
+            unit_name
+        } else {
+            &None
+        };
+        println!(
+            "TypeRef {}: name = '{}', size = {} bytes, unit = {} ({:?})",
+            type_ref,
+            type_name,
+            type_info.get_size(),
+            type_info.unit_idx,
+            unit_name
+        );
+        print_type_info(type_info);
+    }
+
+    // Print demangled names
+    println!("\nDemangled Names");
+    for (mangled_name, demangled_name) in &debug_data.demangled_names {
+        println!("  '{}' -> '{}'", mangled_name, demangled_name);
+    }
+
+    // Print variables
+    println!("\nVariables:");
+    for (var_name, var_info) in &debug_data.variables {
+        println!("Variable '{}': {:?}", var_name, var_info);
+    }
+    println!();
+}
 
 fn print_type_info(type_info: &TypeInfo) {
     let type_name = if let Some(name) = &type_info.name { name } else { "" };
@@ -501,6 +543,17 @@ impl ElfReader {
                 }
             }
 
+            DbgDataType::Pointer(pointee, size) => {
+                if *size == 4 {
+                    McValueType::Ulong
+                } else if *size == 8 {
+                    McValueType::Ulonglong
+                } else {
+                    warn!("Unsupported pointer size {} in get_field_type", size);
+                    McValueType::Ulonglong
+                }
+            }
+
             // These type are not a supported value type
             // DbgDataType::Bitfield | DbgDataType::Pointer | DbgDataType::FuncPtr | DbgDataType::Class | DbgDataType::Union | DbgDataType::Enum  | DbgDataType::Other =>
             _ => {
@@ -539,53 +592,100 @@ impl ElfReader {
         members: &IndexMap<String, (TypeInfo, u64)>,
     ) -> Result<(), Box<dyn Error>> {
         let typedef = reg.add_typedef(type_name.clone(), size)?;
-
-        //let mut fields = McTypeDefFieldList::new();
         for (field_name, (type_info, field_offset)) in members {
             let field_dim_type = self.get_dim_type(reg, type_info, object_type);
             let field_mc_support_data = McSupportData::new(object_type);
-            // Borrow checker does not like this
-            //mc_typedef.add_field(field_name.clone(), field_dim_type, field_mc_support_data, (*field_offset).try_into().unwrap())?;
             reg.add_typedef_field(&type_name, field_name.clone(), field_dim_type, field_mc_support_data, (*field_offset).try_into().unwrap())?;
-            // fields.push(McTypeDefField::new(
-            //     field_name.clone(),
-            //     field_dim_type,
-            //     field_mc_support_data,
-            //     (*field_offset).try_into().unwrap(),
-            // ));
         }
-
-        //reg.add_typedef_with_fields(type_name, size, fields)?;
         Ok(())
     }
 
     fn register(&self, reg: &mut Registry, verbose: bool) -> Result<(), Box<dyn Error>> {
         // Load debug information from the ELF file
         info!("Registering debug information");
-        //let debug_data = DebugData::load_dwarf(OsStr::new(file_name), true).map_err(|e| format!("Failed to load debug info from '{}': {}", file_name, e))?;
+
+        let mut next_event_id: u16 = 0;
+        let mut next_segment_number: u16 = 0;
 
         // Iterate over variables
-        if verbose {
-            println!("\nVariables:");
-        }
         for (var_name, var_infos) in &self.debug_data.variables {
-            // Skip internal variables
+            // Skip standard library variables and system/compiler internals (__<name>)s
+            // Skip global XCP variables (gXCP.. and gA2L..)
             if var_name.starts_with("__") || var_name.starts_with("gXcp") || var_name.starts_with("gA2l") {
                 continue;
             }
 
-            // Check for calibration segments
+            // cal__<name> (local scope static, name is calibration segment name and type name)
+            // Calibration segment definition
             if var_name.starts_with("cal__") {
+                assert!(var_infos.len() == 1); // Only one definition allowed
+                let var_info = &var_infos[0];
+                let function_name = if let Some(f) = var_info.function.as_ref() { f.as_str() } else { "" };
+                let unit_idx = var_info.unit_idx;
+
                 // remove the "cal__" prefix
                 let seg_name = var_name.strip_prefix("cal__").unwrap_or(var_name);
+                info!("Calibration segment definition '{}' found in function {}:{}", seg_name, unit_idx, function_name);
                 // Find the segment in the registry
                 if let Some(_seg) = reg.cal_seg_list.find_cal_seg(seg_name) {
                 } else {
-                    warn!("Calibration segment '{}' for calibration variable '{}' not found in registry", seg_name, seg_name);
+                    // length will be determined from variable 'seg_name' which is the default page
+                    let length = if let Some(var_info) = self.debug_data.variables.get(seg_name) {
+                        if let Some(type_info) = self.debug_data.types.get(&var_info[0].typeref) {
+                            type_info.get_size()
+                        } else {
+                            warn!("Could not determine calibration segment length ");
+                            0
+                        }
+                    } else {
+                        warn!("Could not find calibration segment reference page {}", seg_name);
+                        0
+                    };
+                    let addr = var_info.address.try_into().unwrap(); // @@@@ TODO: Handle 64 bit addresses
+                    let addr_ext = 0; // Absolute addressing
+                    reg.cal_seg_list
+                        .add_cal_seg_by_addr(seg_name.to_string(), next_segment_number, addr_ext, addr, length as u32)
+                        .unwrap();
+                    error!(
+                        "Unknown calibration segment '{}':  Created with number={}, addr = {:#x}, length = {:#x}",
+                        seg_name, next_segment_number, addr, length
+                    );
+                    next_segment_number += 1;
                     continue; // skip this variable
                 }
             }
 
+            // evt__<name> (thread local static, name is event name)
+            // Event definitions (thread local static variaables)
+            if var_name.starts_with("evt__") {
+                // remove the "evt__" prefix
+                let evt_name = var_name.strip_prefix("evt__").unwrap_or("unnamed");
+                info!("Event definition for event '{}' found", evt_name);
+                // Find the event in the registry
+                if let Some(_evt) = reg.event_list.find_event(evt_name, 0) {
+                } else {
+                    // @@@@ TODO: Event number unknown !!!!!!!!!!!!!!!
+                    reg.event_list.add_event(McEvent::new(evt_name.to_string(), 0, next_event_id, 0)).unwrap();
+                    error!("Unknown event '{}': Created with event id = {}", evt_name, next_event_id);
+                    next_event_id += 1;
+                    continue; // skip this variable
+                }
+            }
+
+            // trg__<event_name> (thread local static, name is event name)
+            // Event definitions (thread local static variables)
+            if var_name.starts_with("trg__") {
+                assert!(var_infos.len() == 1); // Only one definition allowed
+                let var_info = &var_infos[0];
+                let function_name = if let Some(f) = var_info.function.as_ref() { f.as_str() } else { "" };
+
+                // remove the "trg__" prefix
+                let evt_name = var_name.strip_prefix("trg__").unwrap_or(var_name);
+                info!("Event trigger found in function {}, event name = {}", function_name, evt_name);
+                continue; // skip this variable
+            }
+
+            // daq__<event_name>__<var_name> (local scope static variables)
             // Check for captured variables with format "daq__<event_name>__<var_name>"
             let mut a2l_name = var_name.to_string();
             let mut xcp_event_id = 0u16;
@@ -607,7 +707,15 @@ impl ElfReader {
             }
 
             // Process all variable infos (same name, different types or addresses)
+            if var_infos.is_empty() {
+                warn!("Variable '{}' has no variable info", var_name);
+            }
             for var_info in var_infos {
+                // Register only global variables
+                if var_info.address == 0 {
+                    continue;
+                }
+
                 let a2l_name = a2l_name.clone();
                 let a2l_addr = var_info.address.try_into().unwrap(); // @@@@ TODO: Handle 64 bit addresses
                 let a2l_addr_ext = 0;
@@ -651,24 +759,12 @@ impl ElfReader {
                             let dim_type = self.get_dim_type(reg, type_info, object_type);
                             let _ = reg.instance_list.add_instance(a2l_name, dim_type, McSupportData::new(object_type), mc_addr);
                         }
-
-                        // DbgDataType::Struct { size, members } => {
-                        //     // If the type has a name
-                        //     if let Some(type_name) = type_name {
-                        //         // Register the struct type
-                        //         //self.register_struct(reg, mc_object_type, type_name.clone(), *size as usize, members)?;
-
-                        //         // Register the variable as an instance of the struct type
-                        //         let _ = reg.instance_list.add_instance(
-                        //             a2l_name,
-                        //             McDimType::new(McValueType::new_typedef(type_name.clone()), 1, 1),
-                        //             McSupportData::new(mc_object_type).set_comment("created by xcp_client"),
-                        //             mc_addr,
-                        //         );
-                        //     }
-                        // }
-                        _ => {}
+                        _ => {
+                            warn!("Variable '{}' has unsupported type: {:?}", var_name, &type_info.datatype);
+                        }
                     }
+                } else {
+                    warn!("TypeRef {} of variable '{}' not found in debug info", var_info.typeref, var_name);
                 }
             }
         } // var_infos
@@ -851,9 +947,12 @@ async fn xcp_client(
         // Read binary file if specified and create calibration variables in segments and all global measurement variables
         if !elf_name.is_empty() {
             info!("Reading ELF file: {}", elf_name);
-            //register_elf(&mut reg, &elf_name, verbose)?;
-
             let elf_reader = ElfReader::new(&elf_name).ok_or(format!("Failed to read ELF file '{}'", elf_name))?;
+            if verbose {
+                printf_debug_info(&elf_reader.debug_data);
+            } else {
+                print_debug_stats(&elf_reader.debug_data);
+            }
             elf_reader.register(&mut reg, verbose)?;
         }
 

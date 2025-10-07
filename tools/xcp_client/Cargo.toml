@@ -41,9 +41,6 @@ dead_code = "allow"
 unused_variables = "allow"
 
 [build-dependencies]
-#cc = "1.0"
-#build-info-build = "0.0.40"
-#bindgen = "0.71.1"
 
 
 

@@ -81,6 +81,7 @@ fn load_filedata(filename: &OsStr) -> Result<memmap2::Mmap, String> {
 
 // read the headers and sections of an elf/object file
 fn load_elf_file<'data>(filename: &str, filedata: &'data [u8]) -> Result<object::read::File<'data>, String> {
+    log::info!("Parsing elf file: {}", filename);
     match object::File::parse(filedata) {
         Ok(file) => Ok(file),
         Err(err) => Err(format!("Error: Failed to parse file '{filename}': {err}")),
@@ -98,6 +99,7 @@ fn get_elf_sections(elffile: &object::read::File) -> HashMap<String, (u64, u64)>
             && let Ok(name) = section.name()
         {
             map.insert(name.to_string(), (addr, addr + size));
+            log::info!("elf section: {} @ {addr:x} - {end:x}", name, end = addr + size);
         }
     }
 
@@ -119,6 +121,7 @@ fn verify_dwarf_compile_units(dwarf: &gimli::Dwarf<SliceType>) -> bool {
         units_count += 1;
     }
 
+    log::info!("DWARF compile units: {}", units_count);
     units_count > 0
 }
 
@@ -148,6 +151,8 @@ impl DebugDataReader<'_> {
         let varname_list: Vec<&String> = variables.keys().collect();
         let demangled_names = demangle_cpp_varnames(&varname_list);
 
+        // @@@@
+        log::info!("unit names: {:?}", self.unit_names);
         let mut unit_names = Vec::new();
         std::mem::swap(&mut unit_names, &mut self.unit_names);
 
@@ -161,7 +166,7 @@ impl DebugDataReader<'_> {
         }
     }
 
-    // load all global variables from the dwarf data
+    // load all (global (with address)) variables from the dwarf data
     fn load_variables(&mut self) -> IndexMap<String, Vec<VarInfo>> {
         let mut variables = IndexMap::<String, Vec<VarInfo>>::new();
 
@@ -182,11 +187,22 @@ impl DebugDataReader<'_> {
             // The global variables are among the immediate children of the unit; static variables
             // in functions are declared inside of DW_TAG_subprogram[/DW_TAG_lexical_block]*.
             // We can easily find all of them by using depth-first traversal of the tree
+            // @@@@ And this does not work
             let mut entries_cursor = unit.entries(abbreviations);
             if let Ok(Some((_, entry))) = entries_cursor.next_dfs()
                 && (entry.tag() == gimli::constants::DW_TAG_compile_unit || entry.tag() == gimli::constants::DW_TAG_partial_unit)
             {
-                self.unit_names.push(get_name_attribute(entry, &self.dwarf, unit).ok());
+                let unit_name = match get_name_attribute(entry, &self.dwarf, unit) {
+                    Ok(name) => {
+                        log::info!(" unit name: {}", &name);
+                        Some(name)
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to get unit name: {}", e);
+                        None
+                    }
+                };
+                self.unit_names.push(unit_name);
             }
 
             let mut depth = 0;
@@ -207,6 +223,7 @@ impl DebugDataReader<'_> {
                 debug_assert_eq!(depth as usize, context.len());
 
                 if entry.tag() == gimli::constants::DW_TAG_variable {
+                    /* Global variables only
                     match self.get_global_variable(entry, unit, abbreviations) {
                         Ok(Some((name, typeref, address))) => {
                             let (function, namespaces) = get_varinfo_from_context(&context);
@@ -228,6 +245,26 @@ impl DebugDataReader<'_> {
                             }
                         }
                     }
+                    */
+
+                    match self.get_variable(entry, unit, abbreviations) {
+                        Ok((name, typeref, address)) => {
+                            let (function, namespaces) = get_varinfo_from_context(&context);
+                            variables.entry(name).or_default().push(VarInfo {
+                                address, // may be 0 for local variables
+                                typeref,
+                                unit_idx,
+                                function,
+                                namespaces,
+                            });
+                        }
+                        Err(errmsg) => {
+                            if self.verbose {
+                                let offset = entry.offset().to_debug_info_offset(unit).unwrap_or(gimli::DebugInfoOffset(0)).0;
+                                println!("Error loading variable @{offset:x}: {errmsg}");
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -235,8 +272,10 @@ impl DebugDataReader<'_> {
         variables
     }
 
+    // Return global variable information
     // an entry of the type DW_TAG_variable only describes a global variable if there is a name, a type and an address
     // this function tries to get all three and returns them
+    // returns None if the entry does not describe a global variable
     fn get_global_variable(
         &self,
         entry: &DebuggingInformationEntry<SliceType, usize>,
@@ -268,12 +307,54 @@ impl DebugDataReader<'_> {
                 }
             }
             None => {
-                // it's a local variable, no error
                 // @@@@ TODO: implement local variable handling
                 let name = get_name_attribute(entry, &self.dwarf, unit).ok().unwrap_or("unknown".to_string());
-                log::warn!("Ignored local variable: {}", name);
-                Ok(None)
+                // If name starts with cal__, seg__ or evt__, it's a XCPlite marker variable, don't skip it
+                if let Some(prefix) = name
+                    .strip_prefix("daq__")
+                    .or_else(|| name.strip_prefix("trg__"))
+                    .or_else(|| name.strip_prefix("evt__"))
+                    .or_else(|| name.strip_prefix("cal__"))
+                {
+                    log::trace!("Found XCPlite marker variable: {}", name);
+                    Ok(Some((name, 0, 0)))
+                } else {
+                    // it's a local variable, skip, no error
+                    log::debug!("Ignored local variable: {}", name);
+                    Ok(None)
+                }
             }
+        }
+    }
+
+    // Return variable information
+    // returns name, type reference and address
+    // address may be 0 if a local variable is requested
+    fn get_variable(
+        &self,
+        entry: &DebuggingInformationEntry<SliceType, usize>,
+        unit: &UnitHeader<SliceType>,
+        abbrev: &gimli::Abbreviations,
+    ) -> Result<(String, usize, u64), String> {
+        let address = get_location_attribute(self, entry, unit.encoding(), &self.units.list.len() - 1).unwrap_or(0);
+
+        // if debugging information entry A has a DW_AT_specification or DW_AT_abstract_origin attribute
+        // pointing to another debugging information entry B, any attributes of B are considered to be part of A.
+        if let Some(specification_entry) = get_specification_attribute(entry, unit, abbrev) {
+            // the entry refers to a specification, which contains the name and type reference
+            let name = get_name_attribute(&specification_entry, &self.dwarf, unit)?;
+            let typeref = get_typeref_attribute(&specification_entry, unit)?;
+            Ok((name, typeref, address))
+        } else if let Some(abstract_origin_entry) = get_abstract_origin_attribute(entry, unit, abbrev) {
+            // the entry refers to an abstract origin, which should also be considered when getting the name and type ref
+            let name = get_name_attribute(entry, &self.dwarf, unit).or_else(|_| get_name_attribute(&abstract_origin_entry, &self.dwarf, unit))?;
+            let typeref = get_typeref_attribute(entry, unit).or_else(|_| get_typeref_attribute(&abstract_origin_entry, unit))?;
+            Ok((name, typeref, address))
+        } else {
+            // usual case: there is no specification or abstract origin and all info is part of this entry
+            let name = get_name_attribute(entry, &self.dwarf, unit)?;
+            let typeref = get_typeref_attribute(entry, unit)?;
+            Ok((name, typeref, address))
         }
     }
 }
