@@ -1,10 +1,10 @@
 [package]
 name = "xcp_client"
-version = "0.9.2"
+version = "0.9.3"
 edition = "2024"
 resolver = "2"
 authors = ["RainerZ"]
-description = "Rust implementation of ASAM XCP"
+description = "Rust wrapper for XCPlite an implementation of ASAM XCP in C"
 readme = "README.md"
 keywords = ["XCP","ASAM","CANape","A2L"]
 license = "MIT"

@@ -24,6 +24,8 @@ pub struct McEvent {
     pub index: u16,                // Instance index 1..n, 0 if single instance
     pub id: u16,                   // Unique event id number used in A2L and XCP protocol, unique event identifier for an application
     pub target_cycle_time_ns: u32, // 0 -> no cycle time = sporadic event
+    pub function: Option<String>,  // Name of the function where the event is defined, used to find local variables for this event
+    pub unit: Option<usize>,       // Index of the compilation unit where the event is defined, used to find local variables for this event
 }
 
 impl McEvent {
@@ -35,6 +37,8 @@ impl McEvent {
             index,
             id,
             target_cycle_time_ns,
+            function: None,
+            unit: None,
         }
     }
 
@@ -116,6 +120,26 @@ impl McEventList {
     /// find an event by id
     pub fn find_event_id(&self, id: u16) -> Option<&McEvent> {
         self.0.iter().find(|e| e.id == id)
+    }
+
+    /// Find an event by unit index and function name
+    /// This is used to find local variables for this event
+    /// If multiple events are defined in the same function, the first event is returned
+    pub fn find_event_by_location(&self, unit_idx: usize, function: &str) -> Option<&McEvent> {
+        self.0.iter().find(|e| e.unit == Some(unit_idx) && e.function.as_deref() == Some(function))
+    }
+
+    /// Store the unit index and function name where the event is defined
+    /// This is used to find local variables for this event
+    /// Multiple events may be defined in the same function
+    pub fn set_event_location(&mut self, name: &str, unit_idx: usize, function: &str) -> Result<(), RegistryError> {
+        if let Some(event) = self.0.iter_mut().find(|e| e.name == name) {
+            event.unit = Some(unit_idx);
+            event.function = Some(function.to_string());
+            Ok(())
+        } else {
+            Err(RegistryError::NotFound(name.to_string()))
+        }
     }
 }
 

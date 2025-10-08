@@ -1,13 +1,17 @@
 //-----------------------------------------------------------------------------
-// xcp_client - XCP client example
-// This tool demonstrates how to to use the xcp_client library to
-//  connect to an XCP server
-//  load or upload an A2L file
-//  read and write calibration variables,
-//  configure and aquire measurment variables.
+// xcp_client - XCP test tool
 //
-// Run:
-// cargo r -p xcp_client -- -h
+// - Connect to XCP on Ethernet servers via TCP or UDP
+// - Upload A2L files from XCP servers (GET_ID command)
+// - Create complete A2L files from ELF debug information the XCP server event and memory segment information
+// - Create A2L templates from the XCP server event and memory segment information
+// - Read and write calibration variables (CAL)
+// - Configure and acquire measurement data (DAQ)
+// - List available variables and parameters with regex patterns
+// - Execute test sequences
+//
+// xcp_client --help
+//-----------------------------------------------------------------------------
 
 use indexmap::IndexMap;
 use parking_lot::Mutex;
@@ -15,6 +19,7 @@ use std::ffi::OsStr;
 use std::net::Ipv4Addr;
 
 use std::{error::Error, sync::Arc};
+
 use xcp_lite::registry::{McAddress, McDimType, McEvent, McObjectType, McSupportData, McValueType, Registry};
 
 mod xcp_client;
@@ -35,7 +40,30 @@ use debuginfo::{DbgDataType, DebugData, TypeInfo};
 use clap::Parser;
 
 #[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
+#[command(name = "xcp_client")]
+#[command(about = concat!("XCP client v", env!("CARGO_PKG_VERSION"), " for testing XCP servers and managing A2L files"))]
+#[command(long_about = concat!("XCP client v", env!("CARGO_PKG_VERSION"), " for testing XCP servers and managing A2L files.
+
+This tool can:
+- Connect to XCP on Ethernet servers via TCP or UDP
+- Upload A2L files from XCP servers (GET_ID command)
+- Create complete A2L files from ELF debug information the XCP server event and memory segment information
+- Create A2L templates from the XCP server event and memory segment information
+- Read and write calibration variables (CAL)
+- Configure and acquire measurement data (DAQ)
+- List available variables and parameters with regex patterns
+- Execute test sequences
+
+Examples:
+  xcp_client --tcp --dest-addr 192.168.1.100 --port 5555 --upload-a2l
+  xcp_client --dest-addr 192.168.1.100:8080 --upload-a2l
+  xcp_client --bind-addr 192.168.1.50 --dest-addr 192.168.1.100 --upload-a2l
+  xcp_client --mea \".*temperature.*\" --time 10
+  xcp_client --elf myprogram.elf --create-a2l
+  xcp_client --cal variable_name 42.5
+  xcp_client --list-mea \"sensor.*\" --list-cal \"param.*\"
+  xcp_client --test"))]
+#[command(version)]
 struct Args {
     // -l --log-level
     /// Log level (Off=0, Error=1, Warn=2, Info=3, Debug=4, Trace=5)
@@ -49,18 +77,18 @@ struct Args {
     verbose: bool,
 
     // -d --dest_addr
-    /// XCP server address
-    #[arg(short, long, default_value = "127.0.0.1:5555")]
+    /// XCP server address (IP address or IP:port). If port is omitted, uses --port parameter
+    #[arg(short, long, default_value = "127.0.0.1")]
     dest_addr: String,
 
     // -p --port
-    /// XCP server port number
+    /// XCP server port number (used when --dest-addr doesn't include port)
     #[arg(short, long, default_value_t = 5555)]
     port: u16,
 
     // -b --bind-addr
-    /// Bind address, master port number
-    #[arg(short, long, default_value = "0.0.0.0:9999")]
+    /// Bind address (IP address or IP:port). If port is omitted, system assigns an available port
+    #[arg(short, long, default_value = "0.0.0.0")]
     bind_addr: String,
 
     // --tcp
@@ -78,16 +106,16 @@ struct Args {
     #[arg(short, long, default_value = "")]
     a2l: String,
 
-    // --upload-a2l
+    // -u, --upload-a2l
     /// Upload A2L file from XCP server
     /// Requires that the XCP server supports GET_ID A2L upload
-    #[arg(long, default_value_t = false)]
+    #[arg(short, long, default_value_t = false)]
     upload_a2l: bool,
 
-    // --create-a2l
+    // -c, --create-a2l
     /// Build an A2L file template from XCP server information about events and memory segments
     /// Requires that the XCP server supports the GET_EVENT_INFO and GET_SEGMENT_INFO commands
-    #[arg(long, default_value_t = false)]
+    #[arg(short, long, default_value_t = false)]
     create_a2l: bool,
 
     // -e, --elf
@@ -96,15 +124,10 @@ struct Args {
     #[arg(short, long, default_value = "")]
     elf: String,
 
-    // --list_mea
+    // --list-mea
     /// Lists all specified measurement variables (regex) found in the A2L file
-    #[clap(long, default_value = "")]
+    #[arg(long, default_value = "")]
     list_mea: String,
-
-    // --list-cal
-    /// Lists all specified calibration variables (regex) found in the A2L file
-    #[clap(long, default_value = "")]
-    list_cal: String,
 
     // -m --mea
     /// Specify variable names for DAQ measurement (list), may be list of names separated by space or single regular expressions (e.g. ".*")
@@ -120,9 +143,14 @@ struct Args {
     #[arg(short, long, default_value_t = 0)]
     time: u64,
 
+    // --list-cal
+    /// Lists all specified calibration variables (regex) found in the A2L file
+    #[arg(long, default_value = "")]
+    list_cal: String,
+
     // --cal
     /// Set calibration variable to a value (format: "variable_name value")
-    #[clap(long, value_names = ["NAME", "VALUE"], num_args = 2)]
+    #[arg(long, value_names = ["NAME", "VALUE"], num_args = 2)]
     cal: Vec<String>,
 
     /// --test
@@ -443,8 +471,11 @@ fn printf_debug_info(debug_data: &DebugData, verbose: bool) {
         for (var_name, var_info) in &debug_data.variables {
             println!("Variable '{}': ", var_name);
             for var in var_info {
-                let unit_name = make_simple_unit_name(debug_data, var.unit_idx);
-                let unit_name = if let Some(name) = unit_name { name } else { "<unnamed>".to_string() };
+                let unit_name = if let Some(name) = make_simple_unit_name(debug_data, var.unit_idx) {
+                    name
+                } else {
+                    "<unnamed>".to_string()
+                };
                 let function_name = if let Some(name) = &var.function { name } else { "<global>" };
                 let name_space = if var.namespaces.len() > 0 { var.namespaces.join("::") } else { "".to_string() };
                 print!(
@@ -632,9 +663,8 @@ impl ElfReader {
         Ok(())
     }
 
-    fn register(&self, reg: &mut Registry, verbose: bool) -> Result<(), Box<dyn Error>> {
-        // Load debug information from the ELF file
-        info!("Registering debug information");
+    fn register_segments_and_events(&self, reg: &mut Registry, verbose: bool) -> Result<(), Box<dyn Error>> {
+        info!("Registering segment and event information");
 
         let mut next_event_id: u16 = 0;
         let mut next_segment_number: u16 = 0;
@@ -650,16 +680,22 @@ impl ElfReader {
             // cal__<name> (local scope static, name is calibration segment name and type name)
             // Calibration segment definition
             if var_name.starts_with("cal__") {
-                assert!(var_infos.len() == 1); // Only one definition allowed
+                assert!(var_infos.len() == 1); // @@@@ Only one definition allowed
                 let var_info = &var_infos[0];
                 let function_name = if let Some(f) = var_info.function.as_ref() { f.as_str() } else { "" };
                 let unit_idx = var_info.unit_idx;
+                let unit_name = if let Some(name) = make_simple_unit_name(&self.debug_data, unit_idx) {
+                    name
+                } else {
+                    format!("{unit_idx}")
+                };
 
                 // remove the "cal__" prefix
                 let seg_name = var_name.strip_prefix("cal__").unwrap_or(var_name);
-                info!("Calibration segment definition '{}' found in function {}:{}", seg_name, unit_idx, function_name);
+                info!("Calibration segment definition '{}' found in {}:{}", seg_name, unit_name, function_name);
                 // Find the segment in the registry
                 if let Some(_seg) = reg.cal_seg_list.find_cal_seg(seg_name) {
+                    continue; // segment already exists
                 } else {
                     // length will be determined from variable 'seg_name' which is the default page
                     let length = if let Some(var_info) = self.debug_data.variables.get(seg_name) {
@@ -692,9 +728,17 @@ impl ElfReader {
             if var_name.starts_with("evt__") {
                 // remove the "evt__" prefix
                 let evt_name = var_name.strip_prefix("evt__").unwrap_or("unnamed");
-                info!("Event definition for event '{}' found", evt_name);
+                let evt_unit_idx = var_infos[0].unit_idx;
+                let evt_unit_name = if let Some(name) = make_simple_unit_name(&self.debug_data, evt_unit_idx) {
+                    name
+                } else {
+                    format!("{evt_unit_idx}")
+                };
+                let evt_function = if let Some(f) = var_infos[0].function.as_ref() { f.as_str() } else { "" };
+                info!("Event definition for event '{}' found in {}:{}", evt_name, evt_unit_name, evt_function);
                 // Find the event in the registry
                 if let Some(_evt) = reg.event_list.find_event(evt_name, 0) {
+                    continue; // event already exists
                 } else {
                     // @@@@ TODO: Event number unknown !!!!!!!!!!!!!!!
                     reg.event_list.add_event(McEvent::new(evt_name.to_string(), 0, next_event_id, 0)).unwrap();
@@ -703,24 +747,87 @@ impl ElfReader {
                     continue; // skip this variable
                 }
             }
+        }
+        Ok(())
+    }
+
+    fn register_event_locations(&self, reg: &mut Registry, verbose: bool) -> Result<(), Box<dyn Error>> {
+        info!("Registering event locations");
+
+        // Iterate over variables
+        for (var_name, var_infos) in &self.debug_data.variables {
+            // Skip standard library variables and system/compiler internals (__<name>)s
+            // Skip global XCP variables (gXCP.. and gA2L..)
+            if var_name.starts_with("__") || var_name.starts_with("gXcp") || var_name.starts_with("gA2l") {
+                continue;
+            }
 
             // trg__<event_name> (thread local static, name is event name)
             // Event definitions (thread local static variables)
             if var_name.starts_with("trg__") {
                 assert!(var_infos.len() == 1); // Only one definition allowed
                 let var_info = &var_infos[0];
-                let function_name = if let Some(f) = var_info.function.as_ref() { f.as_str() } else { "" };
 
-                // remove the "trg__" prefix
-                let evt_name = var_name.strip_prefix("trg__").unwrap_or(var_name);
-                info!("Event trigger found in function {}, event name = {}", function_name, evt_name);
+                // Get the event name from format  "trg__<tag>__<eventname>" prefix
+                let s = var_name.strip_prefix("trg__").unwrap_or("unnamed");
+                let mut parts = s.split("__");
+                let evt_tag = parts.next().unwrap_or("");
+                let evt_name = parts.next().unwrap_or("");
+
+                let evt_unit_idx = var_infos[0].unit_idx;
+                let evt_unit_name = if let Some(name) = make_simple_unit_name(&self.debug_data, evt_unit_idx) {
+                    name
+                } else {
+                    format!("{evt_unit_idx}")
+                };
+                let evt_function = if let Some(f) = var_info.function.as_ref() { f.as_str() } else { "" };
+                info!("Event {} trigger found in {}:{}", evt_name, evt_unit_name, evt_function);
+
+                // Find the event in the registry
+                if let Some(_evt) = reg.event_list.find_event(evt_name, 0) {
+                    // Store the unit and function name for this event trigger
+                    match reg.event_list.set_event_location(evt_name, evt_unit_idx, evt_function) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            error!("Failed to set event location for event '{}': {}", evt_name, e);
+                        }
+                    }
+                } else {
+                    error!("Event '{}' for trigger not found in registry", evt_name);
+                }
                 continue; // skip this variable
             }
+        }
+        Ok(())
+    }
+
+    fn register_variables(&self, reg: &mut Registry, verbose: bool) -> Result<(), Box<dyn Error>> {
+        // Load debug information from the ELF file
+        info!("Registering variables");
+
+        // Iterate over variables
+        for (var_name, var_infos) in &self.debug_data.variables {
+            // Skip standard library variables and system/compiler internals (__<name>)s
+            // Skip global XCP variables (gXCP.. and gA2L..) and special marker variables (cal__, evt__, trg__)
+            if var_name.starts_with("__")
+                || var_name.starts_with("gXcp")
+                || var_name.starts_with("gA2l")
+                || var_name.starts_with("cal__")
+                || var_name.starts_with("evt__")
+                || var_name.starts_with("trg__")
+            {
+                continue;
+            }
+
+            if var_infos.is_empty() {
+                warn!("Variable '{}' has no variable info", var_name);
+            }
+
+            let mut a2l_name = var_name.to_string();
+            let mut xcp_event_id = 0; // default event id is 0, async event in transmit thread
 
             // daq__<event_name>__<var_name> (local scope static variables)
             // Check for captured variables with format "daq__<event_name>__<var_name>"
-            let mut a2l_name = var_name.to_string();
-            let mut xcp_event_id = 0u16;
             if var_name.starts_with("daq__") {
                 // remove the "daq__" prefix
                 let new_name = var_name.strip_prefix("daq__").unwrap_or(var_name);
@@ -738,21 +845,58 @@ impl ElfReader {
                 }
             }
 
-            // Process all variable infos (same name, different types or addresses)
-            if var_infos.is_empty() {
-                warn!("Variable '{}' has no variable info", var_name);
-            }
+            // Process all variable with this name in different scopes and namesspaces
             for var_info in var_infos {
-                // Register only global variables
-                if var_info.address.0 != 0 || var_info.address.1 == 0 {
+                // @@@@ TODO: Create only variables from specified compilation unit
+                if var_info.unit_idx != 0 {
                     continue;
                 }
 
-                let a2l_name = a2l_name.clone();
-                let a2l_addr = var_info.address.1.try_into().unwrap(); // @@@@ TODO: Handle 64 bit addresses
-                let a2l_addr_ext = var_info.address.0;
+                // @@@@ Create an option for this
+                // Register only global variables
+                // if var_info.address.0 != 0 || var_info.address.1 == 0 {
+                //     continue;
+                // }
 
-                // Check if the address is in a calibration segment
+                // Address encoder
+                let a2l_addr_ext: u8 = var_info.address.0;
+                let a2l_addr: u32 = if a2l_addr_ext == 0 {
+                    // Encode absolute addressing mode
+                    if var_info.address.1 >= 0xFFFFFFFF {
+                        error!(
+                            "Variable '{}' skipped, has 64 bit address {:#x}, which does not fit the 32 bit XCP address range",
+                            var_name, var_info.address.1
+                        );
+                        continue; // skip this variable
+                    } else {
+                        var_info.address.1 as u32
+                    }
+                } else if a2l_addr_ext == 2 {
+                    // Find an event id for this local variable
+                    let var_function = if let Some(f) = var_info.function.as_ref() { f.as_str() } else { "" };
+                    if let Some(event) = reg.event_list.find_event_by_location(var_info.unit_idx, var_function) {
+                        // Set the event id for this function
+                        // Prefix the variable with the function name
+                        xcp_event_id = event.id;
+                        a2l_name = format!("{}.{}", var_function, var_name);
+
+                        // Encode dyn addressing mode from signed offset and event id
+                        let offset: i16 = (var_info.address.1 as i64 - 0x80000000).try_into().unwrap();
+                        ((offset as u32) & 0xFFFF) | ((event.id as u32) << 16)
+                    } else {
+                        error!("Variable '{}' skipped, could not find event for dyn addressing mode", var_name);
+                        continue;
+                    }
+                }
+                // @@@@ TODO: Handle other address extensions
+                else {
+                    error!("Variable '{}' skipped, has unsupported address extension {:#x}", var_name, a2l_addr_ext);
+                    continue; // skip this variable
+                };
+
+                // Check if the absolute address is in a calibration segment
+                // Create a McAddress with or without event id
+                // @@@@ TODO event id ?????
                 let (object_type, mc_addr) = if reg.cal_seg_list.find_cal_seg_by_address(a2l_addr).is_some() {
                     (McObjectType::Characteristic, McAddress::new_a2l(a2l_addr, a2l_addr_ext))
                 } else {
@@ -763,12 +907,7 @@ impl ElfReader {
                 if let Some(type_info) = self.debug_data.types.get(&var_info.typeref) {
                     // Print variable info
                     if verbose {
-                        println!("  {}: addr = {}:0x{:08x}", a2l_name, var_info.address.0, var_info.address.1);
-                        //println!("  {}: addr = 0x{:08x}, typeref = {}, unit = {}",a2l_name, var_info.address, var_info.typeref, var_info.unit_idx);
-                    }
-
-                    // Print type info
-                    if verbose {
+                        println!("  {}: addr = {}:0x{:08x}", var_name, a2l_addr_ext, a2l_addr);
                         print_type_info(type_info);
                     }
 
@@ -789,7 +928,7 @@ impl ElfReader {
                         | DbgDataType::Array { .. }
                         | DbgDataType::Struct { .. } => {
                             let dim_type = self.get_dim_type(reg, type_info, object_type);
-                            let _ = reg.instance_list.add_instance(a2l_name, dim_type, McSupportData::new(object_type), mc_addr);
+                            let _ = reg.instance_list.add_instance(a2l_name.clone(), dim_type, McSupportData::new(object_type), mc_addr);
                         }
                         _ => {
                             warn!("Variable '{}' has unsupported type: {:?}", var_name, &type_info.datatype);
@@ -832,10 +971,12 @@ async fn xcp_client(
     // A2L default name
     let a2l_default_name = "xcp_client".to_string();
 
+    //----------------------------------------------------------------
     // Connect the XCP server if required
     let go_online = tcp || udp || upload_a2l || !measurement_list.is_empty() || !cal_args.is_empty();
     if go_online {
         // Connect to the XCP server
+        // Print protocol information
         info!("XCP Connect using {}", if tcp { "TCP" } else { "UDP" });
         let daq_decoder = Arc::new(Mutex::new(DaqDecoder::new()));
         xcp_client.connect(Arc::clone(&daq_decoder), ServTextDecoder::new()).await?;
@@ -858,7 +999,7 @@ async fn xcp_client(
         info!("XCP FREEZE_SUPPORTED = {}", xcp_client.freeze_supported);
         info!("XCP MAX_EVENTS = {}", xcp_client.max_events);
 
-        // Get target name
+        // Get target ECU name
         let res = xcp_client.get_id(XCP_IDT_ASCII).await;
         ecu_name = match res {
             Ok((_, Some(id))) => id,
@@ -888,13 +1029,15 @@ async fn xcp_client(
         };
     } // go online
 
+    //----------------------------------------------------------------
+
     // Create a new empty A2L registry
     let mut reg = xcp_lite::registry::Registry::new();
     if !ecu_name.is_empty() {
         reg.set_app_info(ecu_name.clone(), "-", 0);
     }
 
-    // Set A2L default file path to given command line argument 'a2l' or target name 'ecu_name' if available
+    // Set A2L default file path to given command line argument 'a2l' or to target name 'ecu_name' if available
     let mut a2l_path = std::path::Path::new(if !a2l_name.is_empty() {
         &a2l_name
     } else if !ecu_name.is_empty() {
@@ -904,11 +1047,12 @@ async fn xcp_client(
     })
     .with_extension("a2l");
 
+    //----------------------------------------------------------------
     // Upload A2L the file from XCP server and load it into the registry
     if upload_a2l {
         info!("Upload A2L file from XCP server");
 
-        // Get A2L name from XCP server and adjust a2l_path construct from command line argument
+        // Get A2L name from XCP server and use it instead of a2l_path from command line argument
         // If upload A2L is supported, ecu should provide the ASAM name with GET_ID XCP_IDT_ASAM_NAME command
         if a2l_name.is_empty() {
             let res = xcp_client.get_id(XCP_IDT_ASAM_NAME).await;
@@ -938,16 +1082,17 @@ async fn xcp_client(
         // Read the A2L file into a registry
         // @@@@ TODO xcp_client does not support arrays, instances and typedefs yet, flatten the registry and mangle the names
         reg.load_a2l(&a2l_path, true, true, true, true)?;
-
+    }
+    //----------------------------------------------------------------
     // If an ELF file is specified create an A2L file from the XCP server information and the ELF file
     // If option create-a2l is specified and no ELF file, create a A2L template from XCP server information
     // Read segment and event information obtained from the XCP server into registry
     // Add measurement and calibration variables from ELF file if specified
-    } else if create_a2l || !elf_name.is_empty() {
+    else if create_a2l || !elf_name.is_empty() {
         let mode = if xcp_client.is_connected() {
             if !elf_name.is_empty() {
                 info!(
-                    "Generate A2L file {} from XCP server event and segment information and elf/dwarf information",
+                    "Generate A2L file {} from connected XCP server event and segment information and elf/dwarf information",
                     a2l_path.display()
                 );
                 "online+elf/dwarf"
@@ -956,14 +1101,14 @@ async fn xcp_client(
                 "online"
             }
         } else {
-            info!("Generate A2L file {} from elf/dwarf information", a2l_path.display());
+            info!("Generate A2L file {} from elf/dwarf information, no connected XCP server", a2l_path.display());
             "elf/dwarf"
         };
 
         reg.set_vector_xcp_mode(false); // Don't activate standard xcp-lite addressing modes and EPK segment
         //reg.set_app_version(epk, 0x80000000); // @@@@ TODO
 
-        // Set registry XCP default transport layer informations
+        // Set registry XCP default transport layer informations for A2L file
         let protocol = if tcp { "TCP" } else { "UDP" };
         let addr = dest_addr.ip();
         let ipv4_addr = match addr {
@@ -973,18 +1118,21 @@ async fn xcp_client(
         let port: u16 = dest_addr.port();
         reg.set_xcp_params(protocol, ipv4_addr, port);
 
+        // If there is an ECU online, get event and segment information via XCP protocol
         if xcp_client.is_connected() {
+            info!("Getting event and segment information from connected XCP server");
+
             // Get event information
             for i in 0..xcp_client.max_events {
                 let name = xcp_client.get_daq_event_info(i).await?;
-                info!("Event {}: {}", i, name);
+                info!(" Event {}: {}", i, name);
                 reg.event_list.add_event(McEvent::new(name, 0, i, 0)).unwrap();
             }
 
             // Get segment and page information
             for i in 0..xcp_client.max_segments {
                 let (addr_ext, addr, length, name) = xcp_client.get_segment_info(i).await?;
-                info!("Segment {}: {} addr={}:0x{:08X} length={} ", i, name, addr_ext, addr, length);
+                info!(" Segment {}: {} addr={}:0x{:08X} length={} ", i, name, addr_ext, addr, length);
                 // Segment relative addressing
                 // reg.cal_seg_list.add_cal_seg(name, i as u16, length as u32).unwrap();
                 // Absolute addressing
@@ -993,28 +1141,32 @@ async fn xcp_client(
         }
 
         // Read binary file if specified and create calibration variables in segments and all global measurement variables
+        // If events and calibration segments are defined in the ELF file, they must match the XCP server information
+        // If not they are created, but with dummy event id and segment number !!!!!!!!
+        // There are warnings in this case
         if !elf_name.is_empty() {
             info!("Reading ELF file: {}", elf_name);
             let elf_reader = ElfReader::new(&elf_name).ok_or(format!("Failed to read ELF file '{}'", elf_name))?;
-
             printf_debug_info(&elf_reader.debug_data, verbose);
-
-            elf_reader.register(&mut reg, verbose)?;
+            elf_reader.register_segments_and_events(&mut reg, verbose)?;
+            elf_reader.register_event_locations(&mut reg, verbose)?;
+            elf_reader.register_variables(&mut reg, verbose)?;
         }
 
-        // Write the generated A2L file
+        // Write the registry to A2L file
         if !a2l_path.as_os_str().is_empty() {
             if a2l_path.exists() {
                 warn!("Overwriting existing A2L file: {}", a2l_path.display());
             }
             if ecu_name.is_empty() {
-                ecu_name = "_".into();
+                ecu_name = "project_name".into();
             }
-            reg.write_a2l(&a2l_path, format!("xcp_client A2L creator in {mode} mode").as_str(), &ecu_name, "", &ecu_name, "_", true)
-                .unwrap();
-            info!("Created A2L file: {} in {}", a2l_path.display(), mode);
+            let title_info = format!("xcp_client A2L creator in {} mode", mode);
+            reg.write_a2l(&a2l_path, title_info.as_str(), &ecu_name, "", &ecu_name, "_", true).unwrap();
+            info!("Created A2L file: {} in {} mode", a2l_path.display(), mode);
         }
     }
+    //----------------------------------------------------------------
     // Load existing A2L file into registry
     else {
         info!("Using existing A2L file: {} ({})", a2l_name, a2l_path.display());
@@ -1180,6 +1332,24 @@ async fn xcp_client(
 }
 
 //------------------------------------------------------------------------
+// Helper function to parse destination address with flexible port handling
+
+fn parse_dest_addr(dest_addr: &str, default_port: u16) -> Result<std::net::SocketAddr, Box<dyn Error>> {
+    // Try to parse as a complete socket address first (IP:port)
+    if let Ok(addr) = dest_addr.parse::<std::net::SocketAddr>() {
+        return Ok(addr);
+    }
+
+    // If that fails, try to parse as just an IP address and add the default port
+    if let Ok(ip) = dest_addr.parse::<std::net::IpAddr>() {
+        return Ok(std::net::SocketAddr::new(ip, default_port));
+    }
+
+    // If both fail, return an error
+    Err(format!("Invalid destination address: '{}'. Expected format: 'IP' or 'IP:port'", dest_addr).into())
+}
+
+//------------------------------------------------------------------------
 // Main function
 
 #[tokio::main]
@@ -1199,9 +1369,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .format_target(false)
         .init();
 
-    // Parse IP addresses
-    let dest_addr: std::net::SocketAddr = args.dest_addr.parse().map_err(|e| format!("{}", e))?;
-    let local_addr: std::net::SocketAddr = args.bind_addr.parse().map_err(|e| format!("{}", e))?;
+    // Parse IP addresses with flexible port handling
+    let dest_addr: std::net::SocketAddr = parse_dest_addr(&args.dest_addr, args.port)?;
+    let local_addr: std::net::SocketAddr = parse_dest_addr(&args.bind_addr, 0)?;
     info!("XCP server dest addr: {}", dest_addr);
     info!("XCP client local bind addr: {}", local_addr);
 

@@ -332,7 +332,7 @@ fn evaluate_exprloc(
                 // a variable in the stack frame of a function.
                 // @@@@ xcp_client: allow framepointer relative addresses
                 addr_ext = 2;
-                eval_result = evaluation.resume_with_frame_base(0x8000000000000000).ok()?;
+                eval_result = evaluation.resume_with_frame_base(0x80000000).ok()?;
             }
             gimli::EvaluationResult::RequiresRegister { .. } => {
                 // the value is relative to a register (e.g. the stack base)

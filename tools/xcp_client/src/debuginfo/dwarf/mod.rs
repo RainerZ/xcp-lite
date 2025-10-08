@@ -246,13 +246,7 @@ impl DebugDataReader<'_> {
                     // @@@@ xcp_client: Get all variables, including local variables
                     match self.get_variable(entry, unit, abbreviations) {
                         Ok((name, typeref, address)) => {
-                            // @@@@ xcp_client: Get global variables, including special local variables used by the xcp_client creator
-                            //match self.get_global_variable(entry, unit, abbreviations) {
-                            //    Ok(None) => {
-                            //        // unremarkable, the variable is not a global variable
-                            //    }
-                            //    Ok(Some((name, typeref, address))) => {
-                            // @@@@ xcp_client: Skip internal compiler variables starting with "__"
+                            // @@@@ xcp_client: Get all variables, filter out only internal variables starting with "__"
                             if !name.starts_with("__") {
                                 let (function, namespaces) = get_varinfo_from_context(&context);
                                 variables.entry(name).or_default().push(VarInfo {
