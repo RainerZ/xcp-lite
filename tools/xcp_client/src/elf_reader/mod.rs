@@ -13,6 +13,7 @@ use xcp_lite::registry::{McAddress, McDimType, McEvent, McObjectType, McSupportD
 // Copyright (c) DanielT
 mod debuginfo;
 use debuginfo::{DbgDataType, DebugData, TypeInfo};
+mod csa;
 
 /*
 
@@ -436,8 +437,9 @@ impl ElfReader {
 
                 // Find the event in the registry
                 if let Some(_evt) = reg.event_list.find_event(evt_name, 0) {
-                    // Store the unit and function name for this event trigger
-                    match reg.event_list.set_event_location(evt_name, evt_unit_idx, evt_function) {
+                    // Store the unit and function name and cananical stack frame address offset for this event trigger
+                    let evt_csa: i32 = 0; // @@@@ TODO: Get from variable info ????
+                    match reg.event_list.set_event_location(evt_name, evt_unit_idx, evt_function, evt_csa) {
                         Ok(_) => {}
                         Err(e) => {
                             error!("Failed to set event location for event '{}': {}", evt_name, e);
@@ -529,10 +531,18 @@ impl ElfReader {
                         // Set the event id for this function
                         // Prefix the variable with the function name
                         xcp_event_id = event.id;
+                        let csa: i64 = event.csa as i64;
                         a2l_name = format!("{}.{}", var_function, var_name);
-
+                        info!(
+                            "Variable '{}' is local to function '{}', using event id = {}, dwarf_offset = {} csa = {}",
+                            var_name,
+                            var_function,
+                            xcp_event_id,
+                            (var_info.address.1 as i64 - 0x80000000) as i64,
+                            csa
+                        );
                         // Encode dyn addressing mode from signed offset and event id
-                        let offset: i16 = (var_info.address.1 as i64 - 0x80000000).try_into().unwrap();
+                        let offset: i16 = (var_info.address.1 as i64 - 0x80000000 + csa).try_into().unwrap();
                         ((offset as u32) & 0xFFFF) | ((event.id as u32) << 16)
                     } else {
                         error!("Variable '{}' skipped, could not find event for dyn addressing mode", var_name);
