@@ -118,7 +118,7 @@ impl TypeInfo {
 }
 
 /// convert a full unit name, which might include a path, into a simple unit name
-pub(crate) fn make_simple_unit_name(debug_data: &DebugData, unit_idx: usize) -> Option<String> {
+pub fn make_simple_unit_name(debug_data: &DebugData, unit_idx: usize) -> Option<String> {
     let full_name = debug_data.unit_names.get(unit_idx)?.as_deref()?;
     let file_name = if let Some(pos) = full_name.rfind('\\') {
         &full_name[(pos + 1)..]

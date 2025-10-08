@@ -1,6 +1,6 @@
 // Taken from Github repository a2ltool by DanielT
 
-use crate::debuginfo::{DbgDataType, DebugData, TypeInfo, VarInfo};
+use crate::elf_reader::debuginfo::{DbgDataType, DebugData, TypeInfo, VarInfo};
 use gimli::{Abbreviations, DebuggingInformationEntry, Dwarf, UnitHeader};
 use gimli::{EndianSlice, RunTimeEndian};
 use indexmap::IndexMap;
