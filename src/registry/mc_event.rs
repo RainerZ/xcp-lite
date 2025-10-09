@@ -27,7 +27,7 @@ pub struct McEvent {
     pub target_cycle_time_ns: u32, // 0 -> no cycle time = sporadic event
     pub function: Option<McText>,  // Name of the function where the event is defined, used to find local variables for this event
     pub unit: Option<usize>,       // Index of the compilation unit where the event is defined, used to find local variables for this event
-    pub csa: i32,                  // Canonical stack frame address offset where the event is defined, used to access local variables for this event
+    pub cfa: i32,                  // Canonical stack frame address offset where the event is defined, used to access local variables for this event
 }
 
 impl McEvent {
@@ -41,7 +41,7 @@ impl McEvent {
             target_cycle_time_ns,
             function: None,
             unit: None,
-            csa: 0,
+            cfa: 0,
         }
     }
 
@@ -135,44 +135,11 @@ impl McEventList {
     /// Store the unit index and function name where the event is defined
     /// This is used to find local variables for this event
     /// Multiple events may be defined in the same function
-    pub fn set_event_location(&mut self, name: &str, unit_idx: usize, function: &str, csa: i32) -> Result<(), RegistryError> {
+    pub fn set_event_location(&mut self, name: &str, unit_idx: usize, function: &str, cfa: i32) -> Result<(), RegistryError> {
         if let Some(event) = self.0.iter_mut().find(|e| e.name == name) {
             event.unit = Some(unit_idx);
             event.function = Some(function.to_string().into());
-
-            /*
-
-            Function #1: main
-              Compilation Unit: 0
-              Address Range: 0x00002054 - 0x00002460 (size: 1036 bytes)
-              CFA Offset: 96 (0x60)
-              Local variables are likely at: CFA + 96 + variable_offset
-
-            Function #2: foo
-              Compilation Unit: 0
-              Address Range: 0x00001e5c - 0x00002054 (size: 504 bytes)
-              CFA Offset: 128 (0x80)
-              Local variables are likely at: CFA + 128 + variable_offset
-
-            Function #3: task
-              Compilation Unit: 0
-              Address Range: 0x00001c74 - 0x00001e5c (size: 488 bytes)
-              CFA Offset: 80 (0x50)
-              Local variables are likely at: CFA + 80 + variable_offset
-
-            */
-
-            // @@@@ Hack
-            if function == "main" {
-                event.csa = 96;
-            } else if function == "foo" {
-                event.csa = 128;
-            } else if function == "task" {
-                event.csa = 80;
-            } else {
-                event.csa = csa;
-            }
-
+            event.cfa = cfa;
             Ok(())
         } else {
             Err(RegistryError::NotFound(name.to_string()))

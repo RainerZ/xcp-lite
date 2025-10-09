@@ -1,19 +1,24 @@
 // Taken from Github repository a2ltool by DanielT
 
-use crate::elf_reader::debuginfo::{DbgDataType, DebugData, TypeInfo, VarInfo};
-use gimli::{Abbreviations, DebuggingInformationEntry, Dwarf, UnitHeader};
-use gimli::{EndianSlice, RunTimeEndian};
 use indexmap::IndexMap;
-use object::read::ObjectSection;
-use object::{Endianness, Object};
 use std::ffi::OsStr;
 use std::ops::Index;
 use std::{collections::HashMap, fs::File};
 
 type SliceType<'a> = EndianSlice<'a, RunTimeEndian>;
 
+use object::read::ObjectSection;
+use object::{Endianness, Object};
+
+use gimli::{Abbreviations, DebuggingInformationEntry, Dwarf, UnitHeader};
+use gimli::{EndianSlice, RunTimeEndian};
+
+use crate::elf_reader::debuginfo::cfa::{CfaInfo, get_cfa};
+use crate::elf_reader::debuginfo::{DbgDataType, DebugData, TypeInfo, VarInfo};
+
 mod attributes;
 use attributes::{get_abstract_origin_attribute, get_location_attribute, get_name_attribute, get_specification_attribute, get_typeref_attribute};
+
 mod typereader;
 
 pub(crate) struct UnitList<'a> {
@@ -27,13 +32,16 @@ struct DebugDataReader<'elffile> {
     unit_names: Vec<Option<String>>,
     endian: Endianness,
     sections: HashMap<String, (u64, u64)>,
+    cfa_info: Vec<CfaInfo>,
 }
 
 // load the debug info from an elf file
 pub(crate) fn load_dwarf(filename: &OsStr, verbose: bool) -> Result<DebugData, String> {
+    // open the file and mmap its content
     let filedata = load_filedata(filename)?;
     let elffile = load_elf_file(&filename.to_string_lossy(), &filedata)?;
 
+    // verify that the elf file contains DWARF debug info
     if !elffile.sections().any(|section| section.name() == Ok(".debug_info")) {
         return Err(format!(
             "Error: {} does not contain DWARF2+ debug info. The section .debug_info is missing.",
@@ -41,8 +49,26 @@ pub(crate) fn load_dwarf(filename: &OsStr, verbose: bool) -> Result<DebugData, S
         ));
     }
 
+    // Parse CFA information
+    let mut cfa_info = Vec::new();
+    let res = get_cfa(&filedata, &mut cfa_info);
+    match res {
+        Ok(cfa) => {
+            if cfa > 0 {
+                log::info!("CFA data found: {cfa} functions");
+            } else {
+                log::info!("CFA data not found");
+            }
+        }
+        Err(err) => {
+            log::warn!("CFA parser error: {err}");
+        }
+    }
+
+    // load the DWARF sections from the elf file
     let dwarf = load_dwarf_sections(&elffile)?;
 
+    // verify that the dwarf data is valid
     if !verify_dwarf_compile_units(&dwarf) {
         return Err(format!(
             "Error: {} does not contain DWARF2+ debug info - zero compile units contain debug info.",
@@ -50,8 +76,10 @@ pub(crate) fn load_dwarf(filename: &OsStr, verbose: bool) -> Result<DebugData, S
         ));
     }
 
+    // get the elf sections for reference
     let sections = get_elf_sections(&elffile);
 
+    // create the debug data reader
     let dbg_reader = DebugDataReader {
         dwarf,
         verbose,
@@ -59,6 +87,7 @@ pub(crate) fn load_dwarf(filename: &OsStr, verbose: bool) -> Result<DebugData, S
         unit_names: Vec::new(),
         endian: elffile.endianness(),
         sections,
+        cfa_info,
     };
 
     Ok(dbg_reader.read_debug_info_entries())
@@ -159,6 +188,7 @@ impl DebugDataReader<'_> {
             demangled_names,
             unit_names,
             sections: self.sections,
+            cfa_info: self.cfa_info,
         }
     }
 

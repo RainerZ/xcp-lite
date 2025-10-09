@@ -7,35 +7,50 @@ use log::{debug, error, info, trace, warn};
 
 use xcp_lite::registry::{McAddress, McDimType, McEvent, McObjectType, McSupportData, McValueType, Registry};
 
+/*
+Which information can be detected from ELF/DWARF:
+- Events:
+    name, compilation unit, function name and CFA offset, but index is unknown
+- Memory segment name, type (naming convention name = reference page), address, length, but number is unknown
+- Variables:
+    variable name, typename, absolute address, frame offset, compilation unit, function name, namespace
+    static variables in functions get the correct event
+    local variables on stack get the correct CFA
+    name, type, compilation unit, namespace, location (register or stack)
+- Types:
+    typedefs, structs, enums
+    basic types: int8/16/32/64, uint8/16/32/64, float, double
+    arrays 1D and 2D
+    pointers (as ulong or ulonglong)
+
+    Key benefits:
+    - Instance names get prefixed with function name if local stack or static variables
+    - All instances get the correct fixed event id, if there is one in their scope, default is event id 0
+    - Event compilation unit, function and CFA is detected to enable local variable access
+
+    Todo:
+    - test arrays and nested structs
+
+Limitations:
+- With -o1 most stack variables are in registers, have to be manually spilled to stack or captured
+- Segment numbers and event index are not constant expressions, need to be read by XCP (current solution) or from the binary persistence file from the target
+
+Possible future improvements:
+- Thread load addressing mode
+- C++ support,  this addressing support, namespaces
+- Measurement of variables and function parameters in registers
+- Just in time compilation of variable access expressions
+
+
+
+*/
+
 // Dwarf reader
-// This module contains code adapted from https://github.com/DanielT/a2ltool
+// This module contains modified code adapted from https://github.com/DanielT/a2ltool
 // Original code licensed under MIT/Apache-2.0
 // Copyright (c) DanielT
 mod debuginfo;
 use debuginfo::{DbgDataType, DebugData, TypeInfo};
-mod csa;
-
-/*
-
-Function #1: main
-  Compilation Unit: 0
-  Address Range: 0x00002054 - 0x00002460 (size: 1036 bytes)
-  CFA Offset: 96 (0x60)
-  Local variables are likely at: CFA + 96 + variable_offset
-
-Function #2: foo
-  Compilation Unit: 0
-  Address Range: 0x00001e5c - 0x00002054 (size: 504 bytes)
-  CFA Offset: 128 (0x80)
-  Local variables are likely at: CFA + 128 + variable_offset
-
-Function #3: task
-  Compilation Unit: 0
-  Address Range: 0x00001c74 - 0x00001e5c (size: 488 bytes)
-  CFA Offset: 80 (0x50)
-  Local variables are likely at: CFA + 80 + variable_offset
-
-*/
 
 //------------------------------------------------------------------------
 //  ELF reader and A2L creator
@@ -143,7 +158,7 @@ impl ElfReader {
         }
     }
 
-    pub fn printf_debug_info(&self, verbose: bool) {
+    pub fn printf_debug_info(&self, verbose: bool, unit_idx_limit: usize) {
         print_debug_stats(&self.debug_data);
 
         //Print sections information
@@ -186,17 +201,17 @@ impl ElfReader {
         }
 
         // Print variables
-        let unit_idx = 0; // print only variables <= compilation unit 0
-        println!("\nVariables in compilation unit 0..{unit_idx}:");
+
+        println!("\nVariables in compilation unit 0..{unit_idx_limit}:");
         for (var_name, var_info) in &self.debug_data.variables {
             // Count all variable in unit_idx
-            let count = var_info.iter().filter(|v| v.unit_idx <= unit_idx).count();
+            let count = var_info.iter().filter(|v| v.unit_idx <= unit_idx_limit).count();
             if count > 1 {
                 println!("{} : ", var_name);
             }
             // Iterate over all variable infos for this variable name in unit_idx
             for var in var_info {
-                if var.unit_idx > unit_idx {
+                if var.unit_idx > unit_idx_limit {
                     continue; // print only variables from compilation unit 0..=unit_idx
                 }
                 if count <= 1 {
@@ -348,8 +363,10 @@ impl ElfReader {
                 info!("Calibration segment definition '{}' found in {}:{}", seg_name, unit_name, function_name);
                 // Find the segment in the registry
                 if let Some(_seg) = reg.cal_seg_list.find_cal_seg(seg_name) {
-                    continue; // segment already exists
-                } else {
+                    continue; // segment already exists, ok
+                }
+                // If not create it
+                else {
                     // length will be determined from variable 'seg_name' which is the default page
                     let length = if let Some(var_info) = self.debug_data.variables.get(seg_name) {
                         if let Some(type_info) = self.debug_data.types.get(&var_info[0].typeref) {
@@ -438,9 +455,26 @@ impl ElfReader {
 
                 // Find the event in the registry
                 if let Some(_evt) = reg.event_list.find_event(evt_name, 0) {
-                    // Store the unit and function name and cananical stack frame address offset for this event trigger
-                    let evt_csa: i32 = 0; // @@@@ TODO: Get from variable info ????
-                    match reg.event_list.set_event_location(evt_name, evt_unit_idx, evt_function, evt_csa) {
+                    // Try to lookup the canonical stack frame address offset from the function name
+                    let mut evt_cfa: i32 = 0;
+                    for cfa_info in self.debug_data.cfa_info.iter() {
+                        if cfa_info.unit_idx == evt_unit_idx && cfa_info.function == evt_function {
+                            if let Some(x) = cfa_info.cfa_offset {
+                                evt_cfa = x as i32;
+                            } else {
+                                warn!("Could not determine CFA offset for function '{}'", evt_function);
+                            }
+                            break;
+                        }
+                    }
+
+                    if verbose {
+                        info!("  Event '{}' trigger in function '{}', cfa = {}", evt_name, evt_function, evt_cfa);
+                    }
+
+                    // Store the unit and function name and canonical stack frame address offset for this event trigger
+
+                    match reg.event_list.set_event_location(evt_name, evt_unit_idx, evt_function, evt_cfa) {
                         Ok(_) => {}
                         Err(e) => {
                             error!("Failed to set event location for event '{}': {}", evt_name, e);
@@ -455,7 +489,7 @@ impl ElfReader {
         Ok(())
     }
 
-    pub fn register_variables(&self, reg: &mut Registry, verbose: bool) -> Result<(), Box<dyn Error>> {
+    pub fn register_variables(&self, reg: &mut Registry, verbose: bool, unit_idx_limit: usize) -> Result<(), Box<dyn Error>> {
         // Load debug information from the ELF file
         info!("Registering variables");
 
@@ -499,10 +533,13 @@ impl ElfReader {
                 }
             }
 
+            // Count variables with this name in compilation unit 0
+            let count = var_infos.iter().filter(|v| v.unit_idx <= unit_idx_limit).count();
+
             // Process all variable with this name in different scopes and namesspaces
             for var_info in var_infos {
                 // @@@@ TODO: Create only variables from specified compilation unit
-                if var_info.unit_idx != 0 {
+                if var_info.unit_idx > unit_idx_limit {
                     continue;
                 }
 
@@ -528,6 +565,17 @@ impl ElfReader {
                         );
                         continue; // skip this variable
                     } else {
+                        // find an event triggered in this function
+                        if let Some(event) = reg.event_list.find_event_by_location(var_info.unit_idx, var_function) {
+                            xcp_event_id = event.id;
+                            info!("Variable '{}' is local to function '{}', using event id = {}", var_name, var_function, xcp_event_id);
+                        } else {
+                            debug!("Variable '{}' is local to function '{}', but no event found", var_name, var_function);
+                        }
+                        // multiple variables with this name, prefix with function name
+                        if count > 1 {
+                            a2l_name = format!("{}.{}", var_function, var_name);
+                        }
                         var_info.address.1 as u32
                     }
                 }
@@ -538,18 +586,18 @@ impl ElfReader {
                         // Set the event id for this function
                         // Prefix the variable with the function name
                         xcp_event_id = event.id;
-                        let csa: i64 = event.csa as i64;
+                        let cfa: i64 = event.cfa as i64;
                         a2l_name = format!("{}.{}", var_function, var_name);
                         debug!(
-                            "Variable '{}' is local to function '{}', using event id = {}, dwarf_offset = {} csa = {}",
+                            "Variable '{}' is local to function '{}', using event id = {}, dwarf_offset = {} cfa = {}",
                             var_name,
                             var_function,
                             xcp_event_id,
                             (var_info.address.1 as i64 - 0x80000000) as i64,
-                            csa
+                            cfa
                         );
                         // Encode dyn addressing mode from signed offset and event id
-                        let offset: i16 = (var_info.address.1 as i64 - 0x80000000 + csa).try_into().unwrap();
+                        let offset: i16 = (var_info.address.1 as i64 - 0x80000000 + cfa).try_into().unwrap();
                         ((offset as u32) & 0xFFFF) | ((event.id as u32) << 16)
                     } else {
                         error!("Variable '{}' skipped, could not find event for dyn addressing mode", var_name);
@@ -594,7 +642,23 @@ impl ElfReader {
                                 print_type_info(type_info);
                             }
                             let dim_type = self.get_dim_type(reg, type_info, object_type);
-                            let _ = reg.instance_list.add_instance(a2l_name.clone(), dim_type, McSupportData::new(object_type), mc_addr);
+                            let res = reg.instance_list.add_instance(a2l_name.clone(), dim_type, McSupportData::new(object_type), mc_addr);
+                            match res {
+                                Ok(_) => {
+                                    if verbose {
+                                        info!(
+                                            "  Registered variable '{}' with type '{}', size = {}, event id = {}",
+                                            a2l_name,
+                                            type_name.as_ref().unwrap_or(&"<unnamed>".to_string()),
+                                            type_size,
+                                            xcp_event_id
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("Failed to register variable '{}': {}", a2l_name, e);
+                                }
+                            }
                         }
                         _ => {
                             warn!("Variable '{}' has unsupported type: {:?}", var_name, &type_info.datatype);

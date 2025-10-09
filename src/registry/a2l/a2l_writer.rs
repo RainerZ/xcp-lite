@@ -279,6 +279,17 @@ impl GenerateA2l for McEvent {
             time_unit += 1;
         }
 
+        // Write comment with function name, unit and CFA offset if available
+        if let Some(function) = self.function.as_ref() {
+            writeln!(
+                writer,
+                "\t\t\t/* compilation unit = {}, function = {}, CFA = {} */",
+                self.unit.unwrap_or(0),
+                function,
+                self.cfa
+            )?;
+        }
+
         // long name 100+1 characters
         // short name 8+1 characters
         // TimeCycle 0
@@ -959,16 +970,28 @@ ASAP2_VERSION 1 71
         writeln!(self, "\n/* Measurements */")?;
 
         // Measurable objects with event_id
+        for e in &self.registry.event_list {
+            writeln!(self, "\n/* Measurements for event '{}' */", e.name)?;
+            for m in self.registry.instance_list.into_iter() {
+                // If with event or explicitly a measurement object
+                if m.is_measurement_object() && m.address.event_id() == Some(e.id) {
+                    m.write_measurement(self)?;
+                }
+            }
+        }
+
+        // Measurable objects without event_id
+        writeln!(self, "\n/* Measurements without fixed event */")?;
         for m in self.registry.instance_list.into_iter() {
-            // If with event or explicitly a measurement object
-            if m.is_measurement_object() || m.address.event_id().is_some() {
+            // If without event and not explicitly a measurement object
+            if m.is_measurement_object() && m.address.event_id().is_none() {
                 m.write_measurement(self)?;
             }
         }
 
         // GROUP
         // Group root measurement
-        write!(self, "/begin GROUP Measurements \"\" ROOT /begin SUB_GROUP")?;
+        write!(self, "\n/begin GROUP Measurements \"\" ROOT /begin SUB_GROUP")?;
         for e in &self.registry.event_list {
             // Ignore all but the first event instance
             if e.index > 1 {
@@ -1033,7 +1056,7 @@ ASAP2_VERSION 1 71
         // Write ROOT GROUP "Characteristics" with subgroups for all calibration segments
         writeln!(self, "\n/* Characteristic and Axis Groups */")?;
         if !self.registry.cal_seg_list.len() > 0 {
-            write!(self, "/begin GROUP Characteristics \"\" ROOT /begin SUB_GROUP")?;
+            write!(self, "\n/begin GROUP Characteristics \"\" ROOT /begin SUB_GROUP")?;
             for s in &self.registry.cal_seg_list {
                 write!(self, " {}", s.name)?;
             }

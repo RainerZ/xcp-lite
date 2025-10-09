@@ -294,6 +294,35 @@ impl std::fmt::Display for McAddress {
     }
 }
 
+// Implement cmp and ord for sorting by event_id, addr_ext, addr, name
+impl PartialOrd for McAddress {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for McAddress {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let mode1 = self.addr_mode;
+        let mode2 = other.addr_mode;
+        if mode1 != mode2 {
+            mode1.cmp(&mode2)
+        } else {
+            if mode1 == McAddress::ADDR_MODE_A2L || mode1 == McAddress::ADDR_MODE_A2L_EVENT {
+                if self.a2l_addr_ext != other.a2l_addr_ext {
+                    self.a2l_addr_ext.cmp(&other.a2l_addr_ext)
+                } else if self.a2l_addr != other.a2l_addr {
+                    self.a2l_addr.cmp(&other.a2l_addr)
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            } else {
+                self.addr_offset.cmp(&other.addr_offset)
+            }
+        }
+    }
+}
+
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
 // Test module

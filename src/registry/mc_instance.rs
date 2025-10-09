@@ -2,9 +2,8 @@
 // Types:
 //  McInstance, McInstanceList, McInstanceListIterator
 
-use std::borrow::Cow;
-
 use regex::Regex;
+use std::borrow::Cow;
 
 use super::McAddress;
 use super::McDimType;
@@ -245,9 +244,8 @@ impl McInstanceList {
         assert!(mc_support_data.get_object_type() != McObjectType::Unspecified, "Object type must be specified");
 
         // Error if duplicate in instance namespace (A2l characteristics, measurements, axis and instances)
-        // Names may not be unique, when there is a unique event_id
-        if self.into_iter().any(|i| i.get_address() == &address && i.name == name) {
-            log::error!("Duplicate instance {}!", name);
+        if self.into_iter().any(|i| i.name == name) {
+            log::error!("Duplicate instance named '{}'!", name);
             return Err(RegistryError::Duplicate(name.to_string()));
         }
 

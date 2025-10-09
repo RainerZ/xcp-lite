@@ -577,10 +577,10 @@ async fn xcp_client(
         if !elf_name.is_empty() {
             info!("Reading ELF file: {}", elf_name);
             let elf_reader = ElfReader::new(&elf_name).ok_or(format!("Failed to read ELF file '{}'", elf_name))?;
-            elf_reader.printf_debug_info(verbose);
+            elf_reader.printf_debug_info(verbose, 0); // print only variables <= compilation unit 0
             elf_reader.register_segments_and_events(&mut reg, verbose)?;
             elf_reader.register_event_locations(&mut reg, verbose)?;
-            elf_reader.register_variables(&mut reg, verbose)?;
+            elf_reader.register_variables(&mut reg, verbose, 0)?; // register only variables <= compilation unit 0
         }
 
         // Write the registry to A2L file

@@ -7,6 +7,9 @@ use std::fmt::Display;
 
 mod dwarf;
 
+mod cfa;
+use cfa::CfaInfo;
+
 #[derive(Debug)]
 pub(crate) struct VarInfo {
     pub(crate) address: (u8, u64), // addr_ext, addr
@@ -79,6 +82,7 @@ pub(crate) struct DebugData {
     pub(crate) demangled_names: HashMap<String, String>,
     pub(crate) unit_names: Vec<Option<String>>,
     pub(crate) sections: HashMap<String, (u64, u64)>,
+    pub(crate) cfa_info: Vec<CfaInfo>,
 }
 
 impl DebugData {
