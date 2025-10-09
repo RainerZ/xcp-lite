@@ -146,79 +146,80 @@ impl ElfReader {
     pub fn printf_debug_info(&self, verbose: bool) {
         print_debug_stats(&self.debug_data);
 
+        //Print sections information
+        println!("\nMemory Sections in debug_data:");
+        for (name, (addr, size)) in &self.debug_data.sections {
+            println!("  '{}': 0x{:08x}, {} bytes", name, addr, size);
+        }
+
         if verbose {
-            //Print sections information
-            println!("\nMemory Sections (debug_data.sections)");
-            for (name, (addr, size)) in &self.debug_data.sections {
-                println!("  Section '{}': address=0x{:08x}, size=0x{:x} ({} bytes)", name, addr, size, size);
-            }
-
             //Print type names
-            // println!("\nType Names (debug_data.typenames)");
-            // for (type_name, type_refs) in &debug_data.typenames {
-            //     println!("Type name '{}': {} references", type_name, type_refs.len());
-            //     for type_ref in type_refs {
-            //         if let Some(type_info) = debug_data.types.get(type_ref) {
-            //             println!("  -> type_ref={}, size={} bytes, unit={}", type_ref, type_info.get_size(), type_info.unit_idx);
-            //         }
-            //     }
-            // }
-
-            // Print types
-            // println!("\nTypes:");
-            // for (type_ref, type_info) in &debug_data.types {
-            //     let type_name = if let Some(name) = &type_info.name { name } else { "" };
-            //     println!(
-            //         "TypeRef {}: name = '{}', size = {} bytes, unit = {}",
-            //         type_ref,
-            //         type_name,
-            //         type_info.get_size(),
-            //         type_info.unit_idx
-            //     );
-            //     print_type_info(type_info);
-            // }
-
-            // Print demangled names
-            // println!("\nDemangled Names");
-            // for (mangled_name, demangled_name) in &debug_data.demangled_names {
-            //     println!("  '{}' -> '{}'", mangled_name, demangled_name);
-            // }
-
-            // Print variables
-            /*
-            struct VarInfo {
-                address: (u8, u64), // addr_ext, addr
-                typeref: usize,
-                unit_idx: usize,
-                function: Option<String>,
-                namespaces: Vec<String>,
-            }
-            */
-
-            println!("\nVariables:");
-            for (var_name, var_info) in &self.debug_data.variables {
-                println!("Variable '{}': ", var_name);
-                for var in var_info {
-                    let unit_name = if let Some(name) = debuginfo::make_simple_unit_name(&self.debug_data, var.unit_idx) {
-                        name
-                    } else {
-                        "<unnamed>".to_string()
-                    };
-                    let function_name = if let Some(name) = &var.function { name } else { "<global>" };
-                    let name_space = if var.namespaces.len() > 0 { var.namespaces.join("::") } else { "".to_string() };
-                    print!(
-                        "  unit '{}', function '{}', namespace '{}': address=({:#x},{:#x})",
-                        unit_name, function_name, name_space, var.address.0, var.address.1
-                    );
-                    if let Some(type_info) = self.debug_data.types.get(&var.typeref) {
-                        let type_name = if let Some(name) = &type_info.name { name } else { "" };
-                        print!(" type='{}', size={} bytes", type_name, type_info.get_size());
-                        // print_type_info(type_info);
+            println!("\nType Names (debug_data.typenames)");
+            for (type_name, type_refs) in &self.debug_data.typenames {
+                println!("Type name '{}': {} references", type_name, type_refs.len());
+                for type_ref in type_refs {
+                    if let Some(type_info) = self.debug_data.types.get(type_ref) {
+                        println!("  -> type_ref={}, size={} bytes, unit={}", type_ref, type_info.get_size(), type_info.unit_idx);
                     }
-                    println!();
                 }
             }
+
+            // Print types
+            println!("\nTypes:");
+            for (type_ref, type_info) in &self.debug_data.types {
+                let type_name = if let Some(name) = &type_info.name { name } else { "" };
+                println!(
+                    "TypeRef {}: name = '{}', size = {} bytes, unit = {}",
+                    type_ref,
+                    type_name,
+                    type_info.get_size(),
+                    type_info.unit_idx
+                );
+                print_type_info(type_info);
+            }
+
+            // Print demangled names
+            println!("\nDemangled Names");
+            for (mangled_name, demangled_name) in &self.debug_data.demangled_names {
+                println!("  '{}' -> '{}'", mangled_name, demangled_name);
+            }
         }
+
+        // Print variables
+        let unit_idx = 0; // print only variables <= compilation unit 0
+        println!("\nVariables in compilation unit 0..{unit_idx}:");
+        for (var_name, var_info) in &self.debug_data.variables {
+            // Count all variable in unit_idx
+            let count = var_info.iter().filter(|v| v.unit_idx <= unit_idx).count();
+            if count > 1 {
+                println!("{} : ", var_name);
+            }
+            // Iterate over all variable infos for this variable name in unit_idx
+            for var in var_info {
+                if var.unit_idx > unit_idx {
+                    continue; // print only variables from compilation unit 0..=unit_idx
+                }
+                if count <= 1 {
+                    print!("{} : ", var_name);
+                }
+
+                let unit_name = if let Some(name) = debuginfo::make_simple_unit_name(&self.debug_data, var.unit_idx) {
+                    name
+                } else {
+                    "<unnamed>".to_string()
+                };
+                let function_name = if let Some(name) = &var.function { name } else { "<global>" };
+                let name_space = if var.namespaces.len() > 0 { var.namespaces.join("::") } else { "".to_string() };
+                print!(" {}:'{}' {}: addr={}:0x{:08X}", unit_name, function_name, name_space, var.address.0, var.address.1);
+                if let Some(type_info) = self.debug_data.types.get(&var.typeref) {
+                    let type_name = if let Some(name) = &type_info.name { name } else { "" };
+                    print!(", type='{}', size={}", type_name, type_info.get_size());
+                    // print_type_info(type_info);
+                }
+                println!();
+            }
+        }
+
         println!();
     }
 
@@ -511,11 +512,16 @@ impl ElfReader {
                 //     continue;
                 // }
 
+                let var_function = if let Some(f) = var_info.function.as_ref() { f.as_str() } else { "" };
+
                 // Address encoder
                 let a2l_addr_ext: u8 = var_info.address.0;
                 let a2l_addr: u32 = if a2l_addr_ext == 0 {
                     // Encode absolute addressing mode
-                    if var_info.address.1 >= 0xFFFFFFFF {
+                    if var_info.address.1 == 0 {
+                        error!("Variable '{}' in function '{}' skipped, no address", var_name, var_function);
+                        continue; // skip this variable
+                    } else if var_info.address.1 >= 0xFFFFFFFF {
                         error!(
                             "Variable '{}' skipped, has 64 bit address {:#x}, which does not fit the 32 bit XCP address range",
                             var_name, var_info.address.1
@@ -524,16 +530,17 @@ impl ElfReader {
                     } else {
                         var_info.address.1 as u32
                     }
-                } else if a2l_addr_ext == 2 {
+                }
+                // Encode relative addressing mode
+                else if a2l_addr_ext == 2 {
                     // Find an event id for this local variable
-                    let var_function = if let Some(f) = var_info.function.as_ref() { f.as_str() } else { "" };
                     if let Some(event) = reg.event_list.find_event_by_location(var_info.unit_idx, var_function) {
                         // Set the event id for this function
                         // Prefix the variable with the function name
                         xcp_event_id = event.id;
                         let csa: i64 = event.csa as i64;
                         a2l_name = format!("{}.{}", var_function, var_name);
-                        info!(
+                        debug!(
                             "Variable '{}' is local to function '{}', using event id = {}, dwarf_offset = {} csa = {}",
                             var_name,
                             var_function,
@@ -566,12 +573,6 @@ impl ElfReader {
 
                 // Register measurement variable if possible
                 if let Some(type_info) = self.debug_data.types.get(&var_info.typeref) {
-                    // Print variable info
-                    if verbose {
-                        println!("  {}: addr = {}:0x{:08x}", var_name, a2l_addr_ext, a2l_addr);
-                        print_type_info(type_info);
-                    }
-
                     // Register supported variable types in the registry
                     let type_size = type_info.get_size();
                     let type_name = &type_info.name;
@@ -588,11 +589,16 @@ impl ElfReader {
                         | DbgDataType::Double
                         | DbgDataType::Array { .. }
                         | DbgDataType::Struct { .. } => {
+                            info!("Add instance for {}: addr = {}:0x{:08x}", a2l_name, a2l_addr_ext, a2l_addr);
+                            if verbose {
+                                print_type_info(type_info);
+                            }
                             let dim_type = self.get_dim_type(reg, type_info, object_type);
                             let _ = reg.instance_list.add_instance(a2l_name.clone(), dim_type, McSupportData::new(object_type), mc_addr);
                         }
                         _ => {
                             warn!("Variable '{}' has unsupported type: {:?}", var_name, &type_info.datatype);
+                            print_type_info(type_info);
                         }
                     }
                 } else {

@@ -99,7 +99,7 @@ fn get_elf_sections(elffile: &object::read::File) -> HashMap<String, (u64, u64)>
             && let Ok(name) = section.name()
         {
             map.insert(name.to_string(), (addr, addr + size));
-            log::info!("elf section: {} @ {addr:x} - {end:x}", name, end = addr + size);
+            log::trace!("elf section: {} @ {addr:x} - {end:x}", name, end = addr + size);
         }
     }
 
@@ -190,7 +190,7 @@ impl DebugDataReader<'_> {
                 // @@@@ warn if unit name is missing
                 let unit_name = match get_name_attribute(entry, &self.dwarf, unit) {
                     Ok(name) => {
-                        log::info!(" unit name: {}", &name);
+                        log::trace!("unit name: {}", &name);
                         Some(name)
                     }
                     Err(e) => {
