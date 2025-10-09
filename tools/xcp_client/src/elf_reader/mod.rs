@@ -31,6 +31,16 @@ Which information can be detected from ELF/DWARF:
     Todo:
     - test arrays and nested structs
 
+    - No DW_AT_location means optimized away
+
+Tools:
+dwarfdump --debug-info <filename>
+dwarfdump --debug-info --name <varname> <filename>
+objdump -h  <filename>
+objdump --syms <filename>
+
+
+
 Limitations:
 - With -o1 most stack variables are in registers, have to be manually spilled to stack or captured
 - Segment numbers and event index are not constant expressions, need to be read by XCP (current solution) or from the binary persistence file from the target
@@ -612,7 +622,6 @@ impl ElfReader {
 
                 // Check if the absolute address is in a calibration segment
                 // Create a McAddress with or without event id
-                // @@@@ TODO event id ?????
                 let (object_type, mc_addr) = if reg.cal_seg_list.find_cal_seg_by_address(a2l_addr).is_some() {
                     (McObjectType::Characteristic, McAddress::new_a2l(a2l_addr, a2l_addr_ext))
                 } else {
@@ -637,7 +646,13 @@ impl ElfReader {
                         | DbgDataType::Double
                         | DbgDataType::Array { .. }
                         | DbgDataType::Struct { .. } => {
-                            info!("Add instance for {}: addr = {}:0x{:08x}", a2l_name, a2l_addr_ext, a2l_addr);
+                            info!(
+                                "Add {} instance for {}: addr = {}:0x{:08x}",
+                                if object_type == McObjectType::Characteristic { "characteristic" } else { "measurement" },
+                                a2l_name,
+                                a2l_addr_ext,
+                                a2l_addr
+                            );
                             if verbose {
                                 print_type_info(type_info);
                             }
