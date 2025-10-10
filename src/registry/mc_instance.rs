@@ -244,7 +244,8 @@ impl McInstanceList {
         assert!(mc_support_data.get_object_type() != McObjectType::Unspecified, "Object type must be specified");
 
         // Error if duplicate in instance namespace (A2l characteristics, measurements, axis and instances)
-        if self.into_iter().any(|i| i.name == name) {
+        // Note that multiple instances of the same name are allowed if they have same event_id and different event_index
+        if self.into_iter().any(|i| (i.name == name) && (i.event_id() == address.event_id())) {
             log::error!("Duplicate instance named '{}'!", name);
             return Err(RegistryError::Duplicate(name.to_string()));
         }
@@ -324,6 +325,37 @@ impl<'a> IntoIterator for &'a McInstanceList {
 
     fn into_iter(self) -> McInstanceListIterator<'a> {
         McInstanceListIterator::new(self)
+    }
+}
+
+//-------------------------------------------------------------------------------------------------
+// McInstanceListIteratorMut (Mutable Iterator)
+
+/// Mutable iterator for InstanceList
+pub struct McInstanceListIteratorMut<'a> {
+    iter: std::slice::IterMut<'a, McInstance>,
+}
+
+impl<'a> McInstanceListIteratorMut<'a> {
+    pub fn new(list: &'a mut McInstanceList) -> McInstanceListIteratorMut<'a> {
+        McInstanceListIteratorMut { iter: list.0.iter_mut() }
+    }
+}
+
+impl<'a> Iterator for McInstanceListIteratorMut<'a> {
+    type Item = &'a mut McInstance;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut McInstanceList {
+    type Item = &'a mut McInstance;
+    type IntoIter = McInstanceListIteratorMut<'a>;
+
+    fn into_iter(self) -> McInstanceListIteratorMut<'a> {
+        McInstanceListIteratorMut::new(self)
     }
 }
 

@@ -548,26 +548,9 @@ async fn xcp_client(
         let port: u16 = dest_addr.port();
         reg.set_xcp_params(protocol, ipv4_addr, port);
 
-        // If there is an ECU online, get event and segment information via XCP protocol
+        // If there is an ECU online, get event and segment information via XCP
         if xcp_client.is_connected() {
-            info!("Getting event and segment information from connected XCP server");
-
-            // Get event information
-            for i in 0..xcp_client.max_events {
-                let name = xcp_client.get_daq_event_info(i).await?;
-                info!(" Event {}: {}", i, name);
-                reg.event_list.add_event(McEvent::new(name, 0, i, 0)).unwrap();
-            }
-
-            // Get segment and page information
-            for i in 0..xcp_client.max_segments {
-                let (addr_ext, addr, length, name) = xcp_client.get_segment_info(i).await?;
-                info!(" Segment {}: {} addr={}:0x{:08X} length={} ", i, name, addr_ext, addr, length);
-                // Segment relative addressing
-                // reg.cal_seg_list.add_cal_seg(name, i as u16, length as u32).unwrap();
-                // Absolute addressing
-                reg.cal_seg_list.add_cal_seg_by_addr(name, i as u16, addr_ext, addr, length as u32).unwrap();
-            }
+            xcp_client.get_event_segment_info(&mut reg).await?;
         }
 
         // Read binary file if specified and create calibration variables in segments and all global measurement variables
@@ -600,9 +583,109 @@ async fn xcp_client(
     // Load existing A2L file into registry
     else {
         info!("Load A2L file: {} ({})", a2l_name, a2l_path.display());
-
         // @@@@ TODO xcp_client does not support arrays, instances and typedefs yet, flatten the registry and mangle the names
         let res = reg.load_a2l(&a2l_path, true, true, true, true)?;
+        info!(
+            " A2L file contains {} instances, {} events and {} calibration segments",
+            reg.instance_list.len(),
+            reg.event_list.len(),
+            reg.cal_seg_list.len()
+        );
+
+        let mut event_mapping: std::collections::HashMap<u16, u16> = std::collections::HashMap::new();
+        let mut seg_mapping: std::collections::HashMap<u16, u16> = std::collections::HashMap::new();
+        let mut missing_event_ids = 0;
+
+        // Load the event and calibration segment information from target into a temporary registry and check if the given A2L file needs to be corrected
+        let mut tmp_reg = xcp_lite::registry::Registry::new();
+        xcp_client.get_event_segment_info(&mut tmp_reg).await?;
+
+        // Check events
+        if xcp_client.max_events == 0 {
+            warn!("XCP server does not support get event info, skipping event check");
+        } else {
+            for event in &tmp_reg.event_list {
+                if let Some(e) = reg.event_list.find_event(event.get_name(), 0) {
+                    if e.get_id() != event.get_id() {
+                        warn!(
+                            "Event id of '{}' differs, A2L file {} has id {}, target has id {}",
+                            event.get_name(),
+                            a2l_path.display(),
+                            e.get_id(),
+                            event.get_id()
+                        );
+
+                        // @@@@ Create event mapping information in a hash map
+                        event_mapping.insert(e.get_id(), event.get_id());
+                    }
+                } else {
+                    warn!("Event '{}' missing in A2L file {}", event.get_name(), a2l_path.display());
+                    missing_event_ids += 1;
+                }
+            }
+        }
+
+        // Check calibration segments
+        if xcp_client.max_segments == 0 {
+            warn!("XCP server does not support get segment info, skipping calibration segment check");
+        } else {
+            for seg in &tmp_reg.cal_seg_list {
+                if let Some(s) = reg.cal_seg_list.find_cal_seg(seg.get_name()) {
+                    if s.get_index() != seg.get_index() {
+                        warn!(
+                            "Calibration segment index of '{}' differs, A2L file {} has index {}, target has index {}",
+                            seg.get_name(),
+                            a2l_path.display(),
+                            s.get_index(),
+                            seg.get_index()
+                        );
+                    }
+
+                    // @@@@ Create segment mapping information in a hash map
+                    seg_mapping.insert(s.get_index(), seg.get_index());
+                } else {
+                    error!("Calibration segment '{}' missing in A2L file {}", seg.get_name(), a2l_path.display());
+                }
+            }
+        }
+
+        // In the event list and in the address information of all instance in event relative addressing mode
+        // Update the registry
+        if !event_mapping.is_empty() {
+            info!("Event mapping information:");
+            for (k, v) in &event_mapping {
+                info!("  {} -> {}", k, v);
+            }
+            reg.update_event_mapping(&event_mapping);
+        }
+        if missing_event_ids > 0 {
+            if missing_event_ids == 1 {
+                // Add a dummy event
+                match reg.event_list.add_event(McEvent::new("async", 0, 0, 0)) {
+                    Ok(_) => {
+                        warn!("XCPlite async event added");
+                    }
+                    Err(e) => warn!("Failed to add event 'async', Error: {}", e),
+                }
+            } else {
+                warn!("A2L file {} is missing {} event ids, please correct manually", a2l_path.display(), missing_event_ids);
+            }
+        }
+
+        // Fix the calibration segment list and the address information of all calibration objects in calibration segment relative addressing mode
+        // Update the registry
+        if !seg_mapping.is_empty() {
+            info!("Calibration segment mapping information:");
+            for (k, v) in &seg_mapping {
+                info!("  {} -> {}", k, v);
+                reg.update_cal_seg_mapping(&seg_mapping);
+            }
+        }
+
+        if !event_mapping.is_empty() || !seg_mapping.is_empty() {
+            // @@@@ TODO Correct the A2L file with the mapping information and write a corrected A2L file
+            warn!("A2L file {} differs from target, but automatic correction not implemented yet", a2l_path.display());
+        }
     }
 
     // Assign registry to xcp_client

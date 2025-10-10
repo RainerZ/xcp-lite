@@ -323,6 +323,23 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
     let module = &a2l_file.project.module[0];
 
     //----------------------------------------------------------------------------------------------------------------
+    // Event
+    for if_data in &module.if_data {
+        if if_data.ifdata_valid {
+            let decoded_ifdata = aml_ifdata::A2mlVector::load_from_ifdata(if_data).unwrap();
+            if let Some(xcp) = decoded_ifdata.xcp {
+                if let Some(daq) = xcp.daq {
+                    for e in daq.event {
+                        // Process each event
+                        info!("Event found: {} - {}", e.event_channel_name, e.event_channel_number);
+                        registry.event_list.add_event(McEvent::new(e.event_channel_name, 0, e.event_channel_number, 0)).unwrap();
+                    }
+                }
+            }
+        }
+    }
+
+    //----------------------------------------------------------------------------------------------------------------
     // Memory segments
 
     // Add memory segments and EPK

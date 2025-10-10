@@ -57,6 +57,7 @@ pub use mc_type::McValueTypeTrait;
 
 // McAddress
 mod mc_address;
+pub use mc_address::McAddrMode;
 pub use mc_address::McAddress;
 
 // McText
@@ -908,17 +909,8 @@ pub mod registry_test {
 
         // Write A2L file and check syntax
         {
-            reg.write_a2l(
-                &"test_registry_api.a2l",
-                "xcp-lite test",
-                "xcp-lite test",
-                "project_name",
-                "",
-                "module_name",
-                "project_no",
-                false,
-            )
-            .unwrap();
+            reg.write_a2l(&"test_registry_api.a2l", "xcp-lite test", "project_name", "", "module_name", "project_no", false)
+                .unwrap();
 
             // Load the A2L file into another registry
             let mut reg2 = Registry::new();

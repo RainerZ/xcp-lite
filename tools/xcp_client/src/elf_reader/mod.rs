@@ -33,6 +33,18 @@ Which information can be detected from ELF/DWARF:
 
     - No DW_AT_location means optimized away
 
+Detect TLS Variables:
+
+TLS Variables:
+Check for missing DW_AT_location + thread-local context
+Look for variables referencing .tdata/.tbss sections
+Parse DW_TAG_variable with TLS-specific location expressions
+DW_OP_form_tls_address, etc
+
+
+
+
+
 Tools:
 dwarfdump --debug-info <filename>
 dwarfdump --debug-info --name <varname> <filename>

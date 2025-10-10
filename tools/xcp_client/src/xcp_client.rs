@@ -1693,6 +1693,32 @@ impl XcpClient {
     }
 
     //------------------------------------------------------------------------
+    // Get event and segment information from XCP server and add to registry
+
+    pub async fn get_event_segment_info(&mut self, reg: &mut xcp_lite::registry::Registry) -> Result<(), Box<dyn Error>> {
+        info!("Reading event and segment information from connected XCP server");
+
+        // Get event information
+        for i in 0..self.max_events {
+            let name = self.get_daq_event_info(i).await?;
+            info!(" Event {}: {}", i, name);
+            reg.event_list.add_event(McEvent::new(name, 0, i, 0)).unwrap();
+        }
+
+        // Get segment and page information
+        for i in 0..self.max_segments {
+            let (addr_ext, addr, length, name) = self.get_segment_info(i).await?;
+            info!(" Segment {}: {} addr={}:0x{:08X} length={} ", i, name, addr_ext, addr, length);
+            // Segment relative addressing
+            // reg.cal_seg_list.add_cal_seg(name, i as u16, length as u32).unwrap();
+            // Absolute addressing
+            reg.cal_seg_list.add_cal_seg_by_addr(name, i as u16, addr_ext, addr, length as u32).unwrap();
+        }
+
+        Ok(())
+    }
+
+    //------------------------------------------------------------------------
     // Registry
     // Get a list available measurement and calibration object names from registry matching a regular expression
 

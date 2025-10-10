@@ -6,6 +6,56 @@ use serde::{Deserialize, Serialize};
 use super::{McIdentifier, Registry};
 
 //-------------------------------------------------------------------------------------------------
+// Address Mode Enum
+
+/// Address modes for accessing measurement and calibration data
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum McAddrMode {
+    /// Calibration segment relative addressing
+    Cal = 0,
+    /// Absolute addressing (not implemented for Rust)
+    Abs = 1,
+    /// Dynamic addressing (async access via shared memory)
+    Dyn = 2,
+    /// Event relative addressing
+    Rel = 3,
+    /// Generic A2L address
+    A2l = 0xA0,
+    /// A2L address with event association
+    A2lEvent = 0xA1,
+    /// Undefined addressing mode
+    Undef = 0xFF,
+}
+
+impl Default for McAddrMode {
+    fn default() -> Self {
+        McAddrMode::Cal
+    }
+}
+
+impl McAddrMode {
+    /// Check if this addressing mode is segment relative
+    pub fn is_segment_relative(&self) -> bool {
+        matches!(self, McAddrMode::Cal)
+    }
+
+    /// Check if this addressing mode is event relative
+    pub fn is_event_relative(&self) -> bool {
+        matches!(self, McAddrMode::Rel | McAddrMode::Dyn)
+    }
+
+    /// Check if this is an A2L addressing mode
+    pub fn is_a2l(&self) -> bool {
+        matches!(self, McAddrMode::A2l | McAddrMode::A2lEvent)
+    }
+
+    /// Convert to u8 representation
+    pub fn as_u8(&self) -> u8 {
+        *self as u8
+    }
+}
+
+//-------------------------------------------------------------------------------------------------
 // McAddress
 // Information needed to access data instances
 
@@ -21,7 +71,7 @@ pub struct McAddress {
     #[serde(skip_serializing_if = "skip_addr_offset")]
     addr_offset: i32, // Offset relative to calibration segment (XCP_ADDR_EXT_SEG,calseg_name.is_some) or relative to event base address (XCP_ADDR_EXT_REL,event_id.is_some)
 
-    addr_mode: u8, // Mode ADDR_MODE_CAL, ADDR_MODE_DYN, ADDR_MODE_REL, ADDR_MODE_A2L, ADDR_MODE_A2L_VECTOR
+    addr_mode: McAddrMode, // Addressing mode
 
     #[serde(default = "default_a2l_addr")]
     #[serde(skip_serializing_if = "skip_a2l_addr")]
@@ -38,7 +88,7 @@ impl Default for McAddress {
             calseg_name: None,
             event_id: None,
             addr_offset: McAddress::XCP_ADDR_OFFSET_UNDEF,
-            addr_mode: McAddress::ADDR_MODE_UNDEF,
+            addr_mode: McAddrMode::Cal,
             a2l_addr: 0,
             a2l_addr_ext: 0,
         }
@@ -68,15 +118,6 @@ fn skip_addr_offset(value: &i32) -> bool {
 }
 
 impl McAddress {
-    /// Addressing modes
-    pub const ADDR_MODE_CAL: u8 = 0;
-    pub const ADDR_MODE_ABS: u8 = 1; // Not implemented for rust
-    pub const ADDR_MODE_DYN: u8 = 2; // Note: SHM mode does not support dynamic addressing, calibration access is done via shared memory only
-    pub const ADDR_MODE_REL: u8 = 3;
-    pub const ADDR_MODE_A2L: u8 = 0xA0;
-    pub const ADDR_MODE_A2L_EVENT: u8 = 0xA1;
-    pub const ADDR_MODE_UNDEF: u8 = 0xFF;
-
     /// Address extension values for the XCP
     pub const XCP_ADDR_EXT_SEG: u8 = 0; // For CAL objects ( index | 0x8000 in high word (CANape does not support addr_ext in memory segments))
     pub const XCP_ADDR_EXT_ABS: u8 = 1; // Not implemented for rust
@@ -95,7 +136,7 @@ impl McAddress {
             calseg_name: Some(calseg_name.into()),
             event_id: None,
             addr_offset,
-            addr_mode: McAddress::ADDR_MODE_CAL,
+            addr_mode: McAddrMode::Cal,
             a2l_addr: 0,
             a2l_addr_ext: 0,
         }
@@ -106,7 +147,7 @@ impl McAddress {
             calseg_name: None,
             event_id: Some(event_id),
             addr_offset,
-            addr_mode: McAddress::ADDR_MODE_ABS,
+            addr_mode: McAddrMode::Abs,
             a2l_addr: 0,
             a2l_addr_ext: 0,
         }
@@ -117,7 +158,7 @@ impl McAddress {
             calseg_name: None,
             event_id: Some(event_id),
             addr_offset,
-            addr_mode: McAddress::ADDR_MODE_REL,
+            addr_mode: McAddrMode::Rel,
             a2l_addr: 0,
             a2l_addr_ext: 0,
         }
@@ -128,7 +169,7 @@ impl McAddress {
             calseg_name: None,
             event_id: Some(event_id),
             addr_offset: addr_offset as i32,
-            addr_mode: McAddress::ADDR_MODE_DYN,
+            addr_mode: McAddrMode::Dyn,
             a2l_addr: 0,
             a2l_addr_ext: 0,
         }
@@ -140,7 +181,7 @@ impl McAddress {
             calseg_name: None,
             event_id: None,
             addr_offset: McAddress::XCP_ADDR_OFFSET_UNDEF,
-            addr_mode: McAddress::ADDR_MODE_A2L,
+            addr_mode: McAddrMode::A2l,
             a2l_addr,
             a2l_addr_ext,
         }
@@ -152,15 +193,20 @@ impl McAddress {
             calseg_name: None,
             event_id: Some(event_id),
             addr_offset: 0,
-            addr_mode: McAddress::ADDR_MODE_A2L_EVENT,
+            addr_mode: McAddrMode::A2lEvent,
             a2l_addr,
             a2l_addr_ext,
         }
     }
 
+    /// Get address mode
+    pub fn get_addr_mode(&self) -> McAddrMode {
+        self.addr_mode
+    }
+
     /// Check address mode is segment relative
     pub fn is_segment_relative(&self) -> bool {
-        if self.addr_mode == McAddress::ADDR_MODE_CAL {
+        if self.addr_mode.is_segment_relative() {
             assert!(self.calseg_name.is_some());
             true
         } else {
@@ -170,7 +216,7 @@ impl McAddress {
 
     /// Check address mode is event relative
     pub fn is_event_relative(&self) -> bool {
-        if self.addr_mode == McAddress::ADDR_MODE_REL || self.addr_mode == McAddress::ADDR_MODE_DYN {
+        if self.addr_mode.is_event_relative() {
             assert!(self.event_id.is_some());
             true
         } else {
@@ -198,22 +244,22 @@ impl McAddress {
     /// If the address is not segment or event relative
     pub fn get_addr_offset(&self) -> i32 {
         match self.addr_mode {
-            McAddress::ADDR_MODE_REL | McAddress::ADDR_MODE_CAL | McAddress::ADDR_MODE_DYN => self.addr_offset,
-            McAddress::ADDR_MODE_A2L | McAddress::ADDR_MODE_A2L_EVENT => panic!("A2L address does not have an offset"),
-            _ => panic!("Invalid address mode"),
+            McAddrMode::Rel | McAddrMode::Cal | McAddrMode::Dyn => self.addr_offset,
+            McAddrMode::A2l | McAddrMode::A2lEvent => panic!("A2L address does not have an offset"),
+            McAddrMode::Abs | McAddrMode::Undef => panic!("Address mode not supported"),
         }
     }
 
     /// Add an offset to an address
     pub fn add_addr_offset(&mut self, offset: i32) {
         match self.addr_mode {
-            McAddress::ADDR_MODE_REL | McAddress::ADDR_MODE_CAL | McAddress::ADDR_MODE_DYN => {
+            McAddrMode::Rel | McAddrMode::Cal | McAddrMode::Dyn => {
                 self.addr_offset += offset;
             }
-            McAddress::ADDR_MODE_A2L | McAddress::ADDR_MODE_A2L_EVENT => {
+            McAddrMode::A2l | McAddrMode::A2lEvent => {
                 self.a2l_addr = (self.a2l_addr as i64 + offset as i64) as u32;
             }
-            _ => panic!("Invalid address mode"),
+            McAddrMode::Abs | McAddrMode::Undef => panic!("Address mode not supported"),
         }
     }
 
@@ -258,32 +304,43 @@ impl McAddress {
 
     /// Get address extension and address for A2L generation and the XCP protocol
     pub fn get_a2l_addr(&self, registry: &Registry) -> (u8, u32) {
-        // Event relative addressing
-        if self.addr_mode == McAddress::ADDR_MODE_REL {
-            McAddress::get_rel_ext_addr(self.addr_offset)
+        match self.addr_mode {
+            // Event relative addressing
+            McAddrMode::Rel => McAddress::get_rel_ext_addr(self.addr_offset),
+            // Event relative addressing with async access
+            McAddrMode::Dyn => McAddress::get_dyn_ext_addr(self.event_id.unwrap(), self.addr_offset.try_into().expect("offset too large")),
+            // Absolute addressing with default event
+            McAddrMode::Abs => McAddress::get_abs_ext_addr(self.addr_offset.try_into().expect("addr too large")),
+            // Explicit segment relative addressing
+            McAddrMode::Cal => {
+                let index = registry
+                    .cal_seg_list
+                    .get_cal_seg_index(self.calseg_name.as_ref().unwrap())
+                    .expect("Relative addressing needs a calibration segment");
+                McAddress::get_calseg_ext_addr(index, self.addr_offset.try_into().expect("offset too large"))
+            }
+            // Explicit A2L address
+            McAddrMode::A2l | McAddrMode::A2lEvent => (self.a2l_addr_ext, self.a2l_addr),
+            // Undefined address mode
+            McAddrMode::Undef => panic!("Undefined address mode"),
         }
-        // Event relative addressing with async access
-        else if self.addr_mode == McAddress::ADDR_MODE_DYN {
-            McAddress::get_dyn_ext_addr(self.event_id.unwrap(), self.addr_offset.try_into().expect("offset too large"))
-        }
-        // Absolute addressing with default event
-        else if self.addr_mode == McAddress::ADDR_MODE_ABS {
-            McAddress::get_abs_ext_addr(self.addr_offset.try_into().expect("addr too large"))
-        }
-        // Explicit segment relative addressing
-        else if self.addr_mode == McAddress::ADDR_MODE_CAL {
-            let index = registry
-                .cal_seg_list
-                .get_cal_seg_index(self.calseg_name.as_ref().unwrap())
-                .expect("Relative addressing needs a calibration segment");
-            McAddress::get_calseg_ext_addr(index, self.addr_offset.try_into().expect("offset too large"))
-        }
-        // Explicit A2L address
-        else if self.addr_mode == McAddress::ADDR_MODE_A2L || self.addr_mode == McAddress::ADDR_MODE_A2L_EVENT {
-            (self.a2l_addr_ext, self.a2l_addr)
-        } else {
-            panic!("Invalid address mode")
-        }
+    }
+
+    // Get raw A2L addr (ext,addr) stored in the McAddress
+    // This is used when the address is imported from a third party A2L file
+    // No conversion is done
+    // # Panics
+    // If the address mode is not A2L
+    pub fn get_raw_a2l_addr(&self) -> (u8, u32) {
+        assert!(self.addr_mode.is_a2l(), "Raw A2L address is only available for A2L addressing modes");
+        (self.a2l_addr_ext, self.a2l_addr)
+    }
+    // Set the A2L address and address extension
+    // Internally used when updating an A2L file
+    pub fn set_raw_a2l_addr(&mut self, a2l_addr_ext: u8, a2l_addr: u32) {
+        assert!(self.addr_mode.is_a2l());
+        self.a2l_addr = a2l_addr;
+        self.a2l_addr_ext = a2l_addr_ext;
     }
 }
 
@@ -307,18 +364,16 @@ impl Ord for McAddress {
         let mode2 = other.addr_mode;
         if mode1 != mode2 {
             mode1.cmp(&mode2)
-        } else {
-            if mode1 == McAddress::ADDR_MODE_A2L || mode1 == McAddress::ADDR_MODE_A2L_EVENT {
-                if self.a2l_addr_ext != other.a2l_addr_ext {
-                    self.a2l_addr_ext.cmp(&other.a2l_addr_ext)
-                } else if self.a2l_addr != other.a2l_addr {
-                    self.a2l_addr.cmp(&other.a2l_addr)
-                } else {
-                    std::cmp::Ordering::Equal
-                }
+        } else if self.addr_mode.is_a2l() {
+            if self.a2l_addr_ext != other.a2l_addr_ext {
+                self.a2l_addr_ext.cmp(&other.a2l_addr_ext)
+            } else if self.a2l_addr != other.a2l_addr {
+                self.a2l_addr.cmp(&other.a2l_addr)
             } else {
-                self.addr_offset.cmp(&other.addr_offset)
+                std::cmp::Ordering::Equal
             }
+        } else {
+            self.addr_offset.cmp(&other.addr_offset)
         }
     }
 }

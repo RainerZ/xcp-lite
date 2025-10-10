@@ -45,6 +45,18 @@ impl McCalibrationSegment {
         self.name.as_str()
     }
 
+    /// Get the calibration segment index
+    // @@@@ TODO clarify the difference between and index: 16 and number: u8 which will be used for the XCP protocol
+    pub fn get_index(&self) -> u16 {
+        self.index
+    }
+
+    // Set the calibration segment index
+    // For internal use only
+    pub fn set_index(&mut self, index: u16) {
+        self.index = index;
+    }
+
     /// Get the full indexed name of the calibration segment
     /// The calibration segment name may not be unique, segments with the same name may be created by multiple thread instances of a task, this is indicated by index > 0
     /// The name is prefixed with the application name if prefix_names is set
@@ -186,5 +198,36 @@ impl<'a> IntoIterator for &'a McCalibrationSegmentList {
 
     fn into_iter(self) -> McCalibrationSegmentListIterator<'a> {
         McCalibrationSegmentListIterator::new(self)
+    }
+}
+
+//-------------------------------------------------------------------------------------------------
+// McCalibrationSegmentListIteratorMut (Mutable Iterator)
+
+/// Mutable iterator for CalibrationSegmentList
+pub struct McCalibrationSegmentListIteratorMut<'a> {
+    iter: std::slice::IterMut<'a, McCalibrationSegment>,
+}
+
+impl<'a> McCalibrationSegmentListIteratorMut<'a> {
+    pub fn new(list: &'a mut McCalibrationSegmentList) -> McCalibrationSegmentListIteratorMut<'a> {
+        McCalibrationSegmentListIteratorMut { iter: list.0.iter_mut() }
+    }
+}
+
+impl<'a> Iterator for McCalibrationSegmentListIteratorMut<'a> {
+    type Item = &'a mut McCalibrationSegment;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut McCalibrationSegmentList {
+    type Item = &'a mut McCalibrationSegment;
+    type IntoIter = McCalibrationSegmentListIteratorMut<'a>;
+
+    fn into_iter(self) -> McCalibrationSegmentListIteratorMut<'a> {
+        McCalibrationSegmentListIteratorMut::new(self)
     }
 }

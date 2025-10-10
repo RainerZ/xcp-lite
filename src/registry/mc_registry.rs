@@ -2,8 +2,10 @@
 // Types:
 //  Registry
 
+use log::info;
 use serde::Deserialize;
 use serde::Serialize;
+use std::collections::HashMap;
 use std::net::Ipv4Addr;
 
 use super::is_closed;
@@ -245,6 +247,61 @@ impl Registry {
     /// Collapses all typedefs to measurement and calibration objects with mangled names
     pub fn flatten_typedefs(&mut self) {
         flatten_registry(self);
+    }
+
+    // ---------------------------------------------------------------------------------------------------------
+    // Update the calibration segment numbers from a mapping table
+    pub fn update_cal_seg_mapping(&mut self, mapping: &HashMap<u16, u16>) {
+        for segment in &mut self.cal_seg_list {
+            if let Some(new_index) = mapping.get(&segment.get_index()) {
+                segment.set_index(*new_index);
+                info!("Update calibration segment index {} -> {}", segment.get_index(), new_index);
+            }
+        }
+
+        // @@@@ XCPlite with absolute segment addressing mode needs no update
+        // Update of ADDR_MODE_A2L not checked
+
+        for instance in &self.instance_list {
+            if instance.address.is_segment_relative() {
+                // Not implemented
+                unimplemented!();
+            }
+        }
+    }
+
+    // Update the event id from a mapping table
+    pub fn update_event_mapping(&mut self, mapping: &HashMap<u16, u16>) {
+        for event in &mut self.event_list {
+            if let Some(new_id) = mapping.get(&event.get_id()) {
+                info!("Update event {} id {} -> {}", event.get_name(), event.get_id(), new_id);
+                event.set_id(*new_id);
+            }
+        }
+        for instance in &mut self.instance_list {
+            if instance.address.is_event_relative() {
+                unimplemented!();
+            }
+            if instance.address.get_addr_mode().is_a2l() {
+                // @@@@ XCPlite specific handling of address extensions
+                let addr = instance.address.get_raw_a2l_addr();
+                if addr.0 >= 2 {
+                    let event_id: u16 = (addr.1 >> 16) as u16;
+                    info!("Checking address update for {}: {}:0x{:08X} event_id={}", instance.get_name(), addr.0, addr.1, event_id);
+                    if let Some(new_id) = mapping.get(&event_id) {
+                        let new_addr: u32 = ((*new_id as u32) << 16) | (addr.1 & 0xFFFF);
+                        instance.address.set_raw_a2l_addr(addr.0, new_addr);
+                        log::info!(
+                            "XCPlite specific event id update in address of ‘{}‘: {}:0x{:08X} -> 0x{:08X}",
+                            instance.get_name(),
+                            addr.0,
+                            addr.1,
+                            new_addr
+                        );
+                    }
+                }
+            }
+        }
     }
 
     //---------------------------------------------------------------------------------------------------------

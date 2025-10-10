@@ -50,6 +50,19 @@ impl McEvent {
         self.name.as_str()
     }
 
+    /// Get the event id
+    /// This is the unique identifier for the event
+    pub fn get_id(&self) -> u16 {
+        self.id
+    }
+
+    // Set the event id
+    // For internal use only
+    // The event id must be unique, no checks
+    pub fn set_id(&mut self, id: u16) {
+        self.id = id;
+    }
+
     /// Get the full indexed name of the event
     /// The event name may not be unique, events with the same name may be created by multiple thread instances of a task, this is indicated by index > 0
     pub fn get_unique_name(&self, registry: &Registry) -> Cow<'static, str> {
@@ -182,5 +195,36 @@ impl<'a> IntoIterator for &'a McEventList {
 
     fn into_iter(self) -> McEventListIterator<'a> {
         McEventListIterator::new(self)
+    }
+}
+
+//-------------------------------------------------------------------------------------------------
+// McEventListIteratorMut (Mutable Iterator)
+
+/// Mutable iterator for EventList
+pub struct McEventListIteratorMut<'a> {
+    iter: std::slice::IterMut<'a, McEvent>,
+}
+
+impl<'a> McEventListIteratorMut<'a> {
+    pub fn new(list: &'a mut McEventList) -> McEventListIteratorMut<'a> {
+        McEventListIteratorMut { iter: list.0.iter_mut() }
+    }
+}
+
+impl<'a> Iterator for McEventListIteratorMut<'a> {
+    type Item = &'a mut McEvent;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut McEventList {
+    type Item = &'a mut McEvent;
+    type IntoIter = McEventListIteratorMut<'a>;
+
+    fn into_iter(self) -> McEventListIteratorMut<'a> {
+        McEventListIteratorMut::new(self)
     }
 }
