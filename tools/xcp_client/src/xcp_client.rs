@@ -1689,7 +1689,7 @@ impl XcpClient {
     }
 
     pub fn a2l_epk(&self) -> Option<&str> {
-        self.registry.as_ref().map(|r| r.get_app_version())
+        self.registry.as_ref().map(|r| r.application.get_version())
     }
 
     //------------------------------------------------------------------------

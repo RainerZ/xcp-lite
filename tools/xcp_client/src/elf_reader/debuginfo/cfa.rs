@@ -21,7 +21,7 @@ pub struct CfaInfo {
 
 pub fn get_cfa(mmap: &Mmap, cfa_info: &mut Vec<CfaInfo>) -> Result<usize> {
     // Parse the ELF file using the object crate
-    println!("Parsing ELF file for function CFAs ...");
+    log::info!("Parsing ELF file for function CFAs ...");
     let object_file = object::File::parse(&mmap[..])?;
 
     // if args.verbose {
@@ -102,10 +102,26 @@ pub fn get_cfa(mmap: &Mmap, cfa_info: &mut Vec<CfaInfo>) -> Result<usize> {
         return Ok(0);
     }
 
-    println!("\nFound {} functions with debug information:", n);
-
     //print_all_functions(&functions);
-    print_summary(cfa_info);
+
+    // Summary
+    log::info!("CFA parser found {} functions with XCP events:", n);
+    // Group by compilation unit
+    let mut by_cu: HashMap<usize, Vec<&CfaInfo>> = HashMap::new();
+    for func in cfa_info {
+        by_cu.entry(func.unit_idx).or_default().push(func);
+    }
+
+    for (cu_idx, cu_functions) in by_cu {
+        log::info!("Compilation Unit {}: {} functions", cu_idx, cu_functions.len());
+        for func in cu_functions {
+            let cfa_info = match func.cfa_offset {
+                Some(offset) => format!("CFA+{}", offset),
+                None => "CFA unknown".to_string(),
+            };
+            log::info!("  {} (0x{:08x}-0x{:08x}) [{}]", func.function, func.low_pc, func.high_pc, cfa_info);
+        }
+    }
 
     Ok(n)
 }
@@ -671,28 +687,6 @@ fn get_string_attribute(
         }
     }
     Ok(None)
-}
-
-/// Print summary of all functions found
-fn print_summary(functions: &[CfaInfo]) {
-    println!("\nFunctions found:");
-
-    // Group by compilation unit
-    let mut by_cu: HashMap<usize, Vec<&CfaInfo>> = HashMap::new();
-    for func in functions {
-        by_cu.entry(func.unit_idx).or_default().push(func);
-    }
-
-    for (cu_idx, cu_functions) in by_cu {
-        println!("\nCompilation Unit {}: {} functions", cu_idx, cu_functions.len());
-        for func in cu_functions {
-            let cfa_info = match func.cfa_offset {
-                Some(offset) => format!("CFA+{}", offset),
-                None => "CFA unknown".to_string(),
-            };
-            println!("  {} (0x{:08x}-0x{:08x}) [{}]", func.function, func.low_pc, func.high_pc, cfa_info);
-        }
-    }
 }
 
 /// Print detailed information for all functions

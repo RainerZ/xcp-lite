@@ -395,7 +395,7 @@ impl Xcp {
 
     /// Set the project name (will be used as A2L file name and A2L project name)
     pub fn set_app_name(&self, app_name: &str) -> &'static Xcp {
-        registry::get_lock().as_mut().unwrap().set_app_info(app_name.to_string(), "xcp-lite", 0);
+        registry::get_lock().as_mut().unwrap().application.set_info(app_name.to_string(), "xcp-lite", 0);
         &XCP
     }
 
@@ -403,14 +403,14 @@ impl Xcp {
     pub fn set_app_revision(&self, app_revision: &'static str) -> &'static Xcp {
         assert!(app_revision.len() % 4 == 0); // @@@@ TODO check length of EPK string
         *(self.epk.lock()) = app_revision;
-        registry::get_lock().as_mut().unwrap().set_app_version(app_revision, Xcp::XCP_EPK_ADDR);
+        registry::get_lock().as_mut().unwrap().application.set_version(app_revision, Xcp::XCP_EPK_ADDR);
         &XCP
     }
 
     /// Set registry mode (flat or with typedefs, prefix names with app name)
     pub fn set_registry_mode(&self, flatten_typedefs: bool, prefix_names: bool) -> &'static Xcp {
-        registry::get_lock().as_mut().unwrap().set_flatten_typedefs(flatten_typedefs);
-        registry::get_lock().as_mut().unwrap().set_prefix_names(prefix_names);
+        registry::get_lock().as_mut().unwrap().set_flatten_typedefs_mode(flatten_typedefs);
+        registry::get_lock().as_mut().unwrap().set_prefix_names_mode(prefix_names);
         &XCP
     }
 
@@ -574,10 +574,10 @@ impl Xcp {
         // Write A2L
 
         {
-            // Write A2L file from registry
+            // Write A2L file from registry in VECTOR mode
             let write_xcp_ifdata = {
                 // Build filename
-                let app_name = registry::get().get_app_name();
+                let app_name = registry::get().application.get_name();
                 assert!(app_name.len() != 0, "App name not set");
                 let mut path = std::path::PathBuf::new();
                 path.set_file_name(app_name);
@@ -602,11 +602,11 @@ impl Xcp {
                 unsafe {
                     let reg = registry::get();
 
-                    let name = std::ffi::CString::new(reg.get_app_name()).unwrap();
+                    let name = std::ffi::CString::new(reg.application.get_name()).unwrap();
                     // @@@@ UNSAFE - C library call
                     xcplib::ApplXcpSetA2lName(name.as_ptr());
 
-                    let epk = std::ffi::CString::new(reg.get_app_version()).unwrap();
+                    let epk = std::ffi::CString::new(reg.application.get_version()).unwrap();
                     // @@@@ UNSAFE - C library call
                     xcplib::XcpSetEpk(epk.as_ptr());
                 }

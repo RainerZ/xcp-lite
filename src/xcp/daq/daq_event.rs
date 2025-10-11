@@ -356,7 +356,7 @@ macro_rules! daq_register_array {
 
 /// Capture the CDR serialized value of a variable into the capture buffer of the given daq event
 /// Register the given metadata once
-/// This includes the serialization schema as annotation text of the variable (Vector VLSD, variable length signal description)
+/// This includes the serialization schema as annotation text of the variable (CANape VLSD, variable length signal description)
 #[allow(unused_macros)]
 #[macro_export]
 macro_rules! daq_serialize {

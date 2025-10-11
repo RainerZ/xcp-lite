@@ -62,7 +62,7 @@ impl McCalibrationSegment {
     /// The name is prefixed with the application name if prefix_names is set
     pub fn get_prefixed_name(&self, registry: &Registry) -> Cow<'static, str> {
         if registry.prefix_names {
-            Cow::Owned(format!("{}.{}", registry.get_app_name(), self.name))
+            Cow::Owned(format!("{}.{}", registry.application.get_name(), self.name))
         } else {
             Cow::Borrowed(self.name.as_str())
         }

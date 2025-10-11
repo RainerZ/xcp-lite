@@ -68,7 +68,7 @@ impl McEvent {
     pub fn get_unique_name(&self, registry: &Registry) -> Cow<'static, str> {
         if self.index > 0 {
             if registry.prefix_names {
-                Cow::Owned(format!("{}.{}_{}", registry.get_app_name(), self.name, self.index))
+                Cow::Owned(format!("{}.{}_{}", registry.application.get_name(), self.name, self.index))
             } else {
                 Cow::Owned(format!("{}_{}", self.name, self.index))
             }

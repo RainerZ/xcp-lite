@@ -309,16 +309,21 @@ impl GenerateA2l for McEvent {
 
 impl GenerateA2l for McApplication {
     fn write_a2l(&self, writer: &mut A2lWriter) -> std::io::Result<()> {
-        // Add a EPK memory segment for the EPK, to include the EPK in HEX-files
-        log::debug!("A2L writer: epk={} version_addr=0x{:08X}", self.version, self.version_addr);
-        writeln!(
-            writer,
-            "EPK \"{}\" ADDR_EPK 0x{:08X}\n/begin MEMORY_SEGMENT epk \"\" DATA FLASH INTERN 0x{:08X} {} -1 -1 -1 -1 -1 /end MEMORY_SEGMENT",
-            self.version,
-            self.version_addr,
-            self.version_addr,
-            self.version.len(),
-        )
+        // Add EPK if available
+        if self.has_epk() {
+            log::debug!("A2L writer: epk={} version_addr=0x{:08X}", self.version, self.version_addr);
+            writeln!(writer, "EPK \"{}\" ADDR_EPK 0x{:08X}", self.version, self.version_addr,)?
+        }
+        // Add EPK memory segment for the EPK, to include the EPK in HEX-files
+        if writer.registry.get_auto_epk_segment_mode() {
+            writeln!(
+                writer,
+                "/begin MEMORY_SEGMENT epk \"\" DATA FLASH INTERN 0x{:08X} {} -1 -1 -1 -1 -1 /end MEMORY_SEGMENT",
+                self.version_addr,
+                self.version.len(),
+            )?
+        }
+        Ok(())
     }
 }
 
@@ -329,9 +334,8 @@ impl GenerateA2l for McApplication {
 impl GenerateA2l for McCalibrationSegment {
     fn write_a2l(&self, writer: &mut A2lWriter) -> std::io::Result<()> {
         let calseg = self;
-        let num = if writer.registry.is_vector_xcp_mode() { calseg.index + 1 } else { calseg.index };
+        let num = if writer.registry.get_auto_epk_segment_mode() { calseg.index + 1 } else { calseg.index };
 
-        //for (n, calseg) in self.iter().enumerate() {
         log::debug!("A2L writer: memory segment {}  {}:0x{:X} size={}", calseg.name, calseg.addr_ext, calseg.addr, calseg.size);
 
         writeln!(
@@ -532,7 +536,7 @@ impl McInstance {
 
         //
         // BLOB used for dynamic objects
-        // With Vector specific IDL annotation
+        // With CANape specific IDL annotation
         if let McValueType::Blob(annotation) = &self.dim_type.value_type {
             let buffer_size = dim_type.get_dim()[0];
             assert!(dim_type.get_dim()[0] > 0 && dim_type.get_dim()[1] == 1, "Blob must have x_dim > 0 and y_dim == 1");
@@ -878,7 +882,7 @@ ASAP2_VERSION 1 71
         writeln!(self, "/begin MOD_PAR \"\" ")?;
 
         // EPK segment
-        if self.registry.is_vector_xcp_mode() {
+        {
             let application = &self.registry.application;
             application.write_a2l(self)?;
         }

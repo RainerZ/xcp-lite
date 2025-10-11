@@ -480,8 +480,9 @@ async fn xcp_client(
     // Create a new empty A2L registry
     let mut reg = xcp_lite::registry::Registry::new();
     if !ecu_name.is_empty() {
-        reg.set_app_info(ecu_name.clone(), "-", 0);
+        reg.application.set_info(ecu_name.clone(), "-", 0);
     }
+    reg.set_auto_epk_segment_mode(false); // Disable implicit 'epk' segment handling
 
     // Set A2L default file path to given command line argument 'a2l' or to target name 'ecu_name' if available
     let mut a2l_path = std::path::Path::new(if !a2l_name.is_empty() {
@@ -534,6 +535,7 @@ async fn xcp_client(
     // If option create-a2l is specified and no ELF file, create a A2L template from XCP server information
     // Read segment and event information obtained from the XCP server into registry
     // Add measurement and calibration variables from ELF file if specified
+    // Addressing scheme is XCP_LITE_ACSDD hardcoded
     else if create_a2l || !elf_name.is_empty() {
         let mode = if xcp_client.is_connected() {
             if !elf_name.is_empty() {
@@ -550,9 +552,6 @@ async fn xcp_client(
             info!("Generate A2L file {} from elf/dwarf information, no connected XCP server", a2l_path.display());
             "elf/dwarf"
         };
-
-        reg.set_vector_xcp_mode(false); // Don't activate standard xcp-lite addressing modes and EPK segment
-        //reg.set_app_version(epk, 0x80000000); // @@@@ TODO
 
         // Set registry XCP default transport layer informations for A2L file
         let protocol = if tcp { "TCP" } else { "UDP" };
@@ -591,7 +590,7 @@ async fn xcp_client(
                 ecu_name = "project_name".into();
             }
             let title_info = format!("xcp_client A2L creator in {} mode", mode);
-            reg.write_a2l(&a2l_path, title_info.as_str(), &ecu_name, "", &ecu_name, "_", true).unwrap();
+            reg.write_a2l(&a2l_path, title_info.as_str(), &ecu_name, "", &ecu_name, "XCP_LITE_ACSDD", true).unwrap();
             info!("Created A2L file: {} in {} mode", a2l_path.display(), mode);
         }
     }
@@ -615,6 +614,7 @@ async fn xcp_client(
 
         // Load the event and calibration segment information from target into a temporary registry and check if the given A2L file needs to be corrected
         let mut tmp_reg = xcp_lite::registry::Registry::new();
+        reg.set_auto_epk_segment_mode(false); // Disable implicit 'epk' segment handling
         xcp_client.get_event_segment_info(&mut tmp_reg).await?;
 
         // Check events

@@ -524,8 +524,8 @@ pub mod registry_test {
             registry::init();
             let mut l = registry::get_lock();
             l.replace(Registry::new());
-            l.as_mut().unwrap().set_app_info("test_setup", "created by test_setup", 0);
-            l.as_mut().unwrap().set_app_version("test_setup", Xcp::XCP_EPK_ADDR);
+            l.as_mut().unwrap().application.set_info("test_setup", "created by test_setup", 0);
+            l.as_mut().unwrap().application.set_version("test_setup", Xcp::XCP_EPK_ADDR);
         }
         // Drop the closed registry singleton (unsafe)
         #[allow(invalid_reference_casting)]
@@ -576,8 +576,8 @@ pub mod registry_test {
 
         // Registry
         let mut reg = Registry::new();
-        reg.set_app_info("test_registry_1", "created by test_registry_1", 0);
-        reg.set_app_version("EPK1.0.0", 0x80000000);
+        reg.application.set_info("test_registry_1", "created by test_registry_1", 0);
+        reg.application.set_version("EPK1.0.0", 0x80000000);
         reg.set_xcp_params("UDP", Ipv4Addr::new(127, 0, 0, 1), 5555);
 
         reg.cal_seg_list.add_cal_seg("test_cal_seg_1", 0, 4).unwrap();
@@ -624,7 +624,7 @@ pub mod registry_test {
             .unwrap();
 
         // Write A2L file and check syntax
-        reg.write_a2l(&"test_registry_1.a2l", "xcp-lite test", "project_name", "", "module_name", "project_no", true)
+        reg.write_a2l(&"test_registry_1.a2l", "xcp-lite test", "project_name", "", "module_name", "VECTOR", true)
             .unwrap();
     }
 
@@ -656,8 +656,12 @@ pub mod registry_test {
 
         let xcp = xcp_test::test_setup();
 
-        registry::get_lock().as_mut().unwrap().set_app_info("test_registry_2", "created by test_registry_2", 0);
-        registry::get_lock().as_mut().unwrap().set_app_version("EPK2.0.0", 0x80000000);
+        registry::get_lock()
+            .as_mut()
+            .unwrap()
+            .application
+            .set_info("test_registry_2", "created by test_registry_2", 0);
+        registry::get_lock().as_mut().unwrap().application.set_version("EPK2.0.0", 0x80000000);
         registry::get_lock().as_mut().unwrap().set_xcp_params("UDP", Ipv4Addr::new(127, 0, 0, 1), 5555);
 
         let _ = CalSeg::new("test_cal_seg_1", &CAL_PAGE).register_fields();
@@ -803,8 +807,8 @@ pub mod registry_test {
         let mut reg = Registry::new();
 
         // Application name and version
-        reg.set_app_info("test_registry_api", "created by test_registry_api", 0);
-        reg.set_app_version("V1.0.0", 0);
+        reg.application.set_info("test_registry_api", "created by test_registry_api", 0);
+        reg.application.set_version("V1.0.0", 0);
 
         // Calibration segment
         reg.cal_seg_list.add_cal_seg("calseg_1", 0, 4).unwrap();
@@ -909,7 +913,7 @@ pub mod registry_test {
 
         // Write A2L file and check syntax
         {
-            reg.write_a2l(&"test_registry_api.a2l", "xcp-lite test", "project_name", "", "module_name", "project_no", false)
+            reg.write_a2l(&"test_registry_api.a2l", "xcp-lite test", "project_name", "", "module_name", "VECTOR", false)
                 .unwrap();
 
             // Load the A2L file into another registry
@@ -958,7 +962,7 @@ pub mod registry_test {
 
         // Write A2L file and check syntax
         log::info!("Write A2L file test_registry_load_a2l.a2l");
-        reg.write_a2l(&"test_registry_load_a2l.a2l", "xcp-lite test", "project_name", "", "module_name", "project_no", true)
+        reg.write_a2l(&"test_registry_load_a2l.a2l", "xcp-lite test", "project_name", "", "module_name", "VECTOR", true)
             .unwrap();
 
         // Compare xcp_lite.a2l and xcp_lite2.a2l

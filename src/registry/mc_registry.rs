@@ -57,9 +57,57 @@ pub struct McApplication {
     pub app_id: u8,          // Unique identifier for the application
     pub name: McIdentifier,  // Name of the application, used as A2L filename and module name
     pub description: McText, // Optional description of the application
+
     // Version or EPK
     pub version: McText,   // Version, used as A2L EPK
     pub version_addr: u32, // Address of the EPK string in memory
+}
+
+impl McApplication {
+    pub fn new() -> McApplication {
+        McApplication {
+            app_id: 0,
+            name: "".into(),
+            description: "".into(),
+            version: "".into(),
+            version_addr: 0,
+        }
+    }
+
+    /// Check if EPK version string and address is available for the application
+    pub fn has_epk(&self) -> bool {
+        !self.version.is_empty()
+    }
+
+    /// Set application name
+    pub fn set_info<A: Into<McIdentifier>, B: Into<McText>>(&mut self, name: A, description: B, id: u8) {
+        let name: McIdentifier = name.into();
+        let description: McText = description.into();
+        log::info!("Registry set application info, app_name={}, app_id={}, description={}", name, id, description);
+
+        // Set name, id and description
+        self.app_id = id;
+        self.name = name;
+        self.description = description;
+    }
+
+    /// Get application name
+    pub fn get_name(&self) -> &'static str {
+        if !self.name.is_empty() { self.name.as_str() } else { "application" }
+    }
+
+    /// Set application version
+    pub fn set_version<T: Into<McText>>(&mut self, epk: T, version_addr: u32) {
+        let epk: McText = epk.into();
+        log::debug!("Registry set epk: {} 0x{:08X}", epk, version_addr);
+        self.version = epk;
+        self.version_addr = version_addr;
+    }
+
+    /// Get application version
+    pub fn get_version(&self) -> &str {
+        self.version.as_str()
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -68,10 +116,6 @@ pub struct McApplication {
 /// Measurement and calibration object database
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Registry {
-    // Use Vector specific extensions
-    // XCP definition of address extensions
-    vector_xcp_mode: bool,
-
     // Flatten typedefs to measurement and calibration objects when writing A2L
     #[serde(skip_serializing)]
     #[serde(skip_deserializing)]
@@ -81,6 +125,11 @@ pub struct Registry {
     #[serde(skip_serializing)]
     #[serde(skip_deserializing)]
     pub prefix_names: bool,
+
+    // Has implicit EPK memory segment with index 0
+    #[serde(skip_serializing)]
+    #[serde(skip_deserializing)]
+    pub auto_epk_segment_mode: bool,
 
     // Application name and software version
     pub application: McApplication,
@@ -113,52 +162,16 @@ impl Registry {
     /// Create a measurement and calibration registry
     pub fn new() -> Registry {
         Registry {
-            vector_xcp_mode: true,
             flatten_typedefs: false,
             prefix_names: false,
-            application: McApplication::default(),
+            auto_epk_segment_mode: true,
+            application: McApplication::new(),
             xcp_tl_params: None,
             event_list: McEventList::new(),
             cal_seg_list: McCalibrationSegmentList::new(),
             typedef_list: McTypeDefList::new(),
             instance_list: McInstanceList::new(),
         }
-    }
-
-    //---------------------------------------------------------------------------------------------------------
-
-    /// Set application name
-    pub fn set_app_info<A: Into<McIdentifier>, B: Into<McText>>(&mut self, name: A, description: B, id: u8) {
-        let name: McIdentifier = name.into();
-        let description: McText = description.into();
-        log::info!("Registry set application info, app_name={}, app_id={}, description={}", name, id, description);
-
-        // Set name, id and description
-        self.application.app_id = id;
-        self.application.name = name;
-        self.application.description = description;
-    }
-
-    /// Get application name
-    pub fn get_app_name(&self) -> &'static str {
-        if !self.application.name.is_empty() {
-            self.application.name.as_str()
-        } else {
-            "application"
-        }
-    }
-
-    /// Set application version
-    pub fn set_app_version<T: Into<McText>>(&mut self, epk: T, version_addr: u32) {
-        let epk: McText = epk.into();
-        log::debug!("Registry set epk: {} 0x{:08X}", epk, version_addr);
-        self.application.version = epk;
-        self.application.version_addr = version_addr;
-    }
-
-    /// Get application version
-    pub fn get_app_version(&self) -> &str {
-        self.application.version.as_str()
     }
 
     //---------------------------------------------------------------------------------------------------------
@@ -175,22 +188,31 @@ impl Registry {
         self.xcp_tl_params.is_some()
     }
 
-    /// Vector specific handling mode of address extensions, predefined artefacts, naming conventions, usage of typedefs, ...
-    pub fn set_vector_xcp_mode(&mut self, vector_xcp_mode: bool) {
-        self.vector_xcp_mode = vector_xcp_mode;
-    }
-    pub fn is_vector_xcp_mode(&self) -> bool {
-        self.vector_xcp_mode
-    }
+    //---------------------------------------------------------------------------------------------------------
+    // Modes
 
     /// Flatten typedefs (TYPEDEF_STRUCTURE) to measurement and calibration objects (MEASUREMENT, CHARACTERISTC  and AXIS) when writing A2L
-    pub fn set_flatten_typedefs(&mut self, flatten_typedefs: bool) {
+    pub fn set_flatten_typedefs_mode(&mut self, flatten_typedefs: bool) {
         self.flatten_typedefs = flatten_typedefs;
+    }
+    pub fn get_flatten_typedefs_mode(&self) -> bool {
+        self.flatten_typedefs
     }
 
     /// Prefix name with application name when writing A2L
-    pub fn set_prefix_names(&mut self, prefix_names: bool) {
+    pub fn set_prefix_names_mode(&mut self, prefix_names: bool) {
         self.prefix_names = prefix_names;
+    }
+    pub fn get_prefix_names_mode(&self) -> bool {
+        self.prefix_names
+    }
+
+    /// Implicit epk segment mode
+    pub fn set_auto_epk_segment_mode(&mut self, auto_epk_segment_mode: bool) {
+        self.auto_epk_segment_mode = auto_epk_segment_mode;
+    }
+    pub fn get_auto_epk_segment_mode(&self) -> bool {
+        self.auto_epk_segment_mode
     }
 
     //---------------------------------------------------------------------------------------------------------

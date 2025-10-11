@@ -61,7 +61,7 @@ impl McInstance {
     /// The instance name may not be unique
     pub fn get_prefixed_name(&self, registry: &Registry) -> Cow<'static, str> {
         if registry.prefix_names {
-            return Cow::Owned(format!("{}.{}", registry.get_app_name(), self.name));
+            return Cow::Owned(format!("{}.{}", registry.application.get_name(), self.name));
         }
         Cow::Borrowed(self.name.as_str())
     }
@@ -73,7 +73,7 @@ impl McInstance {
             if let Some(event) = registry.event_list.find_event_id(event_id) {
                 if event.index > 0 {
                     if registry.prefix_names {
-                        return Cow::Owned(format!(r#"{}.{}_{}"#, registry.get_app_name(), self.name, event.index));
+                        return Cow::Owned(format!(r#"{}.{}_{}"#, registry.application.get_name(), self.name, event.index));
                     } else {
                         return Cow::Owned(format!(r#"{}_{}"#, self.name, event.index));
                     }
@@ -81,7 +81,7 @@ impl McInstance {
             }
         }
         if registry.prefix_names {
-            Cow::Owned(format!(r#"{}.{}"#, registry.get_app_name(), self.name))
+            Cow::Owned(format!(r#"{}.{}"#, registry.application.get_name(), self.name))
         } else {
             Cow::Borrowed(self.name.as_str())
         }
