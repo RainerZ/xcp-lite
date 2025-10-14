@@ -87,8 +87,244 @@ pub(crate) struct DebugData {
 
 impl DebugData {
     // load the debug info from an elf file
-    pub(crate) fn load_dwarf(filename: &OsStr, verbose: bool) -> Result<Self, String> {
-        dwarf::load_dwarf(filename, verbose)
+    pub(crate) fn load_dwarf(filename: &OsStr, verbose: usize, unit_idx_limit: usize) -> Result<Self, String> {
+        dwarf::load_dwarf(filename, verbose, unit_idx_limit)
+    }
+
+    pub(crate) fn print_debug_stats(&self) {
+        println!("\n====================================================================================================");
+
+        println!("Debug information summary:");
+        println!("  Compilation units: {} units", self.unit_names.len());
+        println!("  Sections: {} sections", self.sections.len());
+        println!("  Type names: {} named types", self.typenames.len());
+        println!("  Types: {} total types", self.types.len());
+        println!("  Demangled names: {} entries", self.demangled_names.len());
+
+        let mut variable_count = 0;
+        for (name, var_infos) in &self.variables {
+            variable_count += var_infos.len();
+        }
+        println!("  Variables {} with {} unique names", variable_count, self.variables.len());
+
+        //Print compilation units
+        println!("\n====================================================================================================");
+        println!("Compilation Units:");
+        for (idx, unit_name) in self.unit_names.iter().enumerate() {
+            let unit_name = make_simple_unit_name(self, idx);
+            if unit_name.is_none() {
+                println!("  Unit {}: <unnamed>", idx);
+            } else {
+                println!("  Unit {}: {}", idx, unit_name.as_ref().unwrap());
+            }
+        }
+        println!();
+    }
+
+    pub(crate) fn print_type_info(&self, type_info: &TypeInfo) {
+        let type_name = if let Some(name) = &type_info.name { name } else { "" };
+        let type_size = type_info.get_size();
+
+        print!("    TypeInfo: {}", type_name);
+        // print!(" (unit_idx = {}, dbginfo_offset = {})",type_info.unit_idx, type_info.dbginfo_offset);
+
+        match &type_info.datatype {
+            DbgDataType::Uint8 | DbgDataType::Uint16 | DbgDataType::Uint32 | DbgDataType::Uint64 => {
+                println!(" Integer: {} byte unsigned", type_size);
+            }
+            DbgDataType::Sint8 | DbgDataType::Sint16 | DbgDataType::Sint32 | DbgDataType::Sint64 => {
+                println!(" Integer: {} byte signed", type_size);
+            }
+            DbgDataType::Float | DbgDataType::Double => {
+                println!(" Floating point: {} byte", type_size);
+            }
+
+            DbgDataType::Pointer(typeref, size) => {
+                println!(" Pointer: typeref = {}, size = {} ", typeref, size);
+            }
+            DbgDataType::Array { arraytype, dim, stride, size } => {
+                println!(" Array: typeref = {}, dim = {:?}, stride = {} bytes, size = {} bytes", arraytype, dim, stride, size);
+            }
+            DbgDataType::Struct { size, members } => {
+                println!(" Struct: {} fields, size = {}", members.len(), size);
+                for (name, (type_info, member_offset)) in members {
+                    let member_size = type_info.get_size();
+                    println!("      Field '{}': size = {} bytes, offset = {} bytes", name, member_size, member_offset);
+                }
+            }
+            DbgDataType::Union { members, size } => {
+                println!(" Union: {} members, size = {} bytes", members.len(), size);
+            }
+            DbgDataType::Enum { size, signed, enumerators } => {
+                println!(" Enum: {} variants, size = {} bytes", enumerators.len(), size);
+                for (name, value) in enumerators {
+                    println!("      Variant '{}': value={}", name, value);
+                }
+            }
+            DbgDataType::Bitfield { basetype, bit_offset, bit_size } => {
+                println!(" Bitfield: base type = {:?}, offset = {} bits, size = {} bits", basetype.datatype, bit_offset, bit_size);
+            }
+            DbgDataType::Class { size, inheritance, members } => {
+                println!(" Class: {} members, size = {} bytes", members.len(), size);
+            }
+            DbgDataType::FuncPtr(size) => {
+                println!(" Function pointer: size = {} bytes", size);
+            }
+            DbgDataType::TypeRef(typeref, size) => {
+                println!(" TypeRef: typeref = {}, size = {} bytes", typeref, size);
+            }
+            _ => {
+                println!(" Other type: {:?}", &type_info.datatype);
+            }
+        }
+    }
+
+    // level 0 .. 5 stats, variables, variable types, demangled names, type names, types
+    pub(crate) fn print_debug_info(&self, level: usize, unit_idx_limit: usize) {
+        // level = 0
+        println!("\n====================================================================================================");
+        self.print_debug_stats();
+
+        //Print sections information
+        println!("\n====================================================================================================");
+        println!("Memory Sections in debug_data:");
+
+        // Print sections sorted by address
+        let mut sections: Vec<(&String, &(u64, u64))> = self.sections.iter().collect();
+        sections.sort_by_key(|&(_, (addr, _))| *addr);
+        let mut last_addr: u64 = 0;
+        for (name, (addr, size)) in sections {
+            println!("  '{}': 0x{:08x}, {} bytes ({})", name, *addr, *addr - last_addr, *size);
+            last_addr = *addr;
+        }
+
+        if level >= 4 {
+            //Print type names
+            println!("\n====================================================================================================");
+            println!("Type Names (debug_data.typenames)");
+            for (type_name, type_refs) in &self.typenames {
+                println!("Type name '{}': {} references", type_name, type_refs.len());
+                for type_ref in type_refs {
+                    if let Some(type_info) = self.types.get(type_ref) {
+                        println!("  -> type_ref={}, size={} bytes, unit={}", type_ref, type_info.get_size(), type_info.unit_idx);
+                    }
+                }
+            }
+
+            if level >= 5 {
+                // Print types
+                println!("\n====================================================================================================");
+                println!("Types:");
+                for (type_ref, type_info) in &self.types {
+                    let type_name = if let Some(name) = &type_info.name { name } else { "" };
+                    println!(
+                        "TypeRef {}: name = '{}', size = {} bytes, unit = {}",
+                        type_ref,
+                        type_name,
+                        type_info.get_size(),
+                        type_info.unit_idx
+                    );
+                    self.print_type_info(type_info);
+                }
+            }
+
+            // Print demangled names
+            if level >= 3 {
+                println!("\n====================================================================================================");
+                println!("\nDemangled Names");
+                for (mangled_name, demangled_name) in &self.demangled_names {
+                    println!("  '{}' -> '{}'", mangled_name, demangled_name);
+                }
+            }
+        }
+
+        // Print A2L Creator variables
+        println!("\n====================================================================================================");
+        println!("A2L Creator variables in compilation unit 0..{unit_idx_limit}:");
+        for (var_name, var_info) in &self.variables {
+            if var_name.starts_with("cal__") || var_name.starts_with("evt__") || var_name.starts_with("trg__") {
+                print!("'{}': ", var_name);
+                assert!(var_info.len() == 1);
+                let var = &var_info[0];
+                let unit_name = if let Some(name) = make_simple_unit_name(&self, var.unit_idx) {
+                    name
+                } else {
+                    "<unnamed>".to_string()
+                };
+                let function_name = if let Some(name) = &var.function { name } else { "<global>" };
+                let name_space = if var.namespaces.len() > 0 { var.namespaces.join("::") } else { "".to_string() };
+                println!(" {}:'{}' {}: addr={}:0x{:08X}", unit_name, function_name, name_space, var.address.0, var.address.1);
+            }
+        }
+
+        // Print variables
+        if level >= 1 {
+            if level >= 5 {
+                println!("\n====================================================================================================");
+                println!("System variables  in compilation unit 0..{unit_idx_limit}:");
+                for (var_name, var_info) in &self.variables {
+                    if var_name.starts_with("__") {
+                        println!("{}: ", var_name);
+                    }
+                }
+            }
+
+            println!("\n====================================================================================================");
+            println!("Variables in compilation unit 0..{unit_idx_limit}:");
+            if level <= 1 {
+                println!("  (Skipping internal variables '__<name>' and global XCP variables 'gXcp..' and 'gA2l..')");
+            }
+
+            for (var_name, var_info) in &self.variables {
+                // Count all variable in unit_idx
+                let count = var_info.iter().filter(|v| v.unit_idx <= unit_idx_limit).count();
+
+                // Skip standard library variables and system/compiler internals (__<name>)s
+                // Skip global XCP variables (gXCP.. and gA2L..)
+                if level < 5 && var_name.starts_with("__") || var_name.starts_with("gXcp") || var_name.starts_with("gA2l") {
+                    continue;
+                }
+
+                // print only variables from compilation unit 0..=unit_idx
+                if count == 1 && var_info[0].unit_idx > unit_idx_limit {
+                    continue;
+                }
+
+                // Iterate over all variable infos for this variable name in unit_idx
+                if level >= 1 {
+                    println!("{} {}: ", var_name, count);
+                } else if level >= 2 {
+                    if count > 1 {
+                        println!("{} {}: ", var_name, count);
+                    }
+                    for var in var_info {
+                        // print only variables from compilation unit 0..=unit_idx
+                        if var.unit_idx > unit_idx_limit {
+                            continue; // print only variables from compilation unit 0..=unit_idx
+                        }
+                        if count <= 1 {
+                            print!("{} : ", var_name);
+                        }
+                        let unit_name = if let Some(name) = make_simple_unit_name(&self, var.unit_idx) {
+                            name
+                        } else {
+                            "<unnamed>".to_string()
+                        };
+                        let function_name = if let Some(name) = &var.function { name } else { "<global>" };
+                        let name_space = if var.namespaces.len() > 0 { var.namespaces.join("::") } else { "".to_string() };
+                        print!(" {}:'{}' {}: addr={}:0x{:08X}", unit_name, function_name, name_space, var.address.0, var.address.1);
+                        if let Some(type_info) = self.types.get(&var.typeref) {
+                            let type_name = if let Some(name) = &type_info.name { name } else { "" };
+                            print!(", type='{}', size={}", type_name, type_info.get_size());
+                            // print_type_info(type_info);
+                        }
+                        println!();
+                    }
+                }
+            }
+        }
+
+        println!();
     }
 }
 
@@ -122,7 +358,7 @@ impl TypeInfo {
 }
 
 /// convert a full unit name, which might include a path, into a simple unit name
-pub fn make_simple_unit_name(debug_data: &DebugData, unit_idx: usize) -> Option<String> {
+pub(crate) fn make_simple_unit_name(debug_data: &DebugData, unit_idx: usize) -> Option<String> {
     let full_name = debug_data.unit_names.get(unit_idx)?.as_deref()?;
     let file_name = if let Some(pos) = full_name.rfind('\\') {
         &full_name[(pos + 1)..]

@@ -66,8 +66,8 @@ struct Args {
     // -v --verbose
     /// Verbose output
     /// Enables additional output when reading ELF files and creating A2L files
-    #[arg(short, long, default_value_t = false)]
-    verbose: bool,
+    #[arg(short, long, default_value_t = 0)]
+    verbose: usize,
 
     // -d --dest_addr
     /// XCP server address (IP address or IP:port). If port is omitted, uses --port parameter
@@ -123,6 +123,11 @@ struct Args {
     /// If connected to a XCP server, events and memory segments will be extracted from the XCP server
     #[arg(short, long, default_value = "")]
     elf: String,
+
+    // --elf-unit-limit
+    /// Parse only compilations units <= n
+    #[arg(long, default_value_t = 0)]
+    elf_unit_limit: u32,
 
     // --list-mea
     /// Lists all specified measurement variables (regex) found in the A2L file
@@ -387,7 +392,7 @@ impl XcpTextDecoder for ServTextDecoder {
 //  XCP client
 
 async fn xcp_client(
-    verbose: bool,
+    verbose: usize,
     tcp: bool,
     udp: bool,
     dest_addr: std::net::SocketAddr,
@@ -397,6 +402,7 @@ async fn xcp_client(
     create_a2l: bool,
     fix_a2l: bool,
     elf_name: String,
+    elf_idx_unit_limit: usize,
     list_cal: String,
     list_mea: String,
     measurement_list: Vec<String>,
@@ -539,19 +545,14 @@ async fn xcp_client(
     else if create_a2l || !elf_name.is_empty() {
         let mode = if xcp_client.is_connected() {
             if !elf_name.is_empty() {
-                info!(
-                    "Generate A2L file {} from connected XCP server event and segment information and elf/dwarf information",
-                    a2l_path.display()
-                );
-                "online+elf/dwarf"
+                "target XCP event/segment and ELF/DWARF variable and type information, online mode"
             } else {
-                info!("Generate A2L file {} from XCP server event and segment information", a2l_path.display());
-                "online"
+                "target XCP event/segment information only, online mode"
             }
         } else {
-            info!("Generate A2L file {} from elf/dwarf information, no connected XCP server", a2l_path.display());
-            "elf/dwarf"
+            "ELF/DWARF information only,  offline mode"
         };
+        info!("Generate A2L file {} with {} ", a2l_path.display(), mode);
 
         // Set registry XCP default transport layer informations for A2L file
         let protocol = if tcp { "TCP" } else { "UDP" };
@@ -574,11 +575,11 @@ async fn xcp_client(
         // There are warnings in this case
         if !elf_name.is_empty() {
             info!("Reading ELF file: {}", elf_name);
-            let elf_reader = ElfReader::new(&elf_name).ok_or(format!("Failed to read ELF file '{}'", elf_name))?;
-            elf_reader.printf_debug_info(verbose, 0); // print only variables <= compilation unit 0
-            elf_reader.register_segments_and_events(&mut reg, verbose)?;
-            elf_reader.register_event_locations(&mut reg, verbose)?;
-            elf_reader.register_variables(&mut reg, verbose, 0)?; // register only variables <= compilation unit 0
+            let elf_reader = ElfReader::new(&elf_name, verbose, elf_idx_unit_limit).ok_or(format!("Failed to read ELF file '{}'", elf_name))?;
+            elf_reader.debug_data.print_debug_info(verbose, elf_idx_unit_limit); // print only variables <= compilation unit 0
+            elf_reader.register_segments_and_events(&mut reg, verbose > 0)?;
+            elf_reader.register_event_locations(&mut reg, verbose > 0)?;
+            elf_reader.register_variables(&mut reg, verbose > 0, elf_idx_unit_limit)?; // register only variables <= compilation unit 0
         }
 
         // Write the registry to A2L file
@@ -589,9 +590,9 @@ async fn xcp_client(
             if ecu_name.is_empty() {
                 ecu_name = "project_name".into();
             }
-            let title_info = format!("xcp_client A2L creator in {} mode", mode);
+            let title_info = format!("Created by xcp_client with {} - {}", mode, chrono::Utc::now().format("%Y-%m-%d %H:%M:%S"));
             reg.write_a2l(&a2l_path, title_info.as_str(), &ecu_name, "", &ecu_name, "XCP_LITE_ACSDD", true).unwrap();
-            info!("Created A2L file: {} in {} mode", a2l_path.display(), mode);
+            info!("Created A2L with file: {} {}", a2l_path.display(), mode);
         }
     }
     //----------------------------------------------------------------
@@ -921,6 +922,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             args.create_a2l,
             args.fix_a2l,
             args.elf,
+            args.elf_unit_limit as usize,
             args.list_cal,
             args.list_mea,
             args.mea,

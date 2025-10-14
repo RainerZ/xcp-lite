@@ -27,7 +27,7 @@ pub(crate) struct UnitList<'a> {
 
 struct DebugDataReader<'elffile> {
     dwarf: Dwarf<EndianSlice<'elffile, RunTimeEndian>>,
-    verbose: bool,
+    verbose: usize,
     units: UnitList<'elffile>,
     unit_names: Vec<Option<String>>,
     endian: Endianness,
@@ -36,7 +36,7 @@ struct DebugDataReader<'elffile> {
 }
 
 // load the debug info from an elf file
-pub(crate) fn load_dwarf(filename: &OsStr, verbose: bool) -> Result<DebugData, String> {
+pub(crate) fn load_dwarf(filename: &OsStr, verbose: usize, unit_idx_limit: usize) -> Result<DebugData, String> {
     // open the file and mmap its content
     let filedata = load_filedata(filename)?;
     let elffile = load_elf_file(&filename.to_string_lossy(), &filedata)?;
@@ -51,7 +51,7 @@ pub(crate) fn load_dwarf(filename: &OsStr, verbose: bool) -> Result<DebugData, S
 
     // Parse CFA information
     let mut cfa_info = Vec::new();
-    let res = get_cfa(&filedata, &mut cfa_info);
+    let res = get_cfa(&filedata, &mut cfa_info, verbose, unit_idx_limit);
     match res {
         Ok(cfa) => {
             if cfa > 0 {
@@ -199,9 +199,9 @@ impl DebugDataReader<'_> {
         let mut iter = self.dwarf.debug_info.units();
         while let Ok(Some(unit)) = iter.next() {
             let Ok(abbreviations) = unit.abbreviations(&self.dwarf.debug_abbrev) else {
-                if self.verbose {
+                if self.verbose > 0 {
                     let offset = unit.offset().as_debug_info_offset().unwrap_or(gimli::DebugInfoOffset(0)).0;
-                    println!("Error: Failed to get abbreviations for unit @{offset:x}");
+                    log::warn!("Error: Failed to get abbreviations for unit @{offset:x}");
                 }
                 continue;
             };
@@ -276,22 +276,19 @@ impl DebugDataReader<'_> {
                     // @@@@ xcp_client: Get all variables, including local variables
                     match self.get_variable(entry, unit, abbreviations) {
                         Ok((name, typeref, address)) => {
-                            // @@@@ xcp_client: Get all variables, filter out only internal variables starting with "__"
-                            if !name.starts_with("__") {
-                                let (function, namespaces) = get_varinfo_from_context(&context);
-                                variables.entry(name).or_default().push(VarInfo {
-                                    address, // may be 0 for local variables
-                                    typeref,
-                                    unit_idx,
-                                    function,
-                                    namespaces,
-                                });
-                            }
+                            let (function, namespaces) = get_varinfo_from_context(&context);
+                            variables.entry(name).or_default().push(VarInfo {
+                                address, // may be 0 for local variables
+                                typeref,
+                                unit_idx,
+                                function,
+                                namespaces,
+                            });
                         }
                         Err(errmsg) => {
-                            if self.verbose {
+                            if self.verbose > 0 {
                                 let offset = entry.offset().to_debug_info_offset(unit).unwrap_or(gimli::DebugInfoOffset(0)).0;
-                                println!("Error loading variable @{offset:x}: {errmsg}");
+                                log::warn!("Error loading variable @{offset:x}: {errmsg}");
                             }
                         }
                     }
@@ -306,7 +303,7 @@ impl DebugDataReader<'_> {
     // an entry of the type DW_TAG_variable only describes a global variable if there is a name, a type and an address
     // this function tries to get all three and returns them
     // returns None if the entry does not describe a global variable
-    /*
+
     fn get_global_variable(
         &self,
         entry: &DebuggingInformationEntry<SliceType, usize>,
@@ -314,7 +311,7 @@ impl DebugDataReader<'_> {
         abbrev: &gimli::Abbreviations,
     ) -> Result<Option<(String, usize, u64)>, String> {
         match get_location_attribute(self, entry, unit.encoding(), &self.units.list.len() - 1) {
-            Some((addr_ext,addr) => {
+            Some((addr_ext, addr)) => {
                 // if debugging information entry A has a DW_AT_specification or DW_AT_abstract_origin attribute
                 // pointing to another debugging information entry B, any attributes of B are considered to be part of A.
                 if let Some(specification_entry) = get_specification_attribute(entry, unit, abbrev) {
@@ -335,27 +332,11 @@ impl DebugDataReader<'_> {
                 }
             }
             None => {
-                let name = get_name_attribute(entry, &self.dwarf, unit).ok().unwrap_or("unknown".to_string());
-
-                // @@@@ xcp_client: If name starts with cal__, seg__ or evt__, it's a XCPlite marker variable, don't skip it
-                if let Some(prefix) = name
-                    .strip_prefix("daq__")
-                    .or_else(|| name.strip_prefix("trg__"))
-                    .or_else(|| name.strip_prefix("evt__"))
-                    .or_else(|| name.strip_prefix("cal__"))
-                {
-                    log::trace!("Found XCPlite marker variable: {}", name);
-                    // @@@@ xcp_client: Return local variables used by the xcp_client creator with address 0
-                    Ok(Some((name, 0, 0)))
-                } else {
-                    // it's a local variable, skip, no error
-                    log::debug!("Ignored local variable: {}", name);
-                    Ok(None)
-                }
+                // it's a local variable, skip, no error
+                Ok(None)
             }
         }
     }
-    */
 
     // @@@@ xcp_client: Get all variables, including local variables
     // Return variable information

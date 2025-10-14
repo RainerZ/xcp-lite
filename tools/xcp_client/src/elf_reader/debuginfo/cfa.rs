@@ -19,107 +19,58 @@ pub struct CfaInfo {
     pub unit_idx: usize,
 }
 
-pub fn get_cfa(mmap: &Mmap, cfa_info: &mut Vec<CfaInfo>) -> Result<usize> {
+pub fn get_cfa(mmap: &Mmap, cfa_info: &mut Vec<CfaInfo>, verbose: usize, unit_idx_limit: usize) -> Result<usize> {
     // Parse the ELF file using the object crate
-    log::info!("Parsing ELF file for function CFAs ...");
+    log::info!("CFA parser: Parsing ELF file for function CFAs ...");
     let object_file = object::File::parse(&mmap[..])?;
 
-    // if args.verbose {
     //     println!("ELF file format: {:?}", object_file.format());
     //     println!("Architecture: {:?}", object_file.architecture());
     //     println!("Endianness: {:?}", object_file.endianness());
+
+    // println!("\nSections in ELF file:");
+    // for section in object_file.sections() {
+    //     let kind = section.kind();
+
+    //     println!(
+    //         "  Name: {:<20} Addr: 0x{:08x} Size: {} bytes Kind: {:?} ",
+    //         section.name().unwrap_or("<unknown>"),
+    //         section.address(),
+    //         section.size(),
+    //         kind
+    //     );
     // }
 
-    // Print all sections found
-    /*
-      Sections in ELF file no_a2l_demo.out:
-    Name:                      Addr: 0x00000000 Size: 0 bytes
-    Name: .interp              Addr: 0x00000270 Size: 27 bytes
-    Name: .note.gnu.build-id   Addr: 0x0000028c Size: 36 bytes
-    Name: .note.ABI-tag        Addr: 0x000002b0 Size: 32 bytes
-    Name: .gnu.hash            Addr: 0x000002d0 Size: 28 bytes
-    Name: .dynsym              Addr: 0x000002f0 Size: 1800 bytes
-    Name: .dynstr              Addr: 0x000009f8 Size: 772 bytes
-    Name: .gnu.version         Addr: 0x00000cfc Size: 150 bytes
-    Name: .gnu.version_r       Addr: 0x00000d98 Size: 48 bytes
-    Name: .rela.dyn            Addr: 0x00000dc8 Size: 528 bytes
-    Name: .rela.plt            Addr: 0x00000fd8 Size: 1656 bytes
-    Name: .init                Addr: 0x00001650 Size: 24 bytes
-    Name: .plt                 Addr: 0x00001670 Size: 1136 bytes
-    Name: .text                Addr: 0x00001b00 Size: 81344 bytes
-    Name: .fini                Addr: 0x000158c0 Size: 20 bytes
-    Name: .rodata              Addr: 0x000158d8 Size: 25784 bytes
-    Name: .eh_frame_hdr        Addr: 0x0001bd90 Size: 2092 bytes
-    Name: .eh_frame            Addr: 0x0001c5c0 Size: 7932 bytes
-    Name: .tdata               Addr: 0x0002fd7c Size: 12 bytes
-    Name: .tbss                Addr: 0x0002fd88 Size: 2 bytes
-    Name: .init_array          Addr: 0x0002fd88 Size: 16 bytes
-    Name: .fini_array          Addr: 0x0002fd98 Size: 8 bytes
-    Name: .data.rel.ro         Addr: 0x0002fda0 Size: 32 bytes
-    Name: .dynamic             Addr: 0x0002fdc0 Size: 480 bytes
-    Name: .got                 Addr: 0x0002ffa0 Size: 72 bytes
-    Name: .got.plt             Addr: 0x0002ffe8 Size: 576 bytes
-    Name: .data                Addr: 0x00030228 Size: 152 bytes
-    Name: .bss                 Addr: 0x000302c0 Size: 3824 bytes
-    Name: .comment             Addr: 0x00000000 Size: 39 bytes
-    Name: .debug_aranges       Addr: 0x00000000 Size: 432 bytes
-    Name: .debug_info          Addr: 0x00000000 Size: 53860 bytes
-    Name: .debug_abbrev        Addr: 0x00000000 Size: 7484 bytes
-    Name: .debug_line          Addr: 0x00000000 Size: 20776 bytes
-    Name: .debug_str           Addr: 0x00000000 Size: 12374 bytes
-    Name: .debug_line_str      Addr: 0x00000000 Size: 1256 bytes
-    Name: .debug_rnglists      Addr: 0x00000000 Size: 231 bytes
-    Name: .symtab              Addr: 0x00000000 Size: 15840 bytes
-    Name: .strtab              Addr: 0x00000000 Size: 8475 bytes
-    Name: .shstrtab            Addr: 0x00000000 Size: 381 bytes
-     */
-    {
-        println!("\nSections in ELF file:");
-        for section in object_file.sections() {
-            let kind = section.kind();
-
-            println!(
-                "  Name: {:<20} Addr: 0x{:08x} Size: {} bytes Kind: {:?} ",
-                section.name().unwrap_or("<unknown>"),
-                section.address(),
-                section.size(),
-                kind
-            );
-        }
-    }
-
     // Load DWARF sections - this is where all the debug information is stored
-    println!();
-    println!("Loading DWARF sections...");
+
+    log::info!("CFA parser: Loading DWARF sections...");
     let dwarf = load_dwarf_sections(&object_file)?;
 
     // Extract function information from DWARF
-    println!();
-    println!("Extracting function information from DWARF...");
-    let n = extract_function_info(&dwarf, &object_file, cfa_info)?;
+    log::info!("CFA parser: Extracting function information from DWARF...");
+    let n = extract_function_info(&dwarf, &object_file, cfa_info, unit_idx_limit)?;
     if n == 0 {
-        println!("No functions found with debug information.");
+        log::warn!("No functions found with debug information.");
         return Ok(0);
     }
 
-    //print_all_functions(&functions);
+    // print_all_functions(&functions);
 
     // Summary
-    log::info!("CFA parser found {} functions with XCP events:", n);
     // Group by compilation unit
+    log::info!("CFA parser: Found {} functions with XCP events:", n);
     let mut by_cu: HashMap<usize, Vec<&CfaInfo>> = HashMap::new();
     for func in cfa_info {
         by_cu.entry(func.unit_idx).or_default().push(func);
     }
-
     for (cu_idx, cu_functions) in by_cu {
-        log::info!("Compilation Unit {}: {} functions", cu_idx, cu_functions.len());
+        println!("Compilation Unit {}: {} functions", cu_idx, cu_functions.len());
         for func in cu_functions {
             let cfa_info = match func.cfa_offset {
                 Some(offset) => format!("CFA+{}", offset),
                 None => "CFA unknown".to_string(),
             };
-            log::info!("  {} (0x{:08x}-0x{:08x}) [{}]", func.function, func.low_pc, func.high_pc, cfa_info);
+            println!("  {} (0x{:08x}-0x{:08x}) [{}]", func.function, func.low_pc, func.high_pc, cfa_info);
         }
     }
 
@@ -172,18 +123,17 @@ fn load_dwarf_sections<'a>(file: &'a object::File<'a>) -> Result<Dwarf<EndianSli
 /// This function walks through all compilation units in the DWARF data
 /// and extracts information about functions (subprograms in DWARF terminology).
 /// For each function, we try to determine its name, address range, and CFA offset.
-fn extract_function_info(dwarf: &Dwarf<EndianSlice<LittleEndian>>, object_file: &object::File, functions: &mut Vec<CfaInfo>) -> Result<usize> {
+fn extract_function_info(dwarf: &Dwarf<EndianSlice<LittleEndian>>, object_file: &object::File, functions: &mut Vec<CfaInfo>, unit_idx_limit: usize) -> Result<usize> {
     // Iterate through all compilation units
     // Each source file typically corresponds to one compilation unit
     let mut iter = dwarf.units();
     let mut cu_index = 0;
 
     while let Some(header) = iter.next()? {
-        // Unit 0 only
-        if cu_index != 0 {
-            continue; // For brevity, process only the first CU in this example
+        if cu_index > unit_idx_limit {
+            continue;
         }
-        println!("\nProcessing Compilation Unit {}:", cu_index);
+        log::debug!("\nProcessing Compilation Unit {}:", cu_index);
 
         // Get the unit from the header
         let unit = dwarf.unit(header)?;
@@ -195,7 +145,7 @@ fn extract_function_info(dwarf: &Dwarf<EndianSlice<LittleEndian>>, object_file: 
         if let Some((_, entry)) = entries.next_dfs()? {
             if entry.tag() == gimli::DW_TAG_compile_unit {
                 if let Some(name) = get_string_attribute(dwarf, &unit, &entry, gimli::DW_AT_name)? {
-                    println!("Compilation unit name: {}", name);
+                    log::debug!("Compilation unit name: {}", name);
                 }
             }
         }

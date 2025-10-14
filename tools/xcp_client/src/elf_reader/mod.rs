@@ -77,100 +77,15 @@ use debuginfo::{DbgDataType, DebugData, TypeInfo};
 //------------------------------------------------------------------------
 //  ELF reader and A2L creator
 
-fn print_debug_stats(debug_data: &DebugData) {
-    println!("\nDebug information summary:");
-    println!("  Compilation units: {} units", debug_data.unit_names.len());
-    println!("  Sections: {} sections", debug_data.sections.len());
-    println!("  Type names: {} named types", debug_data.typenames.len());
-    println!("  Types: {} total types", debug_data.types.len());
-    println!("  Demangled names: {} entries", debug_data.demangled_names.len());
-
-    let mut variable_count = 0;
-    for (name, var_infos) in &debug_data.variables {
-        variable_count += var_infos.len();
-    }
-    println!("  Variables {} with {} unique names", variable_count, debug_data.variables.len());
-
-    //Print compilation units
-    println!("\nCompilation Units:");
-    for (idx, unit_name) in debug_data.unit_names.iter().enumerate() {
-        let unit_name = debuginfo::make_simple_unit_name(debug_data, idx);
-        if unit_name.is_none() {
-            println!("  Unit {}: <unnamed>", idx);
-        } else {
-            println!("  Unit {}: {}", idx, unit_name.as_ref().unwrap());
-        }
-    }
-    println!();
-}
-
-fn print_type_info(type_info: &TypeInfo) {
-    let type_name = if let Some(name) = &type_info.name { name } else { "" };
-    let type_size = type_info.get_size();
-
-    print!("    TypeInfo: {}", type_name);
-    // print!(" (unit_idx = {}, dbginfo_offset = {})",type_info.unit_idx, type_info.dbginfo_offset);
-
-    match &type_info.datatype {
-        DbgDataType::Uint8 | DbgDataType::Uint16 | DbgDataType::Uint32 | DbgDataType::Uint64 => {
-            println!(" Integer: {} byte unsigned", type_size);
-        }
-        DbgDataType::Sint8 | DbgDataType::Sint16 | DbgDataType::Sint32 | DbgDataType::Sint64 => {
-            println!(" Integer: {} byte signed", type_size);
-        }
-        DbgDataType::Float | DbgDataType::Double => {
-            println!(" Floating point: {} byte", type_size);
-        }
-
-        DbgDataType::Pointer(typeref, size) => {
-            println!(" Pointer: typeref = {}, size = {} ", typeref, size);
-        }
-        DbgDataType::Array { arraytype, dim, stride, size } => {
-            println!(" Array: typeref = {}, dim = {:?}, stride = {} bytes, size = {} bytes", arraytype, dim, stride, size);
-        }
-        DbgDataType::Struct { size, members } => {
-            println!(" Struct: {} fields, size = {}", members.len(), size);
-            for (name, (type_info, member_offset)) in members {
-                let member_size = type_info.get_size();
-                println!("      Field '{}': size = {} bytes, offset = {} bytes", name, member_size, member_offset);
-            }
-        }
-        DbgDataType::Union { members, size } => {
-            println!(" Union: {} members, size = {} bytes", members.len(), size);
-        }
-        DbgDataType::Enum { size, signed, enumerators } => {
-            println!(" Enum: {} variants, size = {} bytes", enumerators.len(), size);
-            for (name, value) in enumerators {
-                println!("      Variant '{}': value={}", name, value);
-            }
-        }
-        DbgDataType::Bitfield { basetype, bit_offset, bit_size } => {
-            println!(" Bitfield: base type = {:?}, offset = {} bits, size = {} bits", basetype.datatype, bit_offset, bit_size);
-        }
-        DbgDataType::Class { size, inheritance, members } => {
-            println!(" Class: {} members, size = {} bytes", members.len(), size);
-        }
-        DbgDataType::FuncPtr(size) => {
-            println!(" Function pointer: size = {} bytes", size);
-        }
-        DbgDataType::TypeRef(typeref, size) => {
-            println!(" TypeRef: typeref = {}, size = {} bytes", typeref, size);
-        }
-        _ => {
-            println!(" Other type: {:?}", &type_info.datatype);
-        }
-    }
-}
-
-pub struct ElfReader {
-    debug_data: DebugData,
+pub(crate) struct ElfReader {
+    pub(crate) debug_data: DebugData,
 }
 
 impl ElfReader {
-    pub fn new(file_name: &str) -> Option<ElfReader> {
+    pub fn new(file_name: &str, verbose: usize, unit_idx_limit: usize) -> Option<ElfReader> {
         // Load debug information from the ELF file
         info!("Loading debug information from ELF file: {}", file_name);
-        let debug_data = DebugData::load_dwarf(OsStr::new(file_name), true);
+        let debug_data = DebugData::load_dwarf(OsStr::new(file_name), verbose, unit_idx_limit);
         match debug_data {
             Ok(debug_data) => Some(ElfReader { debug_data }),
             Err(e) => {
@@ -178,86 +93,6 @@ impl ElfReader {
                 None
             }
         }
-    }
-
-    pub fn printf_debug_info(&self, verbose: bool, unit_idx_limit: usize) {
-        print_debug_stats(&self.debug_data);
-
-        //Print sections information
-        println!("\nMemory Sections in debug_data:");
-        for (name, (addr, size)) in &self.debug_data.sections {
-            println!("  '{}': 0x{:08x}, {} bytes", name, addr, size);
-        }
-
-        if verbose {
-            //Print type names
-            println!("\nType Names (debug_data.typenames)");
-            for (type_name, type_refs) in &self.debug_data.typenames {
-                println!("Type name '{}': {} references", type_name, type_refs.len());
-                for type_ref in type_refs {
-                    if let Some(type_info) = self.debug_data.types.get(type_ref) {
-                        println!("  -> type_ref={}, size={} bytes, unit={}", type_ref, type_info.get_size(), type_info.unit_idx);
-                    }
-                }
-            }
-
-            // Print types
-            println!("\nTypes:");
-            for (type_ref, type_info) in &self.debug_data.types {
-                let type_name = if let Some(name) = &type_info.name { name } else { "" };
-                println!(
-                    "TypeRef {}: name = '{}', size = {} bytes, unit = {}",
-                    type_ref,
-                    type_name,
-                    type_info.get_size(),
-                    type_info.unit_idx
-                );
-                print_type_info(type_info);
-            }
-
-            // Print demangled names
-            println!("\nDemangled Names");
-            for (mangled_name, demangled_name) in &self.debug_data.demangled_names {
-                println!("  '{}' -> '{}'", mangled_name, demangled_name);
-            }
-        }
-
-        // Print variables
-
-        println!("\nVariables in compilation unit 0..{unit_idx_limit}:");
-        for (var_name, var_info) in &self.debug_data.variables {
-            // Count all variable in unit_idx
-            let count = var_info.iter().filter(|v| v.unit_idx <= unit_idx_limit).count();
-            if count > 1 {
-                println!("{} : ", var_name);
-            }
-            // Iterate over all variable infos for this variable name in unit_idx
-            for var in var_info {
-                if var.unit_idx > unit_idx_limit {
-                    continue; // print only variables from compilation unit 0..=unit_idx
-                }
-                if count <= 1 {
-                    print!("{} : ", var_name);
-                }
-
-                let unit_name = if let Some(name) = debuginfo::make_simple_unit_name(&self.debug_data, var.unit_idx) {
-                    name
-                } else {
-                    "<unnamed>".to_string()
-                };
-                let function_name = if let Some(name) = &var.function { name } else { "<global>" };
-                let name_space = if var.namespaces.len() > 0 { var.namespaces.join("::") } else { "".to_string() };
-                print!(" {}:'{}' {}: addr={}:0x{:08X}", unit_name, function_name, name_space, var.address.0, var.address.1);
-                if let Some(type_info) = self.debug_data.types.get(&var.typeref) {
-                    let type_name = if let Some(name) = &type_info.name { name } else { "" };
-                    print!(", type='{}', size={}", type_name, type_info.get_size());
-                    // print_type_info(type_info);
-                }
-                println!();
-            }
-        }
-
-        println!();
     }
 
     fn get_value_type(&self, reg: &mut Registry, type_info: &TypeInfo, object_type: McObjectType) -> McValueType {
@@ -367,6 +202,7 @@ impl ElfReader {
                 continue;
             }
 
+            // From CalSegCreate macro
             // cal__<name> (local scope static, name is calibration segment name and type name)
             // Calibration segment definition
             if var_name.starts_with("cal__") {
@@ -380,34 +216,80 @@ impl ElfReader {
                     format!("{unit_idx}")
                 };
 
-                // remove the "cal__" prefix
+                // remove the "cal__" prefix to get the segment name
                 let seg_name = var_name.strip_prefix("cal__").unwrap_or(var_name);
-                info!("Calibration segment definition '{}' found in {}:{}", seg_name, unit_name, function_name);
+                info!(
+                    "Calibration segment definition marker variable 'cal__{}' for segment '{}' found in {}:'{}'",
+                    seg_name, seg_name, unit_name, function_name
+                );
+
+                // Lookup the reference page variable information to determine addr
+                let seg_var_info = if let Some(x) = self.debug_data.variables.get(seg_name) {
+                    if x.len() != 1 {
+                        error!("Calibration segment reference page variable '{}' has {} definitions, expected 1", seg_name, x.len());
+                        continue;
+                    }
+                    &x[0]
+                } else {
+                    error!("Could not find calibration segment reference page variable '{}'", seg_name);
+                    continue;
+                };
+                let addr: u32 = seg_var_info.address.1.try_into().unwrap(); // @@@@ TODO: Handle 64 bit addresses and signed relative 
+                let addr_ext: u8 = seg_var_info.address.0;
+                info!("  Segment '{}' default page variable '()' found in debug data:", seg_name);
+                info!("    Address = {}:{:#x}", addr_ext, addr);
+
+                // Lookup the reference page variable type to determine segment length
+                let length = if let Some(var_info) = self.debug_data.variables.get(seg_name) {
+                    if let Some(type_info) = self.debug_data.types.get(&var_info[0].typeref) {
+                        info!(
+                            "  Segment '{}' type information found, type={}, length = {}",
+                            seg_name,
+                            type_info.name.as_ref().map_or("<unnamed>", |s| s.as_str()),
+                            type_info.get_size()
+                        );
+                        if verbose {
+                            self.debug_data.print_type_info(type_info);
+                        }
+                        type_info.get_size()
+                    } else {
+                        warn!("Could not determine length type for segment {}", seg_name);
+                        0
+                    }
+                } else {
+                    warn!("Could not find calibration segment reference page variable {}", seg_name);
+                    0
+                };
+                info!("    Length = {:#x}", length);
+
+                // Check for valid address and length
+                if length > 0 && addr > 0 && addr_ext == 0 {
+                } else {
+                    error!(
+                        "Calibration segment from cal_<name> '{}' not found, has invalid address {:#x} or length {:#x}, skipped",
+                        seg_name, addr, length
+                    );
+                    continue; // skip this variable
+                }
+
                 // Find the segment in the registry
-                if let Some(_seg) = reg.cal_seg_list.find_cal_seg(seg_name) {
-                    continue; // segment already exists, ok
+                if let Some(reg_seg) = reg.cal_seg_list.find_cal_seg(seg_name) {
+                    // Check if address and length match
+                    info!("Calibration segment '{}' already exists in registry, checking length and address", seg_name);
+                    if reg_seg.addr == addr && reg_seg.size == length as u32 {
+                        info!("Calibration segment '{}' matches existing registry entry", seg_name);
+                    } else {
+                        error!("Calibration segment '{}' does not match existing registry entry", seg_name);
+                    }
+                    continue; // segment already exists, leave it as it is
                 }
                 // If not create it
                 else {
-                    // length will be determined from variable 'seg_name' which is the default page
-                    let length = if let Some(var_info) = self.debug_data.variables.get(seg_name) {
-                        if let Some(type_info) = self.debug_data.types.get(&var_info[0].typeref) {
-                            type_info.get_size()
-                        } else {
-                            warn!("Could not determine calibration segment length ");
-                            0
-                        }
-                    } else {
-                        warn!("Could not find calibration segment reference page {}", seg_name);
-                        0
-                    };
-                    let addr: u32 = var_info.address.1.try_into().unwrap(); // @@@@ TODO: Handle 64 bit addresses and signed relative 
-                    let addr_ext: u8 = var_info.address.0;
                     reg.cal_seg_list
                         .add_cal_seg_by_addr(seg_name.to_string(), next_segment_number, addr_ext, addr, length as u32)
                         .unwrap();
-                    error!(
-                        "Unknown calibration segment '{}':  Created with number={}, addr = {:#x}, length = {:#x}",
+                    info!(
+                        "Not yet defined segment '{}':  Created with number={}, addr = {:#x}, length = {:#x}",
                         seg_name, next_segment_number, addr, length
                     );
                     next_segment_number += 1;
@@ -463,7 +345,7 @@ impl ElfReader {
                 // Get the event name from format  "trg__<tag>__<eventname>" prefix
                 let s = var_name.strip_prefix("trg__").unwrap_or("unnamed");
                 let mut parts = s.split("__");
-                let evt_tag = parts.next().unwrap_or("");
+                let evt_mode = parts.next().unwrap_or("");
                 let evt_name = parts.next().unwrap_or("");
 
                 let evt_unit_idx = var_infos[0].unit_idx;
@@ -473,7 +355,7 @@ impl ElfReader {
                     format!("{evt_unit_idx}")
                 };
                 let evt_function = if let Some(f) = var_info.function.as_ref() { f.as_str() } else { "" };
-                info!("Event {} trigger found in {}:{}", evt_name, evt_unit_name, evt_function);
+                info!("Event {} trigger found in {}:{}, address resolver mode {}", evt_name, evt_unit_name, evt_function, evt_mode);
 
                 // Find the event in the registry
                 if let Some(_evt) = reg.event_list.find_event(evt_name, 0) {
@@ -666,7 +548,7 @@ impl ElfReader {
                                 a2l_addr
                             );
                             if verbose {
-                                print_type_info(type_info);
+                                self.debug_data.print_type_info(type_info);
                             }
                             let dim_type = self.get_dim_type(reg, type_info, object_type);
                             let res = reg.instance_list.add_instance(a2l_name.clone(), dim_type, McSupportData::new(object_type), mc_addr);
@@ -689,7 +571,7 @@ impl ElfReader {
                         }
                         _ => {
                             warn!("Variable '{}' has unsupported type: {:?}", var_name, &type_info.datatype);
-                            print_type_info(type_info);
+                            self.debug_data.print_type_info(type_info);
                         }
                     }
                 } else {
