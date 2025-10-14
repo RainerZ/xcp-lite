@@ -279,7 +279,8 @@ impl ElfReader {
                     if reg_seg.addr == addr && reg_seg.size == length as u32 {
                         info!("Calibration segment '{}' matches existing registry entry", seg_name);
                     } else {
-                        error!("Calibration segment '{}' does not match existing registry entry", seg_name);
+                        warn!("Calibration segment '{}' does not match existing registry entry, registry information updated", seg_name);
+                        unimplemented!();
                     }
                     continue; // segment already exists, leave it as it is
                 }

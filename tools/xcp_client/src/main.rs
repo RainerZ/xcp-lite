@@ -93,6 +93,11 @@ struct Args {
     #[arg(long, default_value_t = false)]
     udp: bool,
 
+    // --offline
+    /// Force offline mode (no network communication), communication parameters are used to create A2L file
+    #[arg(long, default_value_t = false)]
+    offline: bool,
+
     // -a, --a2l
     /// Specify and overide the name of the A2L file name
     /// If not specified, The A2L file name is read from the XCP server
@@ -397,6 +402,7 @@ async fn xcp_client(
     udp: bool,
     dest_addr: std::net::SocketAddr,
     local_addr: std::net::SocketAddr,
+    offline: bool,
     a2l_name: String,
     upload_a2l: bool,
     create_a2l: bool,
@@ -417,7 +423,7 @@ async fn xcp_client(
 
     //----------------------------------------------------------------
     // Connect the XCP server if required
-    let go_online = tcp || udp || upload_a2l || !measurement_list.is_empty() || !cal_args.is_empty();
+    let go_online = !offline && (tcp || udp || upload_a2l || !measurement_list.is_empty() || !cal_args.is_empty());
     if go_online {
         // Connect to the XCP server
         // Print protocol information
@@ -917,6 +923,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             args.udp,
             dest_addr,
             local_addr,
+            args.offline,
             args.a2l,
             args.upload_a2l,
             args.create_a2l,
