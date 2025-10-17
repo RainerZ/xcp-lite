@@ -13,7 +13,7 @@ use object::{Endianness, Object};
 use gimli::{Abbreviations, DebuggingInformationEntry, Dwarf, UnitHeader};
 use gimli::{EndianSlice, RunTimeEndian};
 
-use crate::elf_reader::debuginfo::cfa::{CfaInfo, get_cfa};
+use crate::elf_reader::debuginfo::cfa::{CfaInfo, get_cfa_from_object};
 use crate::elf_reader::debuginfo::{DbgDataType, DebugData, TypeInfo, VarInfo};
 
 mod attributes;
@@ -39,6 +39,8 @@ struct DebugDataReader<'elffile> {
 pub(crate) fn load_dwarf(filename: &OsStr, verbose: usize, unit_idx_limit: usize) -> Result<DebugData, String> {
     // open the file and mmap its content
     let filedata = load_filedata(filename)?;
+
+    // load the elf file using the object crate
     let elffile = load_elf_file(&filename.to_string_lossy(), &filedata)?;
 
     // verify that the elf file contains DWARF debug info
@@ -51,7 +53,7 @@ pub(crate) fn load_dwarf(filename: &OsStr, verbose: usize, unit_idx_limit: usize
 
     // Parse CFA information
     let mut cfa_info = Vec::new();
-    let res = get_cfa(&filedata, &mut cfa_info, verbose, unit_idx_limit);
+    let res = get_cfa_from_object(&elffile, &mut cfa_info, verbose, unit_idx_limit);
     match res {
         Ok(cfa) => {
             if cfa > 0 {
@@ -80,6 +82,7 @@ pub(crate) fn load_dwarf(filename: &OsStr, verbose: usize, unit_idx_limit: usize
     let sections = get_elf_sections(&elffile);
 
     // create the debug data reader
+    log::info!("Creating debug data reader");
     let dbg_reader = DebugDataReader {
         dwarf,
         verbose,
@@ -89,7 +92,7 @@ pub(crate) fn load_dwarf(filename: &OsStr, verbose: usize, unit_idx_limit: usize
         sections,
         cfa_info,
     };
-
+    log::info!("Reading debug info entries");
     Ok(dbg_reader.read_debug_info_entries())
 }
 
@@ -110,16 +113,33 @@ fn load_filedata(filename: &OsStr) -> Result<memmap2::Mmap, String> {
 
 // read the headers and sections of an elf/object file
 fn load_elf_file<'data>(filename: &str, filedata: &'data [u8]) -> Result<object::read::File<'data>, String> {
-    log::info!("Parsing elf file: {}", filename);
+    log::info!("Parsing elf file with object crate: {}", filename);
     match object::File::parse(filedata) {
-        Ok(file) => Ok(file),
+        Ok(object_file) => {
+            println!("\nELF file format: {:?}", object_file.format());
+            println!("Architecture: {:?}", object_file.architecture());
+            println!("Endianness: {:?}", object_file.endianness());
+            println!("\nSections:");
+            for section in object_file.sections() {
+                let kind = section.kind();
+                println!(
+                    "  Name: {:<20} Addr: 0x{:08x} Size: {} bytes Kind: {:?} ",
+                    section.name().unwrap_or("<unknown>"),
+                    section.address(),
+                    section.size(),
+                    kind
+                );
+            }
+            println!("\n");
+            Ok(object_file)
+        }
         Err(err) => Err(format!("Error: Failed to parse file '{filename}': {err}")),
     }
 }
 
 fn get_elf_sections(elffile: &object::read::File) -> HashMap<String, (u64, u64)> {
+    log::info!("Get ELF sections");
     let mut map = HashMap::new();
-
     for section in elffile.sections() {
         let addr = section.address();
         let size = section.size();
@@ -137,6 +157,7 @@ fn get_elf_sections(elffile: &object::read::File) -> HashMap<String, (u64, u64)>
 
 // load the DWARF debug info from the .debug_<xyz> sections
 fn load_dwarf_sections<'data>(elffile: &object::read::File<'data>) -> Result<gimli::Dwarf<SliceType<'data>>, String> {
+    log::info!("Loading DWARF sections");
     // Dwarf::load takes two closures / functions and uses them to load all the required debug sections
     let loader = |section: gimli::SectionId| get_file_section_reader(elffile, section.name());
     gimli::Dwarf::load(loader)
@@ -303,40 +324,41 @@ impl DebugDataReader<'_> {
     // an entry of the type DW_TAG_variable only describes a global variable if there is a name, a type and an address
     // this function tries to get all three and returns them
     // returns None if the entry does not describe a global variable
-
-    fn get_global_variable(
-        &self,
-        entry: &DebuggingInformationEntry<SliceType, usize>,
-        unit: &UnitHeader<SliceType>,
-        abbrev: &gimli::Abbreviations,
-    ) -> Result<Option<(String, usize, u64)>, String> {
-        match get_location_attribute(self, entry, unit.encoding(), &self.units.list.len() - 1) {
-            Some((addr_ext, addr)) => {
-                // if debugging information entry A has a DW_AT_specification or DW_AT_abstract_origin attribute
-                // pointing to another debugging information entry B, any attributes of B are considered to be part of A.
-                if let Some(specification_entry) = get_specification_attribute(entry, unit, abbrev) {
-                    // the entry refers to a specification, which contains the name and type reference
-                    let name = get_name_attribute(&specification_entry, &self.dwarf, unit)?;
-                    let typeref = get_typeref_attribute(&specification_entry, unit)?;
-                    Ok(Some((name, typeref, addr)))
-                } else if let Some(abstract_origin_entry) = get_abstract_origin_attribute(entry, unit, abbrev) {
-                    // the entry refers to an abstract origin, which should also be considered when getting the name and type ref
-                    let name = get_name_attribute(entry, &self.dwarf, unit).or_else(|_| get_name_attribute(&abstract_origin_entry, &self.dwarf, unit))?;
-                    let typeref = get_typeref_attribute(entry, unit).or_else(|_| get_typeref_attribute(&abstract_origin_entry, unit))?;
-                    Ok(Some((name, typeref, addr)))
-                } else {
-                    // usual case: there is no specification or abstract origin and all info is part of this entry
-                    let name = get_name_attribute(entry, &self.dwarf, unit)?;
-                    let typeref = get_typeref_attribute(entry, unit)?;
-                    Ok(Some((name, typeref, addr)))
+    /*
+        fn get_global_variable(
+            &self,
+            entry: &DebuggingInformationEntry<SliceType, usize>,
+            unit: &UnitHeader<SliceType>,
+            abbrev: &gimli::Abbreviations,
+        ) -> Result<Option<(String, usize, u64)>, String> {
+            match get_location_attribute(self, entry, unit.encoding(), &self.units.list.len() - 1) {
+                Some((addr_ext, addr)) => {
+                    // if debugging information entry A has a DW_AT_specification or DW_AT_abstract_origin attribute
+                    // pointing to another debugging information entry B, any attributes of B are considered to be part of A.
+                    if let Some(specification_entry) = get_specification_attribute(entry, unit, abbrev) {
+                        // the entry refers to a specification, which contains the name and type reference
+                        let name = get_name_attribute(&specification_entry, &self.dwarf, unit)?;
+                        let typeref = get_typeref_attribute(&specification_entry, unit)?;
+                        Ok(Some((name, typeref, addr)))
+                    } else if let Some(abstract_origin_entry) = get_abstract_origin_attribute(entry, unit, abbrev) {
+                        // the entry refers to an abstract origin, which should also be considered when getting the name and type ref
+                        let name = get_name_attribute(entry, &self.dwarf, unit).or_else(|_| get_name_attribute(&abstract_origin_entry, &self.dwarf, unit))?;
+                        let typeref = get_typeref_attribute(entry, unit).or_else(|_| get_typeref_attribute(&abstract_origin_entry, unit))?;
+                        Ok(Some((name, typeref, addr)))
+                    } else {
+                        // usual case: there is no specification or abstract origin and all info is part of this entry
+                        let name = get_name_attribute(entry, &self.dwarf, unit)?;
+                        let typeref = get_typeref_attribute(entry, unit)?;
+                        Ok(Some((name, typeref, addr)))
+                    }
+                }
+                None => {
+                    // it's a local variable, skip, no error
+                    Ok(None)
                 }
             }
-            None => {
-                // it's a local variable, skip, no error
-                Ok(None)
-            }
         }
-    }
+    */
 
     // @@@@ xcp_client: Get all variables, including local variables
     // Return variable information
@@ -356,16 +378,25 @@ impl DebugDataReader<'_> {
             // the entry refers to a specification, which contains the name and type reference
             let name = get_name_attribute(&specification_entry, &self.dwarf, unit)?;
             let typeref = get_typeref_attribute(&specification_entry, unit)?;
+            if address.1 == 0 {
+                log::error!("get_specification_attribute - variable {} has no address", name);
+            }
             Ok((name, typeref, address))
         } else if let Some(abstract_origin_entry) = get_abstract_origin_attribute(entry, unit, abbrev) {
             // the entry refers to an abstract origin, which should also be considered when getting the name and type ref
             let name = get_name_attribute(entry, &self.dwarf, unit).or_else(|_| get_name_attribute(&abstract_origin_entry, &self.dwarf, unit))?;
             let typeref = get_typeref_attribute(entry, unit).or_else(|_| get_typeref_attribute(&abstract_origin_entry, unit))?;
+            if address.1 == 0 {
+                log::error!("get_abstract_origin_attribute - variable {} has no address", name);
+            }
             Ok((name, typeref, address))
         } else {
             // usual case: there is no specification or abstract origin and all info is part of this entry
             let name = get_name_attribute(entry, &self.dwarf, unit)?;
             let typeref = get_typeref_attribute(entry, unit)?;
+            if address.1 == 0 {
+                log::error!("get_name_attribute - variable {} has no address", name);
+            }
             Ok((name, typeref, address))
         }
     }

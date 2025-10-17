@@ -1,6 +1,5 @@
 use anyhow::Result;
 use gimli::{AttributeValue, BaseAddresses, CieOrFde, DebugFrame, Dwarf, EhFrame, EndianSlice, LittleEndian, Unit, UnwindSection};
-use memmap2::Mmap;
 use object::{Object, ObjectSection};
 use std::collections::HashMap;
 
@@ -19,28 +18,14 @@ pub struct CfaInfo {
     pub unit_idx: usize,
 }
 
-pub fn get_cfa(mmap: &Mmap, cfa_info: &mut Vec<CfaInfo>, verbose: usize, unit_idx_limit: usize) -> Result<usize> {
-    // Parse the ELF file using the object crate
-    log::info!("CFA parser: Parsing ELF file for function CFAs ...");
-    let object_file = object::File::parse(&mmap[..])?;
+// pub fn get_cfa(mmap: &Mmap, cfa_info: &mut Vec<CfaInfo>, verbose: usize, unit_idx_limit: usize) -> Result<usize> {
+//     // Parse the ELF file using the object crate
+//     log::info!("CFA parser: Parsing ELF file for function CFAs ...");
+//     let object_file: object::File<'_> = object::File::parse(&mmap[..])?;
+//     get_cfa_from_object(&object_file, cfa_info, verbose, unit_idx_limit)
+// }
 
-    //     println!("ELF file format: {:?}", object_file.format());
-    //     println!("Architecture: {:?}", object_file.architecture());
-    //     println!("Endianness: {:?}", object_file.endianness());
-
-    // println!("\nSections in ELF file:");
-    // for section in object_file.sections() {
-    //     let kind = section.kind();
-
-    //     println!(
-    //         "  Name: {:<20} Addr: 0x{:08x} Size: {} bytes Kind: {:?} ",
-    //         section.name().unwrap_or("<unknown>"),
-    //         section.address(),
-    //         section.size(),
-    //         kind
-    //     );
-    // }
-
+pub fn get_cfa_from_object(object_file: &object::File<'_>, cfa_info: &mut Vec<CfaInfo>, verbose: usize, unit_idx_limit: usize) -> Result<usize> {
     // Load DWARF sections - this is where all the debug information is stored
 
     log::info!("CFA parser: Loading DWARF sections...");
