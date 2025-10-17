@@ -28,7 +28,7 @@ pub struct CfaInfo {
 pub fn get_cfa_from_object(object_file: &object::File<'_>, cfa_info: &mut Vec<CfaInfo>, verbose: usize, unit_idx_limit: usize) -> Result<usize> {
     // Load DWARF sections - this is where all the debug information is stored
 
-    log::info!("CFA parser: Loading DWARF sections...");
+    log::info!("cfa::get_cfa_from_object: CFA parser loading DWARF sections...");
     let dwarf = load_dwarf_sections(&object_file)?;
 
     // Extract function information from DWARF
@@ -71,9 +71,11 @@ pub fn get_cfa_from_object(object_file: &object::File<'_>, cfa_info: &mut Vec<Cf
 /// - .debug_line: Contains line number information
 /// - .debug_frame/.eh_frame: Contains frame unwinding information (CFA data)
 fn load_dwarf_sections<'a>(file: &'a object::File<'a>) -> Result<Dwarf<EndianSlice<'a, LittleEndian>>> {
+    log::info!("cfa::load_dwarf_sections");
+
     // Helper closure to load a section by name
     let load_section = |section_name: &str| -> EndianSlice<'a, LittleEndian> {
-        println!("  Loading section: {}", section_name);
+        log::debug!("cfa:: loading section: {}", section_name);
         let section_data = file.section_by_name(section_name).and_then(|section| section.data().ok()).unwrap_or(&[]);
         EndianSlice::new(section_data, LittleEndian)
     };
@@ -95,7 +97,9 @@ fn load_dwarf_sections<'a>(file: &'a object::File<'a>) -> Result<Dwarf<EndianSli
             SectionId::DebugLocLists => ".debug_loclists",
             SectionId::DebugRanges => ".debug_ranges",
             SectionId::DebugRngLists => ".debug_rnglists",
-            _ => return Ok(EndianSlice::new(&[], LittleEndian)),
+            _ => {
+                return Ok(EndianSlice::new(&[], LittleEndian));
+            }
         };
         Ok(load_section(section_name))
     })?;
@@ -109,6 +113,8 @@ fn load_dwarf_sections<'a>(file: &'a object::File<'a>) -> Result<Dwarf<EndianSli
 /// and extracts information about functions (subprograms in DWARF terminology).
 /// For each function, we try to determine its name, address range, and CFA offset.
 fn extract_function_info(dwarf: &Dwarf<EndianSlice<LittleEndian>>, object_file: &object::File, functions: &mut Vec<CfaInfo>, unit_idx_limit: usize) -> Result<usize> {
+    log::info!("cfa::extract_function_info: Extracting function info from DWARF...");
+
     // Iterate through all compilation units
     // Each source file typically corresponds to one compilation unit
     let mut iter = dwarf.units();

@@ -37,6 +37,8 @@ struct DebugDataReader<'elffile> {
 
 // load the debug info from an elf file
 pub(crate) fn load_dwarf(filename: &OsStr, verbose: usize, unit_idx_limit: usize) -> Result<DebugData, String> {
+    log::info!("dwarf::load_dwarf: Load from {}", filename.to_string_lossy());
+
     // open the file and mmap its content
     let filedata = load_filedata(filename)?;
 
@@ -45,26 +47,11 @@ pub(crate) fn load_dwarf(filename: &OsStr, verbose: usize, unit_idx_limit: usize
 
     // verify that the elf file contains DWARF debug info
     if !elffile.sections().any(|section| section.name() == Ok(".debug_info")) {
+        log::error!("DWARF .debug_info section not found");
         return Err(format!(
             "Error: {} does not contain DWARF2+ debug info. The section .debug_info is missing.",
             filename.to_string_lossy()
         ));
-    }
-
-    // Parse CFA information
-    let mut cfa_info = Vec::new();
-    let res = get_cfa_from_object(&elffile, &mut cfa_info, verbose, unit_idx_limit);
-    match res {
-        Ok(cfa) => {
-            if cfa > 0 {
-                log::info!("CFA data found: {cfa} functions");
-            } else {
-                log::info!("CFA data not found");
-            }
-        }
-        Err(err) => {
-            log::warn!("CFA parser error: {err}");
-        }
     }
 
     // load the DWARF sections from the elf file
@@ -78,8 +65,24 @@ pub(crate) fn load_dwarf(filename: &OsStr, verbose: usize, unit_idx_limit: usize
         ));
     }
 
-    // get the elf sections for reference
+    // get the elf sections for DebugDataReader
     let sections = get_elf_sections(&elffile);
+
+    // get CFA information for DebugDataReader
+    let mut cfa_info = Vec::new();
+    let res = get_cfa_from_object(&elffile, &mut cfa_info, verbose, unit_idx_limit);
+    match res {
+        Ok(cfa) => {
+            if cfa > 0 {
+                log::info!("CFA data found in unit <= {}: {cfa} functions", unit_idx_limit);
+            } else {
+                log::info!("CFA data not found");
+            }
+        }
+        Err(err) => {
+            log::warn!("CFA parser error: {err}");
+        }
+    }
 
     // create the debug data reader
     log::info!("Creating debug data reader");
@@ -93,7 +96,7 @@ pub(crate) fn load_dwarf(filename: &OsStr, verbose: usize, unit_idx_limit: usize
         cfa_info,
     };
     log::info!("Reading debug info entries");
-    Ok(dbg_reader.read_debug_info_entries())
+    Ok(dbg_reader.read_debug_info_entries(unit_idx_limit))
 }
 
 // open a file and mmap its content
@@ -113,7 +116,7 @@ fn load_filedata(filename: &OsStr) -> Result<memmap2::Mmap, String> {
 
 // read the headers and sections of an elf/object file
 fn load_elf_file<'data>(filename: &str, filedata: &'data [u8]) -> Result<object::read::File<'data>, String> {
-    log::info!("Parsing elf file with object crate: {}", filename);
+    log::info!("dwarf::load_elf_file: Parsing elf file with object crate: {}", filename);
     match object::File::parse(filedata) {
         Ok(object_file) => {
             println!("\nELF file format: {:?}", object_file.format());
@@ -138,7 +141,7 @@ fn load_elf_file<'data>(filename: &str, filedata: &'data [u8]) -> Result<object:
 }
 
 fn get_elf_sections(elffile: &object::read::File) -> HashMap<String, (u64, u64)> {
-    log::info!("Get ELF sections");
+    log::info!("dwarf::get_elf_sections: Creating ELF sections map for debug data (only size!=0 and addr!=0)");
     let mut map = HashMap::new();
     for section in elffile.sections() {
         let addr = section.address();
@@ -148,7 +151,7 @@ fn get_elf_sections(elffile: &object::read::File) -> HashMap<String, (u64, u64)>
             && let Ok(name) = section.name()
         {
             map.insert(name.to_string(), (addr, addr + size));
-            log::trace!("elf section: {} @ {addr:x} - {end:x}", name, end = addr + size);
+            log::trace!("elf section: {} addr={addr:x}, size={size:x}", name);
         }
     }
 
@@ -157,7 +160,7 @@ fn get_elf_sections(elffile: &object::read::File) -> HashMap<String, (u64, u64)>
 
 // load the DWARF debug info from the .debug_<xyz> sections
 fn load_dwarf_sections<'data>(elffile: &object::read::File<'data>) -> Result<gimli::Dwarf<SliceType<'data>>, String> {
-    log::info!("Loading DWARF sections");
+    log::info!("dwarf::load_dwarf_sections");
     // Dwarf::load takes two closures / functions and uses them to load all the required debug sections
     let loader = |section: gimli::SectionId| get_file_section_reader(elffile, section.name());
     gimli::Dwarf::load(loader)
@@ -171,7 +174,7 @@ fn verify_dwarf_compile_units(dwarf: &gimli::Dwarf<SliceType>) -> bool {
         units_count += 1;
     }
 
-    log::info!("DWARF compile units: {}", units_count);
+    println!("DWARF compile units: {}", units_count);
     units_count > 0
 }
 
@@ -194,9 +197,9 @@ fn get_endian(elffile: &object::read::File) -> RunTimeEndian {
 }
 
 impl DebugDataReader<'_> {
-    // read the debug information entries in the DWAF data to get all the global variables and their types
-    fn read_debug_info_entries(mut self) -> DebugData {
-        let variables = self.load_variables();
+    // read the debug information entries in the DWARF data to get all the global variables and their types
+    fn read_debug_info_entries(mut self, unit_idx_limit: usize) -> DebugData {
+        let variables = self.load_variables(unit_idx_limit);
         let (types, typenames) = self.load_types(&variables);
         let varname_list: Vec<&String> = variables.keys().collect();
         let demangled_names = demangle_cpp_varnames(&varname_list);
@@ -213,12 +216,13 @@ impl DebugDataReader<'_> {
         }
     }
 
-    // load all (global (with address)) variables from the dwarf data
-    fn load_variables(&mut self) -> IndexMap<String, Vec<VarInfo>> {
+    // load all variables from the dwarf data
+    fn load_variables(&mut self, unit_idx_limit: usize) -> IndexMap<String, Vec<VarInfo>> {
         let mut variables = IndexMap::<String, Vec<VarInfo>>::new();
 
         let mut iter = self.dwarf.debug_info.units();
         while let Ok(Some(unit)) = iter.next() {
+            // get the abbreviations for the unit
             let Ok(abbreviations) = unit.abbreviations(&self.dwarf.debug_abbrev) else {
                 if self.verbose > 0 {
                     let offset = unit.offset().as_debug_info_offset().unwrap_or(gimli::DebugInfoOffset(0)).0;
@@ -226,8 +230,13 @@ impl DebugDataReader<'_> {
                 }
                 continue;
             };
+
+            // store the unit for later reference
             self.units.add(unit, abbreviations);
             let unit_idx = self.units.list.len() - 1;
+            if unit_idx > unit_idx_limit {
+                break;
+            }
             let (unit, abbreviations) = &self.units[unit_idx];
 
             // The root of the tree inside of a unit is always a DW_TAG_compile_unit or DW_TAG_partial_unit.
@@ -252,6 +261,7 @@ impl DebugDataReader<'_> {
                 self.unit_names.push(unit_name);
             }
 
+            // traverse all entries in depth-first order
             let mut depth = 0;
             let mut context: Vec<(gimli::DwTag, Option<String>)> = Vec::new();
             while let Ok(Some((depth_delta, entry))) = entries_cursor.next_dfs() {
@@ -270,31 +280,7 @@ impl DebugDataReader<'_> {
                 debug_assert_eq!(depth as usize, context.len());
 
                 if entry.tag() == gimli::constants::DW_TAG_variable {
-                    /* @@@@ xcp_client: Removed, original code for global variables only
-                    match self.get_global_variable(entry, unit, abbreviations) {
-                        Ok(Some((name, typeref, address))) => {
-                            let (function, namespaces) = get_varinfo_from_context(&context);
-                            variables.entry(name).or_default().push(VarInfo {
-                                address,
-                                typeref,
-                                unit_idx,
-                                function,
-                                namespaces,
-                            });
-                        }
-                        Ok(None) => {
-                            // unremarkable, the variable is not a global variable
-                        }
-                        Err(errmsg) => {
-                            if self.verbose {
-                                let offset = entry.offset().to_debug_info_offset(unit).unwrap_or(gimli::DebugInfoOffset(0)).0;
-                                println!("Error loading variable @{offset:x}: {errmsg}");
-                            }
-                        }
-                    }
-                    */
-
-                    // @@@@ xcp_client: Get all variables, including local variables
+                    // Get variable information
                     match self.get_variable(entry, unit, abbreviations) {
                         Ok((name, typeref, address)) => {
                             let (function, namespaces) = get_varinfo_from_context(&context);
@@ -370,32 +356,42 @@ impl DebugDataReader<'_> {
         unit: &UnitHeader<SliceType>,
         abbrev: &gimli::Abbreviations,
     ) -> Result<(String, usize, (u8, u64)), String> {
-        let address = get_location_attribute(self, entry, unit.encoding(), &self.units.list.len() - 1).unwrap_or((0u8, 0u64));
-
         // if debugging information entry A has a DW_AT_specification or DW_AT_abstract_origin attribute
         // pointing to another debugging information entry B, any attributes of B are considered to be part of A.
         if let Some(specification_entry) = get_specification_attribute(entry, unit, abbrev) {
             // the entry refers to a specification, which contains the name and type reference
             let name = get_name_attribute(&specification_entry, &self.dwarf, unit)?;
+            log::info!("'{}':", name);
             let typeref = get_typeref_attribute(&specification_entry, unit)?;
-            if address.1 == 0 {
-                log::error!("get_specification_attribute - variable {} has no address", name);
+            let address = get_location_attribute(self, entry, unit.encoding(), &self.units.list.len() - 1).unwrap_or((0u8, 0u64));
+            if address.0 >= 0x80 {
+                log::error!("get_variable: Variable {} is a register, tls or has unknown location", name);
+            } else if address.1 == 0 {
+                log::error!("get_variable: Variable {} has no address", name);
             }
             Ok((name, typeref, address))
         } else if let Some(abstract_origin_entry) = get_abstract_origin_attribute(entry, unit, abbrev) {
             // the entry refers to an abstract origin, which should also be considered when getting the name and type ref
             let name = get_name_attribute(entry, &self.dwarf, unit).or_else(|_| get_name_attribute(&abstract_origin_entry, &self.dwarf, unit))?;
+            log::info!("'{}':", name);
             let typeref = get_typeref_attribute(entry, unit).or_else(|_| get_typeref_attribute(&abstract_origin_entry, unit))?;
-            if address.1 == 0 {
-                log::error!("get_abstract_origin_attribute - variable {} has no address", name);
+            let address = get_location_attribute(self, entry, unit.encoding(), &self.units.list.len() - 1).unwrap_or((0u8, 0u64));
+            if address.0 >= 0x80 {
+                log::error!("get_variable: Variable {} is a register, tls or has unknown location", name);
+            } else if address.1 == 0 {
+                log::error!("get_variable: Variable {} has no address", name);
             }
             Ok((name, typeref, address))
         } else {
             // usual case: there is no specification or abstract origin and all info is part of this entry
             let name = get_name_attribute(entry, &self.dwarf, unit)?;
+            log::info!("'{}':", name);
             let typeref = get_typeref_attribute(entry, unit)?;
-            if address.1 == 0 {
-                log::error!("get_name_attribute - variable {} has no address", name);
+            let address = get_location_attribute(self, entry, unit.encoding(), &self.units.list.len() - 1).unwrap_or((0u8, 0u64));
+            if address.0 >= 0x80 {
+                log::error!("get_variable: Variable {} is a register, tls or has unknown location", name);
+            } else if address.1 == 0 {
+                log::error!("get_variable: Variable {} has no address", name);
             }
             Ok((name, typeref, address))
         }

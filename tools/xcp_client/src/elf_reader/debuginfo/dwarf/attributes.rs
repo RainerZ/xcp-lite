@@ -101,12 +101,9 @@ pub(crate) fn get_location_attribute(
     let loc_attr = get_attr_value(entry, gimli::constants::DW_AT_location)?;
     match loc_attr {
         gimli::AttributeValue::Exprloc(expression) => evaluate_exprloc(debug_data_reader, expression, encoding, current_unit),
-        gimli::AttributeValue::LocationListsRef(offset) => {
-            log_location_list(debug_data_reader, offset, encoding, current_unit);
-            None
-        }
+        gimli::AttributeValue::LocationListsRef(offset) => evaluate_location_list(debug_data_reader, offset, encoding, current_unit),
         _ => {
-            log::error!("unexpected location attribute type: {loc_attr:#?}");
+            log::error!("get_location_attribute: Unexpected location attribute type: {loc_attr:#?}");
             None
         }
     }
@@ -315,7 +312,7 @@ pub(crate) fn get_addr_base_attribute(entry: &DebuggingInformationEntry<SliceTyp
 }
 
 // log location list entries for debugging
-fn log_location_list(debug_data_reader: &DebugDataReader, offset: gimli::LocationListsOffset, encoding: gimli::Encoding, current_unit: usize) {
+fn evaluate_location_list(debug_data_reader: &DebugDataReader, offset: gimli::LocationListsOffset, encoding: gimli::Encoding, current_unit: usize) -> Option<(u8, u64)> {
     let (unit_header, _) = &debug_data_reader.units[current_unit];
 
     // Create a Unit from the UnitHeader
@@ -323,7 +320,7 @@ fn log_location_list(debug_data_reader: &DebugDataReader, offset: gimli::Locatio
         Ok(unit) => unit,
         Err(e) => {
             log::warn!("LocationList: Failed to create unit: {}", e);
-            return;
+            return None;
         }
     };
 
@@ -332,11 +329,15 @@ fn log_location_list(debug_data_reader: &DebugDataReader, offset: gimli::Locatio
         Ok(loclists) => loclists,
         Err(e) => {
             log::warn!("LocationList: Failed to get location list at offset {:?}: {}", offset, e);
-            return;
+            return None;
         }
     };
 
-    log::info!("LocationList: offset={:?}, entries:", offset);
+    // Print
+    println!("LocationList: offset={:?}, entries:", offset);
+
+    let mut addr_ext: u8 = 0xff;
+    let mut addr: u64 = 0;
 
     // Iterate through location list entries
     let mut entry_count = 0;
@@ -345,40 +346,47 @@ fn log_location_list(debug_data_reader: &DebugDataReader, offset: gimli::Locatio
         entry_count += 1;
 
         // Log the PC range for this location
-        log::info!("  Entry {}: PC range 0x{:08x}..0x{:08x}", entry_count, entry.range.begin, entry.range.end);
+        println!("  {}: PC range 0x{:08x}..0x{:08x}", entry_count, entry.range.begin, entry.range.end);
 
-        // Try to evaluate the location expression for this range
         let expression = entry.data;
+
+        // Print
         let mut evaluation = expression.evaluation(encoding);
         evaluation.set_object_address(0);
         evaluation.set_initial_value(0);
-
         match evaluation.evaluate() {
             Ok(gimli::EvaluationResult::Complete) => {
                 let result = evaluation.result();
                 if !result.is_empty() {
-                    log::info!("    Location: {:?}", result[0]);
+                    print!("\tLocation: {:?}", result[0]);
                 } else {
-                    log::info!("    Location: <empty>");
+                    print!("\tLocation: <empty>");
                 }
             }
             Ok(eval_result) => {
-                log::info!("    Location: evaluation incomplete: {:?}", eval_result);
+                print!("\tLocation: evaluation incomplete: {:?}", eval_result);
             }
             Err(e) => {
-                log::info!("    Location: evaluation failed: {}", e);
+                print!("\tLocation: evaluation failed: {}", e);
             }
         }
+        print!("\n");
 
-        if entry_count > 100 {
-            log::warn!("  ... (truncated, more than 100 entries)");
-            break;
+        // Evaluate the expression to get a measurable (if possible) address
+        if let Some(ea) = evaluate_exprloc(debug_data_reader, expression, encoding, current_unit) {
+            println!("    Evaluated Address: addr_ext={}, address=0x{:x}", ea.0, ea.1);
+            // @@@@ TODO: For now, just return the lowest evaluated valid address extension
+            if ea.0 < addr_ext {
+                addr_ext = ea.0;
+                addr = ea.1;
+            }
         }
     }
 
-    if entry_count == 0 {
-        log::info!("  (no entries)");
+    if entry_count == 0 || addr_ext == 0xff {
+        return None;
     }
+    return Some((addr_ext, addr));
 }
 
 // evaluate an exprloc expression to get a variable address or struct member offset
@@ -403,6 +411,9 @@ fn evaluate_exprloc(
     while eval_result != gimli::EvaluationResult::Complete {
         match eval_result {
             // @@@@ TODO Address extensions hardcoded here assuming XCP_LITE_AASDD
+            // @@@@ Address extension 0x80 is used to indicate registers, registers are not supported yet
+            // @@@@ Address extension 0x81 is used to indicate TLS, TLS is not supported yet
+            // @@@@ Address extension 0x82 is error
 
             // Supported
             gimli::EvaluationResult::RequiresRelocatedAddress(address) => {
@@ -416,7 +427,7 @@ fn evaluate_exprloc(
                         e
                     })
                     .ok()?;
-                log::info!("RequiresRelocatedAddress: resolved with xcp_get_base_address, addr_ext=0,continue with eval_result={eval_result:?}");
+                log::debug!("RequiresRelocatedAddress: resolved with xcp_get_base_address, addr_ext=0");
             }
             gimli::EvaluationResult::RequiresFrameBase => {
                 // Stack frame of a function.
@@ -430,7 +441,7 @@ fn evaluate_exprloc(
                         e
                     })
                     .ok()?;
-                log::info!("RequiresFrameBase: resolved with xcp_get_frame_address, addr_ext=2, continue with eval_result=={eval_result:?}");
+                log::debug!("RequiresFrameBase: resolved with xcp_get_frame_address, addr_ext=2");
             }
             gimli::EvaluationResult::RequiresIndexedAddress { index, .. } => {
                 // DWARF 5: Variable address is stored in the .debug_addr table
@@ -451,10 +462,7 @@ fn evaluate_exprloc(
                         e
                     })
                     .ok()?;
-                log::info!(
-                    "RequiresIndexedAddress: resolved from .debug_addr[{:?}], addr_ext=0, continue with eval_result={eval_result:?}",
-                    index
-                );
+                log::debug!("RequiresIndexedAddress: resolved from .debug_addr[{:?}], addr_ext=0", index);
             }
 
             // Error: Not supported
@@ -462,39 +470,79 @@ fn evaluate_exprloc(
                 // the value is relative to a register (e.g. the stack base)
                 // this means it cannot be referenced and is not suitable for use in a2l yet
                 // @@@@ xcp_client: allow register addresses ????
-                log::error!("RequiresRegister: expression not evaluated, unsupported, eval_result={eval_result:?}");
-                return None;
+                addr_ext = 0x80;
+                log::debug!("RequiresRegister: expression not evaluated, unsupported, eval_result={eval_result:?}");
+                return Some((addr_ext, 0));
             }
             gimli::EvaluationResult::RequiresTls(address) => {
                 // Thread local storage address
                 // @@@@ xcp_client: allow TLS addresses ????
-                log::error!("RequiresTls: expression not evaluated, unsupported, eval_result{eval_result:?}");
-                return None;
+                addr_ext = 0x81;
+                log::debug!("RequiresTls: expression not evaluated, unsupported, eval_result={eval_result:?}");
+                return Some((addr_ext, address));
             }
-            // RequiresCallFrameCfa
+            // @@@@ TODO: Clarifiy if we need to handle RequiresCallFrameCfa
             _other => {
                 // there are a lot of other types of address expressions that can only be evaluated by a debugger while a program is running
                 // none of these can be handled in the a2lfile use-case.
+                addr_ext = 0x82;
                 log::error!("Other: expression not evaluated, unsupported, eval_result={_other:?}");
-                return None;
+                return Some((addr_ext, 0));
             }
         };
     }
     let result = evaluation.result();
+    assert!(result.len() <= 1); // Pieces not supported yet
+    log::info!("evaluate_exprloc: Evaluation result: {:?}", result[0]);
     if result.is_empty() {
         log::error!("evaluate_exprloc: Evaluation result is empty");
-        return None;
-    }
-    if let gimli::Piece {
-        location: gimli::Location::Address { address },
-        ..
-    } = result[0]
-    {
-        Some((addr_ext, address))
+        Some((0xFF, 0))
     } else {
-        log::error!("evaluate_exprloc: Result is not an Address location, got: {:#?}", result[0]);
-        None
+        let (addr_ext, address) = match &result[0] {
+            gimli::Piece {
+                location: gimli::Location::Address { address },
+                ..
+            } => {
+                log::info!("evaluate_exprloc: Location is an address {}:0x{:08X}", addr_ext, *address);
+
+                (addr_ext, *address)
+            }
+
+            gimli::Piece {
+                location: gimli::Location::Register { register },
+                ..
+            } => {
+                log::info!("evaluate_exprloc: Location is a register {:?}", register);
+                (0x80, 0)
+            }
+
+            gimli::Piece {
+                location: gimli::Location::Value { value },
+                ..
+            } => {
+                log::info!("evaluate_exprloc: Location is a constant value {:?}", value);
+                (0x81, value.to_u64(0).unwrap_or(0))
+            }
+
+            other => {
+                log::warn!("evaluate_exprloc: Location evaluation result not handled  {:?}", other);
+                (0xFF, 0)
+            }
+        };
+        Some((addr_ext, address))
     }
+
+    // if let gimli::Piece {
+    //     location: gimli::Location::Address { address },
+    //     ..
+    // } = result[0]
+    // {
+    //     log::info!("evaluate_exprloc: Address is {}:0x{:x}", addr_ext, address);
+    //     Some((addr_ext, address))
+    // } else {
+    //     log::warn!("evaluate_exprloc: Location is not a measurement address {:?}", result[0]);
+    //     None
+    // }
 }
 
 // Get a DW_AT_type attribute and return the number of the unit in which the type is located

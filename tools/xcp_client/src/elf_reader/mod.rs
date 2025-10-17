@@ -210,7 +210,7 @@ impl ElfReader {
                 let var_info = &var_infos[0];
                 let function_name = if let Some(f) = var_info.function.as_ref() { f.as_str() } else { "" };
                 let unit_idx = var_info.unit_idx;
-                let unit_name = if let Some(name) = debuginfo::make_simple_unit_name(&self.debug_data, unit_idx) {
+                let unit_name = if let Some(name) = self.debug_data.make_simple_unit_name(unit_idx) {
                     name
                 } else {
                     format!("{unit_idx}")
@@ -249,7 +249,7 @@ impl ElfReader {
                             type_info.get_size()
                         );
                         if verbose {
-                            self.debug_data.print_type_info(type_info);
+                            info!("{}", type_info);
                         }
                         type_info.get_size()
                     } else {
@@ -304,7 +304,7 @@ impl ElfReader {
                 // remove the "evt__" prefix
                 let evt_name = var_name.strip_prefix("evt__").unwrap_or("unnamed");
                 let evt_unit_idx = var_infos[0].unit_idx;
-                let evt_unit_name = if let Some(name) = debuginfo::make_simple_unit_name(&self.debug_data, evt_unit_idx) {
+                let evt_unit_name = if let Some(name) = self.debug_data.make_simple_unit_name(evt_unit_idx) {
                     name
                 } else {
                     format!("{evt_unit_idx}")
@@ -350,7 +350,7 @@ impl ElfReader {
                 let evt_name = parts.next().unwrap_or("");
 
                 let evt_unit_idx = var_infos[0].unit_idx;
-                let evt_unit_name = if let Some(name) = debuginfo::make_simple_unit_name(&self.debug_data, evt_unit_idx) {
+                let evt_unit_name = if let Some(name) = self.debug_data.make_simple_unit_name(evt_unit_idx) {
                     name
                 } else {
                     format!("{evt_unit_idx}")
@@ -549,7 +549,7 @@ impl ElfReader {
                                 a2l_addr
                             );
                             if verbose {
-                                self.debug_data.print_type_info(type_info);
+                                info!("{}", type_info);
                             }
                             let dim_type = self.get_dim_type(reg, type_info, object_type);
                             let res = reg.instance_list.add_instance(a2l_name.clone(), dim_type, McSupportData::new(object_type), mc_addr);
@@ -571,8 +571,7 @@ impl ElfReader {
                             }
                         }
                         _ => {
-                            warn!("Variable '{}' has unsupported type: {:?}", var_name, &type_info.datatype);
-                            self.debug_data.print_type_info(type_info);
+                            warn!("Variable '{}' has unsupported type: {}", var_name, type_info);
                         }
                     }
                 } else {
