@@ -159,3 +159,9 @@ cargo r -p xcp_client -- --dest-addr=192.168.0.206:5555 --tcp  --create-a2l --el
 ### Detailed A2L Generation Options
 
 See XCPlite no_a2l_demo README.md.  
+
+Create an A2L for an application ELF file with DWARF debug information.
+ 
+```bash
+cargo r -p xcp_client -- --dest-addr=192.168.0.206 --tcp --elf no_a2l_demo.out --elf-unit-limit=0 --verbose=5 --create-a2l --create-epk-segment --a2l no_a2l_demo.a2l --offline >no_a2l_demo.log
+```

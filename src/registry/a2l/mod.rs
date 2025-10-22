@@ -82,7 +82,7 @@ impl Registry {
                     }
                 }
 
-                // Load (merge) a2lfile::A2lFile data structure into this registry
+                // Load (merge) a2lfile::A2lFile data structure
                 self.load_a2lfile(&a2l_file)?;
 
                 // If requested, flatten nested typedefs to basic type instances with mangled names if required

@@ -119,17 +119,17 @@ pub struct Registry {
     // Flatten typedefs to measurement and calibration objects when writing A2L
     #[serde(skip_serializing)]
     #[serde(skip_deserializing)]
-    pub flatten_typedefs: bool,
+    flatten_typedefs: bool,
 
     // Prefix name wit application name when writing A2L
     #[serde(skip_serializing)]
     #[serde(skip_deserializing)]
-    pub prefix_names: bool,
+    prefix_names: bool,
 
     // Has implicit EPK memory segment with index 0
     #[serde(skip_serializing)]
     #[serde(skip_deserializing)]
-    pub auto_epk_segment_mode: bool,
+    auto_epk_segment_mode: bool,
 
     // Application name and software version
     pub application: McApplication,

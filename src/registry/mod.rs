@@ -400,7 +400,7 @@ pub fn close() {
     let mut reg = get_lock().take().unwrap();
 
     // Flatten the registry if requested
-    if reg.flatten_typedefs {
+    if reg.get_flatten_typedefs_mode() {
         flatten_registry(&mut reg);
     }
 

@@ -61,7 +61,7 @@ impl McCalibrationSegment {
     /// The calibration segment name may not be unique, segments with the same name may be created by multiple thread instances of a task, this is indicated by index > 0
     /// The name is prefixed with the application name if prefix_names is set
     pub fn get_prefixed_name(&self, registry: &Registry) -> Cow<'static, str> {
-        if registry.prefix_names {
+        if registry.get_prefix_names_mode() {
             Cow::Owned(format!("{}.{}", registry.application.get_name(), self.name))
         } else {
             Cow::Borrowed(self.name.as_str())

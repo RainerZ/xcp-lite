@@ -67,13 +67,13 @@ impl McEvent {
     /// The event name may not be unique, events with the same name may be created by multiple thread instances of a task, this is indicated by index > 0
     pub fn get_unique_name(&self, registry: &Registry) -> Cow<'static, str> {
         if self.index > 0 {
-            if registry.prefix_names {
+            if registry.get_prefix_names_mode() {
                 Cow::Owned(format!("{}.{}_{}", registry.application.get_name(), self.name, self.index))
             } else {
                 Cow::Owned(format!("{}_{}", self.name, self.index))
             }
         } else {
-            if registry.prefix_names {
+            if registry.get_prefix_names_mode() {
                 Cow::Owned(format!("{}_{}", self.name, self.index))
             } else {
                 Cow::Borrowed(self.name.as_str())
