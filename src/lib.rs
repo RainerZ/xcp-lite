@@ -39,21 +39,12 @@
 
 // Submodule xcp
 mod xcp;
-#[doc(hidden)]
 pub use xcp::CalCell;
-#[doc(hidden)]
 pub use xcp::CalSeg;
-#[doc(inline)]
 pub use xcp::Xcp;
-#[doc(hidden)] // For integration test
 pub use xcp::XcpCalPage;
-#[doc(inline)]
-pub use xcp::XcpError;
-#[doc(hidden)] // For macro use only
 pub use xcp::XcpEvent;
-#[doc(inline)]
 pub use xcp::XcpTransportLayer;
-#[doc(hidden)] // For macro use only
 pub use xcp::daq::daq_event::DaqEvent;
 
 // Public submodule registry

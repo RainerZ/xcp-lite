@@ -8,7 +8,7 @@
 use log::{debug, error, info, trace, warn};
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use bytes::{BufMut, BytesMut};
+
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::error::Error;
@@ -16,11 +16,14 @@ use std::io::Cursor;
 use std::io::Write;
 use std::net::SocketAddr;
 use std::sync::Arc;
+
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::select;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::{Duration, timeout};
 
+pub mod xcp;
+use xcp::*;
 use xcp_lite::registry::*;
 
 //--------------------------------------------------------------------------------------------------------------------------------------------------
@@ -28,363 +31,6 @@ use xcp_lite::registry::*;
 
 pub const CMD_TIMEOUT: Duration = Duration::from_secs(3);
 
-//--------------------------------------------------------------------------------------------------------------------------------------------------
-//--------------------------------------------------------------------------------------------------------------------------------------------------
-//--------------------------------------------------------------------------------------------------------------------------------------------------
-// XCP error type
-
-// XCP command response codes
-pub const CRC_CMD_OK: u8 = 0x00;
-pub const CRC_CMD_SYNCH: u8 = 0x00;
-pub const CRC_CMD_PENDING: u8 = 0x01;
-pub const CRC_CMD_IGNORED: u8 = 0x02;
-pub const CRC_CMD_BUSY: u8 = 0x10;
-pub const CRC_DAQ_ACTIVE: u8 = 0x11;
-pub const CRC_PGM_ACTIVE: u8 = 0x12;
-pub const CRC_CMD_UNKNOWN: u8 = 0x20;
-pub const CRC_CMD_SYNTAX: u8 = 0x21;
-pub const CRC_OUT_OF_RANGE: u8 = 0x22;
-pub const CRC_WRITE_PROTECTED: u8 = 0x23;
-pub const CRC_ACCESS_DENIED: u8 = 0x24;
-pub const CRC_ACCESS_LOCKED: u8 = 0x25;
-pub const CRC_PAGE_NOT_VALID: u8 = 0x26;
-pub const CRC_MODE_NOT_VALID: u8 = 0x27;
-pub const CRC_SEGMENT_NOT_VALID: u8 = 0x28;
-pub const CRC_SEQUENCE: u8 = 0x29;
-pub const CRC_DAQ_CONFIG: u8 = 0x2A;
-pub const CRC_MEMORY_OVERFLOW: u8 = 0x30;
-pub const CRC_GENERIC: u8 = 0x31;
-pub const CRC_VERIFY: u8 = 0x32;
-pub const CRC_RESOURCE_TEMPORARY_NOT_ACCESSIBLE: u8 = 0x33;
-pub const CRC_SUBCMD_UNKNOWN: u8 = 0x34;
-pub const CRC_TIMECORR_STATE_CHANGE: u8 = 0x35;
-
-pub const ERROR_CMD_TIMEOUT: u8 = 0xF0;
-pub const ERROR_TL_HEADER: u8 = 0xF1;
-pub const ERROR_A2L: u8 = 0xF2;
-pub const ERROR_LIMIT: u8 = 0xF3;
-pub const ERROR_ODT_SIZE: u8 = 0xF4;
-pub const ERROR_TASK_TERMINATED: u8 = 0xF5;
-pub const ERROR_SESSION_TERMINATION: u8 = 0xF6;
-
-#[derive(Default)]
-pub struct XcpClientError {
-    code: u8,
-    cmd: u8,
-}
-
-impl XcpClientError {
-    pub fn new(code: u8, cmd: u8) -> XcpClientError {
-        XcpClientError { code, cmd }
-    }
-    pub fn get_error_code(&self) -> u8 {
-        self.code
-    }
-}
-
-impl std::fmt::Display for XcpClientError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let cmd: XcpCommand = From::from(self.cmd);
-        match self.code {
-            ERROR_CMD_TIMEOUT => {
-                write!(f, "{cmd:?}: Command response timeout")
-            }
-            ERROR_TASK_TERMINATED => {
-                write!(f, "Client task terminated")
-            }
-            ERROR_SESSION_TERMINATION => {
-                write!(f, "Session terminated by XCP server")
-            }
-            ERROR_TL_HEADER => {
-                write!(f, "Transport layer header error")
-            }
-            ERROR_A2L => {
-                write!(f, "A2L file error")
-            }
-            ERROR_LIMIT => {
-                write!(f, "Calibration value limit exceeded")
-            }
-            ERROR_ODT_SIZE => {
-                write!(f, "ODT max size exceeded")
-            }
-            CRC_CMD_SYNCH => {
-                write!(f, "SYNCH")
-            }
-            CRC_CMD_PENDING => {
-                write!(f, "XCP command PENDING")
-            }
-            CRC_CMD_IGNORED => {
-                write!(f, "{cmd:?}: XCP command IGNORED")
-            }
-            CRC_CMD_BUSY => {
-                write!(f, "{cmd:?}: XCP command BUSY")
-            }
-            CRC_DAQ_ACTIVE => {
-                write!(f, "{cmd:?}: XCP DAQ ACTIVE")
-            }
-            CRC_PGM_ACTIVE => {
-                write!(f, "{cmd:?}: XCP PGM ACTIVE")
-            }
-            CRC_CMD_UNKNOWN => {
-                write!(f, "Unknown XCP command: {cmd:?} ")
-            }
-            CRC_CMD_SYNTAX => {
-                write!(f, "{cmd:?}: XCP command SYNTAX")
-            }
-            CRC_OUT_OF_RANGE => {
-                write!(f, "{cmd:?}: Parameter out of range")
-            }
-            CRC_WRITE_PROTECTED => {
-                write!(f, "{cmd:?}: Write protected")
-            }
-            CRC_ACCESS_DENIED => {
-                write!(f, "{cmd:?}: Access denied")
-            }
-            CRC_ACCESS_LOCKED => {
-                write!(f, "{cmd:?}: Access locked")
-            }
-            CRC_PAGE_NOT_VALID => {
-                write!(f, "{cmd:?}: Invalid page")
-            }
-            CRC_MODE_NOT_VALID => {
-                write!(f, "{cmd:?}: Invalide mode")
-            }
-            CRC_SEGMENT_NOT_VALID => {
-                write!(f, "{cmd:?}: Invalid segment")
-            }
-            CRC_SEQUENCE => {
-                write!(f, "{cmd:?}: Wrong sequence")
-            }
-            CRC_DAQ_CONFIG => {
-                write!(f, "{cmd:?}: DAQ configuration error")
-            }
-            CRC_MEMORY_OVERFLOW => {
-                write!(f, "{cmd:?}: Memory overflow")
-            }
-            CRC_GENERIC => {
-                write!(f, "{cmd:?}: XCP generic error")
-            }
-            CRC_VERIFY => {
-                write!(f, "{cmd:?}: Verify failed")
-            }
-            CRC_RESOURCE_TEMPORARY_NOT_ACCESSIBLE => {
-                write!(f, "{cmd:?}: Resource temporary not accessible")
-            }
-            CRC_SUBCMD_UNKNOWN => {
-                write!(f, "{cmd:?}: Unknown sub command")
-            }
-            CRC_TIMECORR_STATE_CHANGE => {
-                write!(f, "{cmd:?}: Time correlation state change")
-            }
-            _ => {
-                write!(f, "{cmd:?}: XCP error code = 0x{:0X}", self.code)
-            }
-        }
-    }
-}
-
-impl std::fmt::Debug for XcpClientError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "XcpClientError 0x{:02X} - {}", self.code, self)
-    }
-}
-
-impl std::error::Error for XcpClientError {}
-
-//--------------------------------------------------------------------------------------------------------------------------------------------------
-//--------------------------------------------------------------------------------------------------------------------------------------------------
-//--------------------------------------------------------------------------------------------------------------------------------------------------
-// XCP commands
-
-// XCP command codes
-pub const CC_CONNECT: u8 = 0xFF;
-pub const CC_DISCONNECT: u8 = 0xFE;
-pub const CC_SHORT_DOWNLOAD: u8 = 0xED;
-pub const CC_SYNC: u8 = 0xFC;
-pub const CC_GET_COMM_MODE_INFO: u8 = 0xFB;
-pub const CC_GET_ID: u8 = 0xFA;
-pub const CC_UPLOAD: u8 = 0xF5;
-pub const CC_SHORT_UPLOAD: u8 = 0xF4;
-pub const CC_USER: u8 = 0xF1;
-pub const CC_NOP: u8 = 0xC1;
-pub const CC_SET_CAL_PAGE: u8 = 0xEB;
-pub const CC_GET_CAL_PAGE: u8 = 0xEA;
-pub const CC_GET_PAGE_PROCESSOR_INFO: u8 = 0xE9;
-pub const CC_GET_SEGMENT_INFO: u8 = 0xE8;
-pub const CC_GET_PAGE_INFO: u8 = 0xE7;
-pub const CC_SET_SEGMENT_MODE: u8 = 0xE6;
-pub const CC_GET_SEGMENT_MODE: u8 = 0xE5;
-pub const CC_COPY_CAL_PAGE: u8 = 0xE4;
-pub const CC_CLEAR_DAQ_LIST: u8 = 0xE3;
-pub const CC_SET_DAQ_PTR: u8 = 0xE2;
-pub const CC_WRITE_DAQ: u8 = 0xE1;
-pub const CC_SET_DAQ_LIST_MODE: u8 = 0xE0;
-pub const CC_GET_DAQ_LIST_MODE: u8 = 0xDF;
-pub const CC_START_STOP_DAQ_LIST: u8 = 0xDE;
-pub const CC_START_STOP_SYNCH: u8 = 0xDD;
-pub const CC_GET_DAQ_CLOCK: u8 = 0xDC;
-pub const CC_READ_DAQ: u8 = 0xDB;
-pub const CC_GET_DAQ_PROCESSOR_INFO: u8 = 0xDA;
-pub const CC_GET_DAQ_RESOLUTION_INFO: u8 = 0xD9;
-pub const CC_GET_DAQ_LIST_INFO: u8 = 0xD8;
-pub const CC_GET_DAQ_EVENT_INFO: u8 = 0xD7;
-pub const CC_FREE_DAQ: u8 = 0xD6;
-pub const CC_ALLOC_DAQ: u8 = 0xD5;
-pub const CC_ALLOC_ODT: u8 = 0xD4;
-pub const CC_ALLOC_ODT_ENTRY: u8 = 0xD3;
-pub const CC_TIME_CORRELATION_PROPERTIES: u8 = 0xC6;
-pub const CC_GET_VERSION: u8 = 0xC0;
-
-#[derive(Debug)]
-enum XcpCommand {
-    Connect = CC_CONNECT as isize,
-    Disconnect = CC_DISCONNECT as isize,
-    ShortDownload = CC_SHORT_DOWNLOAD as isize,
-    Upload = CC_UPLOAD as isize,
-    ShortUpload = CC_SHORT_UPLOAD as isize,
-    User = CC_USER as isize,
-    Sync = CC_SYNC as isize,
-    Nop = CC_NOP as isize,
-    GetId = CC_GET_ID as isize,
-    SetCalPage = CC_SET_CAL_PAGE as isize,
-    GetCalPage = CC_GET_CAL_PAGE as isize,
-    GetPageProcessorInfo = CC_GET_PAGE_PROCESSOR_INFO as isize,
-    GetSegmentInfo = CC_GET_SEGMENT_INFO as isize,
-    GetPageInfo = CC_GET_PAGE_INFO as isize,
-    SetSegmentMode = CC_SET_SEGMENT_MODE as isize,
-    GetSegmentMode = CC_GET_SEGMENT_MODE as isize,
-    CopyCalPage = CC_COPY_CAL_PAGE as isize,
-    ClearDaqList = CC_CLEAR_DAQ_LIST as isize,
-    SetDaqPtr = CC_SET_DAQ_PTR as isize,
-    WriteDaq = CC_WRITE_DAQ as isize,
-    SetDaqListMode = CC_SET_DAQ_LIST_MODE as isize,
-    GetDaqListMode = CC_GET_DAQ_LIST_MODE as isize,
-    StartStopDaqList = CC_START_STOP_DAQ_LIST as isize,
-    StartStopSynch = CC_START_STOP_SYNCH as isize,
-    GetDaqClock = CC_GET_DAQ_CLOCK as isize,
-    ReadDaq = CC_READ_DAQ as isize,
-    GetDaqProcessorInfo = CC_GET_DAQ_PROCESSOR_INFO as isize,
-    GetDaqResolutionInfo = CC_GET_DAQ_RESOLUTION_INFO as isize,
-    GetDaqListInfo = CC_GET_DAQ_LIST_INFO as isize,
-    GetDaqEventInfo = CC_GET_DAQ_EVENT_INFO as isize,
-    FreeDaq = CC_FREE_DAQ as isize,
-    AllocDaq = CC_ALLOC_DAQ as isize,
-    AllocOdt = CC_ALLOC_ODT as isize,
-    AllocOdtEntry = CC_ALLOC_ODT_ENTRY as isize,
-    TimeCorrelationProperties = CC_TIME_CORRELATION_PROPERTIES as isize,
-}
-
-impl From<u8> for XcpCommand {
-    fn from(code: u8) -> Self {
-        match code {
-            CC_CONNECT => XcpCommand::Connect,
-            CC_DISCONNECT => XcpCommand::Disconnect,
-            CC_SHORT_DOWNLOAD => XcpCommand::ShortDownload,
-            CC_UPLOAD => XcpCommand::Upload,
-            CC_SHORT_UPLOAD => XcpCommand::ShortUpload,
-            CC_USER => XcpCommand::User,
-            CC_SYNC => XcpCommand::Sync,
-            CC_NOP => XcpCommand::Nop,
-            CC_GET_ID => XcpCommand::GetId,
-            CC_SET_CAL_PAGE => XcpCommand::SetCalPage,
-            CC_GET_CAL_PAGE => XcpCommand::GetCalPage,
-            CC_GET_PAGE_PROCESSOR_INFO => XcpCommand::GetPageProcessorInfo,
-            CC_GET_SEGMENT_INFO => XcpCommand::GetSegmentInfo,
-            CC_GET_PAGE_INFO => XcpCommand::GetPageInfo,
-            CC_SET_SEGMENT_MODE => XcpCommand::SetSegmentMode,
-            CC_GET_SEGMENT_MODE => XcpCommand::GetSegmentMode,
-            CC_COPY_CAL_PAGE => XcpCommand::CopyCalPage,
-            CC_CLEAR_DAQ_LIST => XcpCommand::ClearDaqList,
-            CC_SET_DAQ_PTR => XcpCommand::SetDaqPtr,
-            CC_WRITE_DAQ => XcpCommand::WriteDaq,
-            CC_SET_DAQ_LIST_MODE => XcpCommand::SetDaqListMode,
-            CC_GET_DAQ_LIST_MODE => XcpCommand::GetDaqListMode,
-            CC_START_STOP_DAQ_LIST => XcpCommand::StartStopDaqList,
-            CC_START_STOP_SYNCH => XcpCommand::StartStopSynch,
-            CC_GET_DAQ_CLOCK => XcpCommand::GetDaqClock,
-            CC_READ_DAQ => XcpCommand::ReadDaq,
-            CC_GET_DAQ_PROCESSOR_INFO => XcpCommand::GetDaqProcessorInfo,
-            CC_GET_DAQ_RESOLUTION_INFO => XcpCommand::GetDaqResolutionInfo,
-            CC_GET_DAQ_LIST_INFO => XcpCommand::GetDaqListInfo,
-            CC_GET_DAQ_EVENT_INFO => XcpCommand::GetDaqEventInfo,
-            CC_FREE_DAQ => XcpCommand::FreeDaq,
-            CC_ALLOC_DAQ => XcpCommand::AllocDaq,
-            CC_ALLOC_ODT => XcpCommand::AllocOdt,
-            CC_ALLOC_ODT_ENTRY => XcpCommand::AllocOdtEntry,
-            CC_TIME_CORRELATION_PROPERTIES => XcpCommand::TimeCorrelationProperties,
-            _ => {
-                error!("Unknown command code: 0x{:02X}", code);
-                panic!("Unknown command code: 0x{:02X}", code);
-            }
-        }
-    }
-}
-
-//--------------------------------------------------------------------------------------------------------------------------------------------------
-// XCP protocol definitions
-
-// XCP id types
-pub const XCP_IDT_ASCII: u8 = 0;
-pub const XCP_IDT_ASAM_NAME: u8 = 1;
-pub const XCP_IDT_ASAM_PATH: u8 = 2;
-pub const XCP_IDT_ASAM_URL: u8 = 3;
-pub const XCP_IDT_ASAM_UPLOAD: u8 = 4;
-pub const XCP_IDT_ASAM_EPK: u8 = 5;
-
-// XCP get/set calibration page mode
-const CAL_PAGE_MODE_ECU: u8 = 0x01;
-const CAL_PAGE_MODE_XCP: u8 = 0x02;
-
-//--------------------------------------------------------------------------------------------------------------------------------------------------
-// Build XCP commands with transport layer header
-
-pub struct XcpCommandBuilder {
-    data: BytesMut,
-}
-
-impl XcpCommandBuilder {
-    pub fn new(command_code: u8) -> XcpCommandBuilder {
-        let mut cmd = XcpCommandBuilder {
-            data: BytesMut::with_capacity(12),
-        };
-        cmd.data.put_u16_le(0);
-        cmd.data.put_u16_le(0);
-        cmd.data.put_u8(command_code);
-        cmd
-    }
-    pub fn add_u8(&mut self, value: u8) -> &mut Self {
-        self.data.put_u8(value);
-        self
-    }
-
-    pub fn add_u8_slice(&mut self, value: &[u8]) -> &mut Self {
-        self.data.put_slice(value);
-        self
-    }
-
-    pub fn add_u16(&mut self, value: u16) -> &mut Self {
-        assert!(self.data.len() & 1 == 0, "add_u16: unaligned");
-        self.data.put_u16_le(value);
-        self
-    }
-
-    pub fn add_u32(&mut self, value: u32) -> &mut Self {
-        assert!(self.data.len() & 3 == 0, "add_u32: unaligned");
-        self.data.put_u32_le(value);
-        self
-    }
-
-    pub fn build(&mut self) -> &[u8] {
-        let mut len: u16 = self.data.len().try_into().unwrap();
-        assert!(len >= 5);
-        len -= 4;
-        self.data[0] = (len & 0xFFu16) as u8;
-        self.data[1] = (len >> 8) as u8;
-        self.data.as_ref()
-    }
-}
-
-//--------------------------------------------------------------------------------------------------------------------------------------------------
 //--------------------------------------------------------------------------------------------------------------------------------------------------
 //--------------------------------------------------------------------------------------------------------------------------------------------------
 // CalibrationObject
@@ -531,6 +177,7 @@ impl XcpClientCalibrationObject {
 }
 
 //--------------------------------------------------------------------------------------------------------------------------------------------------
+//--------------------------------------------------------------------------------------------------------------------------------------------------
 // MeasurementObject
 // Describes a measurement object with name, address, type and event
 
@@ -582,7 +229,6 @@ impl XcpClientMeasurementObject {
     }
 }
 
-//--------------------------------------------------------------------------------------------------------------------------------------------------
 //--------------------------------------------------------------------------------------------------------------------------------------------------
 //--------------------------------------------------------------------------------------------------------------------------------------------------
 // Decoder traits for XCP messages
@@ -884,11 +530,11 @@ impl XcpClient {
                             while i < size {
                                 // Decode the next transport layer message header in the packet
                                 if size < 5 {
-                                    return Err(Box::new(XcpClientError::new(ERROR_TL_HEADER,0)) as Box<dyn Error>);
+                                    return Err(Box::new(XcpError::new(ERROR_TL_HEADER,0)) as Box<dyn Error>);
                                 }
                                 let len = buf[i] as usize + ((buf[i + 1] as usize) << 8);
                                 if len > size - 4 || len == 0 { // Corrupt packet received, not enough data received or no content
-                                    return Err(Box::new(XcpClientError::new(ERROR_TL_HEADER,0)) as Box<dyn Error>);
+                                    return Err(Box::new(XcpError::new(ERROR_TL_HEADER,0)) as Box<dyn Error>);
                                 }
                                 let ctr = buf[i + 2] as u16 + ((buf[i + 3] as u16) << 8);
                                 if ctr_first {
@@ -917,7 +563,7 @@ impl XcpClient {
                                         // Event
                                         let event_code = buf[i + 5];
                                         match event_code {
-                                            0x07 => { info!("receive_task: stop, SESSION_TERMINATDED"); return Err(Box::new(XcpClientError::new(ERROR_SESSION_TERMINATION,0)) as Box<dyn Error>); },
+                                            0x07 => { info!("receive_task: stop, SESSION_TERMINATDED"); return Err(Box::new(XcpError::new(ERROR_SESSION_TERMINATION,0)) as Box<dyn Error>); },
                                             _ => warn!("xcp_receive: ignored XCP event = 0x{:0X}", event_code),
                                         }
 
@@ -956,7 +602,7 @@ impl XcpClient {
                         Err(e) => {
                             // Handle the error from recv_from/read
                             warn!("receive_task: stop, socket error {}",e);
-                            return Err(Box::new(XcpClientError::new(ERROR_TL_HEADER,0)) as Box<dyn Error>);
+                            return Err(Box::new(XcpError::new(ERROR_TL_HEADER,0)) as Box<dyn Error>);
                         }
                     }
                 } // socket receive
@@ -967,6 +613,7 @@ impl XcpClient {
     //------------------------------------------------------------------------
     // XCP command service
     // Send a XCP command and wait for the response
+    // @@@@ Must be &mut self because of the mpsc::Receiver
     async fn send_command(&mut self, cmd_bytes: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
         //
         // Send command
@@ -988,8 +635,8 @@ impl XcpClient {
                                 Ok(data)
                             }
                             0xFE => {
-                                // XCP negative response, return error code with XcpClientError
-                                Err(Box::new(XcpClientError::new(data[1], cmd_bytes[4])) as Box<dyn Error>)
+                                // XCP negative response, return error code with XcpError
+                                Err(Box::new(XcpError::new(data[1], cmd_bytes[4])) as Box<dyn Error>)
                             }
                             _ => {
                                 panic!("xcp_command: bug in receive_task");
@@ -999,13 +646,13 @@ impl XcpClient {
                     None => {
                         // Empty response, channel has been closed because receive task terminated
                         info!("xcp_command: receive_task terminated");
-                        Err(Box::new(XcpClientError::new(ERROR_TASK_TERMINATED, cmd_bytes[4])) as Box<dyn Error>)
+                        Err(Box::new(XcpError::new(ERROR_TASK_TERMINATED, cmd_bytes[4])) as Box<dyn Error>)
                     }
                 }
             }
             Err(_) => {
-                // Timeout, return with XcpClientError
-                Err(Box::new(XcpClientError::new(ERROR_CMD_TIMEOUT, cmd_bytes[4])) as Box<dyn Error>)
+                // Timeout, return with XcpError
+                Err(Box::new(XcpError::new(ERROR_CMD_TIMEOUT, cmd_bytes[4])) as Box<dyn Error>)
             }
         }
     }
@@ -1200,7 +847,7 @@ impl XcpClient {
                     }
                     Err(_) => {
                         error!("GET_ID mode={} -> invalid string {:?}", id_type, data);
-                        Err(Box::new(XcpClientError::new(CRC_CMD_SYNTAX, CC_GET_ID)) as Box<dyn Error>)
+                        Err(Box::new(XcpError::new(CRC_CMD_SYNTAX, CC_GET_ID)) as Box<dyn Error>)
                     }
                 }
             } else {
@@ -1219,7 +866,7 @@ impl XcpClient {
                 }
                 Err(_) => {
                     error!("GET_ID mode={} -> invalid string {:?}", id_type, data);
-                    Err(Box::new(XcpClientError::new(CRC_CMD_SYNTAX, CC_GET_ID)) as Box<dyn Error>)
+                    Err(Box::new(XcpError::new(CRC_CMD_SYNTAX, CC_GET_ID)) as Box<dyn Error>)
                 }
             }
         }
@@ -1264,7 +911,14 @@ impl XcpClient {
     }
 
     //------------------------------------------------------------------------
-    // XCP memory access services (calibration and polling of measurememt vvalues)
+    // XCP memory access services (calibration and polling of measurement values)
+
+    pub async fn set_mta(&mut self, addr_ext: u8, addr: u32) -> Result<(), Box<dyn Error>> {
+        trace!("set_mta addr={}:{:08X}", addr_ext, addr);
+        self.send_command(XcpCommandBuilder::new(CC_SET_MTA).add_u8(0).add_u8(0).add_u8(addr_ext).add_u32(addr).build())
+            .await?;
+        Ok(())
+    }
 
     pub async fn short_download(&mut self, addr: u32, ext: u8, data_bytes: &[u8]) -> Result<(), Box<dyn Error>> {
         let len: u8 = data_bytes.len().try_into().unwrap();
@@ -1282,25 +936,74 @@ impl XcpClient {
         Ok(())
     }
     pub async fn short_upload(&mut self, addr: u32, ext: u8, size: u8) -> Result<Vec<u8>, Box<dyn Error>> {
+        trace!("short_upload addr={}:{:08X},{}", ext, addr, size);
         let data = self
             .send_command(XcpCommandBuilder::new(CC_SHORT_UPLOAD).add_u8(size).add_u8(0).add_u8(ext).add_u32(addr).build())
             .await?;
-
         Ok(data)
     }
 
     pub async fn upload(&mut self, size: u8) -> Result<Vec<u8>, Box<dyn Error>> {
+        trace!("upload size={}", size);
         let data = self.send_command(XcpCommandBuilder::new(CC_UPLOAD).add_u8(size).build()).await?;
         Ok(data)
     }
 
+    pub async fn download(&mut self, data_bytes: &[u8]) -> Result<(), Box<dyn Error>> {
+        let n = data_bytes.len();
+        trace!("download len={}, data={:?}", n, data_bytes);
+        if n >= (self.max_cto_size - 2) as usize {
+            return Err(Box::new(XcpError::new(CRC_CMD_SYNTAX, CC_DOWNLOAD)) as Box<dyn Error>);
+        }
+        self.send_command(XcpCommandBuilder::new(CC_DOWNLOAD).add_u8(n as u8).add_u8_slice(data_bytes).build())
+            .await?;
+        Ok(())
+    }
     pub async fn modify_begin(&mut self) -> Result<(), Box<dyn Error>> {
+        trace!("modify_begin");
         self.send_command(XcpCommandBuilder::new(CC_USER).add_u8(1).add_u8(0).add_u8(0).build()).await?;
         Ok(())
     }
 
     pub async fn modify_end(&mut self) -> Result<(), Box<dyn Error>> {
+        trace!("modify_end");
         self.send_command(XcpCommandBuilder::new(CC_USER).add_u8(2).add_u8(0).add_u8(0).build()).await?;
+        Ok(())
+    }
+
+    //------------------------------------------------------------------------
+    // XCP memory access services, upload and download of larger data blocks
+
+    // Upload a memory block of block_size bytes from the XCP server
+    pub async fn upload_memory_block(&mut self, block_size: u32) -> Result<Vec<u8>, Box<dyn Error>> {
+        trace!("upload_memory_block block_size={}", block_size);
+
+        let mut size = block_size;
+        let mut result = Vec::new();
+        while size > 0 {
+            let n = if size >= self.max_cto_size as u32 { self.max_cto_size - 1 } else { size as u8 };
+            size -= n as u32;
+            let data = self.upload(n).await?;
+            result.extend_from_slice(&data[1..=n as usize]);
+        }
+        Ok(result)
+    }
+
+    // Download a memory block of data_bytes to the XCP server
+    pub async fn download_memory_block(&mut self, data_bytes: &[u8]) -> Result<(), Box<dyn Error>> {
+        let mut block_size = data_bytes.len();
+        trace!("download_memory_block block_size={}", block_size);
+        let mut pos = 0;
+        while block_size > 0 {
+            let n = if block_size >= self.max_cto_size as usize - 1 {
+                self.max_cto_size as usize - 2
+            } else {
+                block_size
+            };
+            self.download(&data_bytes[pos..(pos + n)]).await?;
+            block_size -= n;
+            pos += n;
+        }
         Ok(())
     }
 
@@ -1352,7 +1055,7 @@ impl XcpClient {
         let name = match res {
             Ok(name) => name,
             Err(_) => {
-                return Err(Box::new(XcpClientError::new(CRC_CMD_SYNTAX, CC_GET_SEGMENT_INFO)) as Box<dyn Error>);
+                return Err(Box::new(XcpError::new(CRC_CMD_SYNTAX, CC_GET_SEGMENT_INFO)) as Box<dyn Error>);
             }
         };
 
@@ -1409,7 +1112,7 @@ impl XcpClient {
             Ok(event_name) => {
                 return Ok(event_name);
             }
-            Err(_) => Err(Box::new(XcpClientError::new(CRC_CMD_SYNTAX, CC_GET_DAQ_EVENT_INFO)) as Box<dyn Error>),
+            Err(_) => Err(Box::new(XcpError::new(CRC_CMD_SYNTAX, CC_GET_DAQ_EVENT_INFO)) as Box<dyn Error>),
         }
     }
 
@@ -1566,7 +1269,7 @@ impl XcpClient {
             // 64 bit slave clock
             ReadBytesExt::read_u64::<LittleEndian>(&mut c)?
         } else {
-            return Err(Box::new(XcpClientError::new(CRC_OUT_OF_RANGE, CC_GET_DAQ_CLOCK)) as Box<dyn Error>);
+            return Err(Box::new(XcpError::new(CRC_OUT_OF_RANGE, CC_GET_DAQ_CLOCK)) as Box<dyn Error>);
         };
 
         trace!("GET_DAQ_CLOCK trigger_info=0x{:2X}, payload_fmt=0x{:2X} time={}", trigger_info, payload_fmt, timestamp64);
@@ -1588,7 +1291,7 @@ impl XcpClient {
         let (file_size, _) = self.get_id(XCP_IDT_ASAM_UPLOAD).await?;
         if file_size == 0 {
             error!("A2L file not available, GET_ID 4 returned size 0");
-            return Err(Box::new(XcpClientError::new(ERROR_A2L, CC_GET_ID)) as Box<dyn Error>);
+            return Err(Box::new(XcpError::new(ERROR_A2L, CC_GET_ID)) as Box<dyn Error>);
         }
 
         // Upload the A2L file
@@ -1622,7 +1325,7 @@ impl XcpClient {
         let (file_size, _) = self.get_id(XCP_IDT_ASAM_UPLOAD).await?;
         if file_size == 0 {
             error!("A2L file not available, GET_ID 4 returned size 0");
-            return Err(Box::new(XcpClientError::new(ERROR_A2L, CC_GET_ID)) as Box<dyn Error>);
+            return Err(Box::new(XcpError::new(ERROR_A2L, CC_GET_ID)) as Box<dyn Error>);
         }
 
         // Upload the A2L file
@@ -1661,7 +1364,7 @@ impl XcpClient {
         let (file_size, _) = self.get_id(XCP_IDT_ASAM_UPLOAD).await?;
         if file_size == 0 {
             error!("A2L file not available, GET_ID 4 returned size 0");
-            return Err(Box::new(XcpClientError::new(ERROR_A2L, CC_GET_ID)) as Box<dyn Error>);
+            return Err(Box::new(XcpError::new(ERROR_A2L, CC_GET_ID)) as Box<dyn Error>);
         }
 
         // Upload the A2L file
@@ -1705,14 +1408,24 @@ impl XcpClient {
             reg.event_list.add_event(McEvent::new(name, 0, i, 0)).unwrap();
         }
 
-        // Get segment and page information
+        // Get segment information
+        let mut n = 0;
         for i in 0..self.max_segments {
             let (addr_ext, addr, length, name) = self.get_segment_info(i).await?;
             info!(" Segment {}: {} addr={}:0x{:08X} length={} ", i, name, addr_ext, addr, length);
-            // Segment relative addressing
-            // reg.cal_seg_list.add_cal_seg(name, i as u16, length as u32).unwrap();
-            // Absolute addressing
-            reg.cal_seg_list.add_cal_seg_by_addr(name, i as u16, addr_ext, addr, length as u32).unwrap();
+
+            // Check for EPK segment with index 0 typical for XCPlite servers
+            // Just put the registry into epk segment mode
+            if reg.get_auto_epk_segment_mode() && name == "epk" && i == 0 {
+                warn!(" EPK segment found and skipped in implicit segment mode");
+                continue;
+            }
+            // Otherwise the EPK segment would be handled like a normal calibration segment with 2 pages
+            // Segment relative addressing is ignored, all addresses are treated as raw A2L addr_ext/addr
+            // Segment relative addressing would be reg.cal_seg_list.add_cal_seg(name, i as u16, length as u32).unwrap();
+            reg.cal_seg_list.add_cal_seg_by_addr(name, n, addr_ext, addr, length as u32).unwrap();
+
+            n += 1;
         }
 
         Ok(())
@@ -1751,7 +1464,7 @@ impl XcpClient {
         match registry.instance_list.get_instance(name) {
             None => {
                 error!("Characteristic {} not found", name);
-                Err(Box::new(XcpClientError::new(ERROR_A2L, 0)) as Box<dyn Error>)
+                Err(Box::new(XcpError::new(ERROR_A2L, 0)) as Box<dyn Error>)
             }
             Some(instance) => {
                 let (ext, addr) = instance.get_address().get_a2l_addr(registry);
@@ -1781,7 +1494,7 @@ impl XcpClient {
     pub async fn set_value_u64(&mut self, handle: XcpCalibrationObjectHandle, value: u64) -> Result<(), Box<dyn Error>> {
         let obj = &self.calibration_object_list[handle.0];
         if (value as f64) > obj.a2l_limits.upper || (value as f64) < obj.a2l_limits.lower {
-            return Err(Box::new(XcpClientError::new(ERROR_LIMIT, 0)) as Box<dyn Error>);
+            return Err(Box::new(XcpError::new(ERROR_LIMIT, 0)) as Box<dyn Error>);
         }
         let size: usize = obj.get_type.size;
         let slice = &value.to_le_bytes()[0..size];
@@ -1792,7 +1505,7 @@ impl XcpClient {
     pub async fn set_value_i64(&mut self, handle: XcpCalibrationObjectHandle, value: i64) -> Result<(), Box<dyn Error>> {
         let obj = &self.calibration_object_list[handle.0];
         if (value as f64) > obj.a2l_limits.upper || (value as f64) < obj.a2l_limits.lower {
-            return Err(Box::new(XcpClientError::new(ERROR_LIMIT, 0)) as Box<dyn Error>);
+            return Err(Box::new(XcpError::new(ERROR_LIMIT, 0)) as Box<dyn Error>);
         }
         let size: usize = obj.get_type.size;
         let slice = &value.to_le_bytes()[0..size];
@@ -1803,7 +1516,7 @@ impl XcpClient {
     pub async fn set_value_f64(&mut self, handle: XcpCalibrationObjectHandle, value: f64) -> Result<(), Box<dyn Error>> {
         let obj = &self.calibration_object_list[handle.0];
         if value > obj.a2l_limits.upper || value < obj.a2l_limits.lower {
-            return Err(Box::new(XcpClientError::new(ERROR_LIMIT, 0)) as Box<dyn Error>);
+            return Err(Box::new(XcpError::new(ERROR_LIMIT, 0)) as Box<dyn Error>);
         }
         let size: usize = obj.get_type.size;
         let slice = &value.to_le_bytes()[0..size];
@@ -1997,7 +1710,7 @@ impl XcpClient {
 
                     odt_size += a2l_type.size as u16;
                     if odt_size > self.max_dto_size - 6 {
-                        return Err(Box::new(XcpClientError::new(ERROR_ODT_SIZE, 0)) as Box<dyn Error>);
+                        return Err(Box::new(XcpError::new(ERROR_ODT_SIZE, 0)) as Box<dyn Error>);
                     }
                 }
             } // odt_entries
@@ -2050,5 +1763,142 @@ impl XcpClient {
         self.measurement_object_list.clear();
 
         res
+    }
+
+    //---------------------------------------------------------------------------------
+
+    // Upload and Download of calibration data
+
+    // Usage:
+    // xcp_client.load_calibration_segments_from_file(&bin_filename).await?;
+    // xcp_client.save_calibration_segments_to_file(&bin_filename).await?;
+
+    pub async fn load_calibration_segments_from_file<P: AsRef<std::path::Path>>(&mut self, bin_path: &P) -> Result<(), Box<dyn Error>> {
+        info!("Load calibration segments from file {}", bin_path.as_ref().display());
+
+        // Read the Intel-Hex file
+        let file_content = std::fs::read_to_string(bin_path)?;
+        let ihex_reader = ihex::Reader::new(file_content.as_str());
+
+        // Parse all data records from the Intel-Hex file into a HashMap
+        // Key: full 32-bit address, Value: data bytes
+        let mut hex_data: HashMap<u32, Vec<u8>> = HashMap::new();
+
+        // Track the upper 16 bits of the address from ExtendedLinearAddress records
+        let mut extended_linear_address: u32 = 0;
+
+        for record in ihex_reader {
+            match record {
+                Err(e) => {
+                    error!("Error parsing IHEX record: {}", e);
+                    return Err(Box::new(e) as Box<dyn Error>);
+                }
+                Ok(ihex::Record::ExtendedLinearAddress(upper_addr)) => {
+                    // Store the upper 16 bits (shifted left by 16)
+                    extended_linear_address = (upper_addr as u32) << 16;
+                    debug!("IHEX Extended Linear Address: upper=0x{:04X} (base=0x{:08X})", upper_addr, extended_linear_address);
+                }
+                Ok(ihex::Record::Data { offset, value }) => {
+                    // Combine upper 16 bits with lower 16 bits to get full 32-bit address
+                    let full_address = extended_linear_address | (offset as u32);
+                    debug!("IHEX Data record: offset=0x{:04X}, full_addr=0x{:08X}, length={}", offset, full_address, value.len());
+                    hex_data.insert(full_address, value);
+                }
+                Ok(ihex::Record::EndOfFile) => {
+                    debug!("IHEX End of file");
+                    break;
+                }
+                Ok(_) => {
+                    // Ignore other record types (ExtendedSegmentAddress, StartSegmentAddress, etc.)
+                    debug!("IHEX: Ignoring other record type");
+                }
+            }
+        }
+
+        // Extract all data we need from registry before any mutable borrows
+        let cal_seg_data: Vec<_> = (&self.registry.as_ref().unwrap().cal_seg_list)
+            .into_iter()
+            .map(|cal_seg| (cal_seg.get_index(), cal_seg.get_name(), cal_seg.size, cal_seg.addr_ext, cal_seg.addr))
+            .collect();
+
+        // Now iterate over the extracted data and download to XCP server
+        for (seg_index, seg_name, seg_length, addr_ext, addr) in cal_seg_data {
+            info!(" Load segment {} (index={} addr={}:0x{:08X} length={})", seg_name, seg_index, addr_ext, addr, seg_length);
+
+            // Find the data for this segment address
+            if let Some(data) = hex_data.get(&addr) {
+                if data.len() != seg_length as usize {
+                    warn!("  Segment {} size mismatch: expected {} bytes, got {} bytes", seg_name, seg_length, data.len());
+                }
+
+                // Download the data to the XCP server
+                self.set_mta(addr_ext, addr).await?;
+                self.download_memory_block(&data).await?;
+                debug!("  Downloaded {} bytes to segment {}", data.len(), seg_name);
+            } else {
+                warn!("  No data found in IHEX file for segment {} at address 0x{:08X}", seg_name, addr);
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn save_calibration_segments_to_file<P: AsRef<std::path::Path>>(&mut self, bin_path: &P) -> Result<(), Box<dyn Error>> {
+        info!("Save calibration segments to file {}", bin_path.as_ref().display());
+
+        // Extract all segment information we need from registry before any mutable borrows
+        let cal_seg_data: Vec<_> = (&self.registry.as_ref().unwrap().cal_seg_list)
+            .into_iter()
+            .map(|cal_seg| (cal_seg.get_index(), cal_seg.get_name(), cal_seg.size, cal_seg.addr_ext, cal_seg.addr))
+            .collect();
+
+        let num_segments = cal_seg_data.len();
+
+        // Vector to store all IHEX records
+        let mut ihex_records: Vec<ihex::Record> = Vec::new();
+
+        // Track the current extended linear address to avoid redundant records
+        let mut current_extended_addr: Option<u16> = None;
+
+        // Upload each segment from the XCP server and create IHEX records
+        // Each segment is < 64KB, but segments are at different 32-bit addresses
+        for (seg_index, seg_name, seg_length, addr_ext, addr) in cal_seg_data {
+            info!(" Upload segment {} (index={} addr={}:0x{:08X} length={})", seg_name, seg_index, addr_ext, addr, seg_length);
+
+            // Upload the data from the XCP server
+            self.set_mta(addr_ext, addr).await?;
+            let data: Vec<u8> = self.upload_memory_block(seg_length).await?;
+            debug!("  Uploaded {} bytes from segment {}", data.len(), seg_name);
+
+            // Split the 32-bit address into upper 16 bits and lower 16 bits
+            let upper_addr = (addr >> 16) as u16; // Upper 16 bits for ExtendedLinearAddress
+            let lower_addr = (addr & 0xFFFF) as u16; // Lower 16 bits for Data offset
+
+            // Add ExtendedLinearAddress record if the upper address changed
+            if current_extended_addr != Some(upper_addr) {
+                ihex_records.push(ihex::Record::ExtendedLinearAddress(upper_addr));
+                current_extended_addr = Some(upper_addr);
+                debug!("  Added ExtendedLinearAddress record: 0x{:04X} (base=0x{:08X})", upper_addr, (upper_addr as u32) << 16);
+            }
+
+            // Create an IHEX data record for this segment (segments are always < 64KB)
+            ihex_records.push(ihex::Record::Data { offset: lower_addr, value: data });
+            debug!("  Added Data record: offset=0x{:04X}, length={}", lower_addr, seg_length);
+        }
+
+        // Add End-Of-File record
+        ihex_records.push(ihex::Record::EndOfFile);
+
+        // Create the Intel-Hex file content
+        let ihex_object = ihex::create_object_file_representation(&ihex_records)?;
+        debug!("Generated IHEX file content ({} bytes)", ihex_object.len());
+
+        // Write the Intel-Hex file
+        let mut file = std::fs::File::create(bin_path)?;
+        file.write_all(ihex_object.as_bytes())?;
+
+        info!("Successfully saved {} segment(s) to {}", num_segments, bin_path.as_ref().display());
+
+        Ok(())
     }
 }

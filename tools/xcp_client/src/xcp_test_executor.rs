@@ -16,6 +16,7 @@ use tokio::time::{Duration, Instant};
 use xcp_lite::registry::*;
 use xcp_lite::*;
 
+use xcp_client::xcp_client::xcp::*;
 use xcp_client::xcp_client::*;
 
 //-----------------------------------------------------------------------------
@@ -428,14 +429,14 @@ pub async fn test_setup(
     //-------------------------------------------------------------------------------------------------------------------------------------
     // Check command timeout using a command CC_NOP (non standard) without response
     debug!("Check command timeout handling");
-    let res = xcp_client.command(CC_NOP).await; // Check unknown command
+    let res = xcp_client.command(xcp::CC_NOP).await; // Check unknown command
     match res {
         Ok(_) => panic!("Should timeout"),
         Err(e) => {
-            e.downcast_ref::<XcpClientError>()
+            e.downcast_ref::<XcpError>()
                 .map(|e| {
                     debug!("XCP error code ERROR_CMD_TIMEOUT as expected: {}", e);
-                    assert_eq!(e.get_error_code(), ERROR_CMD_TIMEOUT);
+                    assert_eq!(e.get_error_code(), xcp::ERROR_CMD_TIMEOUT);
                 })
                 .or_else(|| {
                     panic!("CC_NOP should return XCP error code ERROR_CMD_TIMEOUT");
@@ -446,13 +447,13 @@ pub async fn test_setup(
     //-------------------------------------------------------------------------------------------------------------------------------------
     // Check error responses with CC_SYNC
     debug!("Check error response handling");
-    let res = xcp_client.command(CC_SYNC).await; // Check unknown command
+    let res = xcp_client.command(xcp::CC_SYNC).await; // Check unknown command
     match res {
         Ok(_) => panic!("Should return error"),
         Err(e) => {
-            e.downcast_ref::<XcpClientError>()
+            e.downcast_ref::<XcpError>()
                 .map(|e| {
-                    assert_eq!(e.get_error_code(), CRC_CMD_SYNCH);
+                    assert_eq!(e.get_error_code(), xcp::CRC_CMD_SYNCH);
                     debug!("XCP error code CRC_CMD_SYNCH from SYNC as expected: {}", e);
                 })
                 .or_else(|| {

@@ -49,7 +49,7 @@ macro_rules! xcp_println {
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum XcpError {
+pub enum XcpClientError {
     #[error("io error")]
     Io(#[from] std::io::Error),
 
@@ -429,7 +429,7 @@ impl Xcp {
     // XCP on Ethernet Server
 
     /// Start the XCP server
-    pub fn start_server<A>(&self, tl: XcpTransportLayer, addr: A, port: u16, queue_size: u32) -> Result<&'static Xcp, XcpError>
+    pub fn start_server<A>(&self, tl: XcpTransportLayer, addr: A, port: u16, queue_size: u32) -> Result<&'static Xcp, XcpClientError>
     where
         A: Into<std::net::Ipv4Addr>,
     {
@@ -441,7 +441,7 @@ impl Xcp {
             unsafe {
                 // @@@@ UNSAFE - C library call
                 if !xcplib::XcpEthServerInit(&ipv4_addr.octets() as *const u8, port, tl == XcpTransportLayer::Tcp, queue_size) {
-                    return Err(XcpError::XcpLib("Error: XcpEthServerInit() failed"));
+                    return Err(XcpClientError::XcpLib("Error: XcpEthServerInit() failed"));
                 }
             }
 
@@ -548,7 +548,7 @@ impl Xcp {
     /// Finalize the registry and provide it to the client tool
     /// A2l is normally automatically finalized on connect of the XCP client tool  
     /// After this happens, creating of registry content, like events and data objects is not possible anymore
-    pub fn finalize_registry(&self) -> Result<bool, XcpError> {
+    pub fn finalize_registry(&self) -> Result<bool, XcpClientError> {
         // Once
         // Ignore further calls
         if self.registry_finalized.load(Ordering::Relaxed) {

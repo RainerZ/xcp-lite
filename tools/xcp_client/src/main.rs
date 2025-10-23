@@ -27,6 +27,8 @@ use xcp_test_executor::test_executor;
 pub mod elf_reader;
 use elf_reader::ElfReader;
 
+pub mod hex_reader;
+
 //-----------------------------------------------------------------------------
 // Command line arguments
 
@@ -65,27 +67,27 @@ struct Args {
 
     // -v --verbose
     /// Verbose output
-    /// Enables additional output when reading ELF files and creating A2L files
+    /// Enables additional output when reading ELF files and creating A2L files.
     #[arg(short, long, default_value_t = 0)]
     verbose: usize,
 
     // -d --dest_addr
-    /// XCP server address (IP address or IP:port). If port is omitted, uses --port parameter
+    /// XCP server address (IP address or IP:port). If port is omitted, uses --port parameter.
     #[arg(short, long, default_value = "127.0.0.1")]
     dest_addr: String,
 
-    // -p --port
-    /// XCP server port number (used when --dest-addr doesn't include port)
-    #[arg(short, long, default_value_t = 5555)]
+    // --port
+    /// XCP server port number (used when --dest-addr doesn't include port).
+    #[arg(long, default_value_t = 5555)]
     port: u16,
 
-    // -b --bind-addr
-    /// Bind address (IP address or IP:port). If port is omitted, system assigns an available port
-    #[arg(short, long, default_value = "0.0.0.0")]
+    // --bind-addr
+    /// Bind address (IP address or IP:port). If port is omitted, system assigns an available port.
+    #[arg(long, default_value = "0.0.0.0")]
     bind_addr: String,
 
     // --tcp
-    /// Use TCP for XCP communication
+    /// Use TCP for XCP communication..
     #[arg(long, default_value_t = false)]
     tcp: bool,
     // --udp
@@ -94,62 +96,78 @@ struct Args {
     udp: bool,
 
     // --offline
-    /// Force offline mode (no network communication), communication parameters are used to create A2L file
+    /// Force offline mode (no network communication), communication parameters are used to create A2L file.
     #[arg(long, default_value_t = false)]
     offline: bool,
 
-    // -a, --a2l
-    /// Specify and overide the name of the A2L file name
-    /// If not specified, The A2L file name is read from the XCP server
-    #[arg(short, long, default_value = "")]
+    // --a2l
+    /// Specify and overide the name of the A2L file name.
+    /// If not specified, The A2L file name is read from the XCP server.
+    #[arg(long, default_value = "")]
     a2l: String,
 
-    // -u, --upload-a2l
-    /// Upload A2L file from XCP server
-    /// Requires that the XCP server supports GET_ID A2L upload
-    #[arg(short, long, default_value_t = false)]
+    // --upload-a2l
+    /// Upload A2L file from XCP server.
+    /// Requires that the XCP server supports GET_ID A2L upload.
+    #[arg(long, default_value_t = false)]
     upload_a2l: bool,
 
     // --create-a2l
-    /// Build an A2L file template from XCP server information about events and memory segments
-    /// Requires that the XCP server supports the GET_EVENT_INFO and GET_SEGMENT_INFO commands
-    /// Insert all visible measurement and calibration variables from ELF file if specified with --elf
+    /// Build an A2L file template from XCP server information about events and memory segments.
+    /// Requires that the XCP server supports the GET_EVENT_INFO and GET_SEGMENT_INFO commands.
+    /// Insert all visible measurement and calibration variables from ELF file if specified with --elf.
     #[arg(long, default_value_t = false)]
     create_a2l: bool,
 
     // --fix-a2l
-    /// Update the given A2L file with XCP server information about events and memory segments
-    /// Requires that the XCP server supports the GET_EVENT_INFO and GET_SEGMENT_INFO commands
+    /// Update the given A2L file with XCP server information about events and memory segments.
+    /// Requires that the XCP server supports the GET_EVENT_INFO and GET_SEGMENT_INFO commands.
     #[arg(long, default_value_t = false)]
     fix_a2l: bool,
 
-    // -e, --elf
-    /// Specifiy the name of an ELF file, create an A2L file from ELF debug information
-    /// If connected to a XCP server, events and memory segments will be extracted from the XCP server
-    #[arg(short, long, default_value = "")]
+    // ---elf
+    /// Specifiy the name of an ELF file, create an A2L file from ELF debug information.
+    /// If connected to a XCP server, events and memory segments will be extracted from the XCP server.
+    #[arg(long, default_value = "")]
     elf: String,
 
     // --elf-unit-limit
-    /// Parse only compilations units <= n
+    /// Parse only compilations units <= n.
     #[arg(long, default_value_t = 0)]
     elf_unit_limit: u32,
 
+    // --bin
+    /// Specify the pathname of a binary file (Intel-HEX or XCPlite-BIN) for calibration parameter segment data
+    #[arg(long, default_value = "")]
+    bin: String,
+
+    // --upload-bin
+    /// Upload all calibration segments working page data and store into a given binary file.
+    /// Requires that the XCP server supports GET_ID A2L upload.
+    #[arg(long, default_value_t = false)]
+    upload_bin: bool,
+
+    // --download-bin
+    /// Download all calibration segments working page data in a given binary file.
+    #[arg(long, default_value_t = false)]
+    download_bin: bool,
+
     // --list-mea
-    /// Lists all specified measurement variables (regex) found in the A2L file
+    /// Lists all specified measurement variables (regex) found in the A2L file.
     #[arg(long, default_value = "")]
     list_mea: String,
 
     // -m --mea
-    /// Specify variable names for DAQ measurement (list), may be list of names separated by space or single regular expressions (e.g. ".*")
+    /// Specify variable names for DAQ measurement (list), may be list of names separated by space or single regular expressions (e.g. ".*").
     #[arg(short, long, value_delimiter = ' ', num_args = 1..)]
     mea: Vec<String>,
 
     // --time-ms
-    /// Limit measurement duration to n ms
+    /// Limit measurement duration to n ms.
     #[arg(long, default_value_t = 0)]
     time_ms: u64,
     // -t --time
-    /// Limit measurement duration to n s
+    /// Limit measurement duration to n s.
     #[arg(short, long, default_value_t = 0)]
     time: u64,
 
@@ -159,12 +177,12 @@ struct Args {
     list_cal: String,
 
     // --cal
-    /// Set calibration variable to a value (format: "variable_name value")
+    /// Set calibration variable to a value (format: "variable_name value").
     #[arg(long, value_names = ["NAME", "VALUE"], num_args = 2)]
     cal: Vec<String>,
 
     /// --test
-    /// Execute a test sequence on the XCP server
+    /// Execute a test sequence on the XCP server.
     #[arg(long, default_value_t = false)]
     test: bool,
 }
@@ -403,12 +421,16 @@ async fn xcp_client(
     dest_addr: std::net::SocketAddr,
     local_addr: std::net::SocketAddr,
     offline: bool,
-    a2l_name: String,
+    a2l_filename: String,
     upload_a2l: bool,
     create_a2l: bool,
+
     fix_a2l: bool,
-    elf_name: String,
+    elf_filename: String,
     elf_idx_unit_limit: usize,
+    bin_filename: String,
+    upload_bin: bool,
+    download_bin: bool,
     list_cal: String,
     list_mea: String,
     measurement_list: Vec<String>,
@@ -458,7 +480,7 @@ async fn xcp_client(
         info!("XCP MAX_EVENTS = {}", xcp_client.max_events);
 
         // Get target ECU name
-        let res = xcp_client.get_id(XCP_IDT_ASCII).await;
+        let res = xcp_client.get_id(xcp::XCP_IDT_ASCII).await;
         ecu_name = match res {
             Ok((_, Some(id))) => id,
             Err(e) => {
@@ -471,7 +493,7 @@ async fn xcp_client(
         info!("GET_ID XCP_IDT_ASCII = {}", ecu_name);
 
         // Get EPK
-        let res = xcp_client.get_id(XCP_IDT_ASAM_EPK).await;
+        let res = xcp_client.get_id(xcp::XCP_IDT_ASAM_EPK).await;
         let _ecu_epk = match res {
             Ok((_, Some(id))) => {
                 info!("GET_ID IDT_EPK = {}", id);
@@ -494,11 +516,13 @@ async fn xcp_client(
     if !ecu_name.is_empty() {
         reg.application.set_info(ecu_name.clone(), "-", 0);
     }
-    reg.set_auto_epk_segment_mode(false); // Disable implicit 'epk' segment handling
+    reg.set_flatten_typedefs_mode(false);
+    reg.set_prefix_names_mode(false);
+    reg.set_auto_epk_segment_mode(false);
 
     // Set A2L default file path to given command line argument 'a2l' or to target name 'ecu_name' if available
-    let mut a2l_path = std::path::Path::new(if !a2l_name.is_empty() {
-        &a2l_name
+    let mut a2l_path = std::path::Path::new(if !a2l_filename.is_empty() {
+        &a2l_filename
     } else if !ecu_name.is_empty() {
         &ecu_name
     } else {
@@ -511,10 +535,10 @@ async fn xcp_client(
     if upload_a2l {
         info!("Upload A2L file from XCP server");
 
-        // Get A2L name from XCP server and use it instead of a2l_path from command line argument
+        // Get A2L name from XCP server if no name has been specified as command line argument
         // If upload A2L is supported, ecu should provide the ASAM name with GET_ID XCP_IDT_ASAM_NAME command
-        if a2l_name.is_empty() {
-            let res = xcp_client.get_id(XCP_IDT_ASAM_NAME).await;
+        if a2l_filename.is_empty() {
+            let res = xcp_client.get_id(xcp::XCP_IDT_ASAM_NAME).await;
             match res {
                 Ok((_, Some(id))) => {
                     info!("GET_ID XCP_IDT_ASAM_NAME = {}", id);
@@ -540,6 +564,7 @@ async fn xcp_client(
 
         // Read the A2L file into a registry
         // @@@@ TODO xcp_client does not support arrays, instances and typedefs yet, flatten the registry and mangle the names
+        // Autodetects the presence of an EPK segment and sets the auto_epk_segment_mode accordingly
         reg.load_a2l(&a2l_path, true, true, true, true)?;
     }
     //----------------------------------------------------------------
@@ -548,9 +573,9 @@ async fn xcp_client(
     // Read segment and event information obtained from the XCP server into registry
     // Add measurement and calibration variables from ELF file if specified
     // Addressing scheme is XCP_LITE_ACSDD hardcoded
-    else if create_a2l || !elf_name.is_empty() {
+    else if create_a2l || !elf_filename.is_empty() {
         let mode = if xcp_client.is_connected() {
-            if !elf_name.is_empty() {
+            if !elf_filename.is_empty() {
                 "target XCP event/segment and ELF/DWARF variable and type information, online mode"
             } else {
                 "target XCP event/segment information only, online mode"
@@ -579,9 +604,9 @@ async fn xcp_client(
         // If events and calibration segments are defined in the ELF file, they must match the XCP server information
         // If not they are created, but with dummy event id and segment number !!!!!!!!
         // There are warnings in this case
-        if !elf_name.is_empty() {
-            info!("Reading ELF file: {}", elf_name);
-            let elf_reader = ElfReader::new(&elf_name, verbose, elf_idx_unit_limit).ok_or(format!("Failed to read ELF file '{}'", elf_name))?;
+        if !elf_filename.is_empty() {
+            info!("Reading ELF file: {}", elf_filename);
+            let elf_reader = ElfReader::new(&elf_filename, verbose, elf_idx_unit_limit).ok_or(format!("Failed to read ELF file '{}'", elf_filename))?;
             elf_reader.debug_data.print_debug_info(verbose, elf_idx_unit_limit); // print only variables <= compilation unit 0
             elf_reader.register_segments_and_events(&mut reg, verbose > 0)?;
             elf_reader.register_event_locations(&mut reg, verbose > 0)?;
@@ -604,8 +629,9 @@ async fn xcp_client(
     //----------------------------------------------------------------
     // If not upload or create option load  A2L from specified file into registry
     // If fix-a2l option is specified, check and correct the A2L file with the XCP server information otherwise just warn about differences
+    // Consider command line option --epk-segment
     else {
-        info!("Load A2L file: {} ({})", a2l_name, a2l_path.display());
+        info!("Load A2L file: {} ({})", a2l_filename, a2l_path.display());
         // @@@@ TODO xcp_client does not support arrays, instances and typedefs yet, flatten the registry and mangle the names
         let res = reg.load_a2l(&a2l_path, true, true, true, true)?;
         info!(
@@ -621,7 +647,6 @@ async fn xcp_client(
 
         // Load the event and calibration segment information from target into a temporary registry and check if the given A2L file needs to be corrected
         let mut tmp_reg = xcp_lite::registry::Registry::new();
-        reg.set_auto_epk_segment_mode(false); // Disable implicit 'epk' segment handling
         xcp_client.get_event_segment_info(&mut tmp_reg).await?;
 
         // Check events
@@ -757,6 +782,27 @@ async fn xcp_client(
             println!();
         } else {
             println!(" None");
+        }
+    }
+
+    // Upload or Download calibration segment data
+    // (Note: In XCP, Upload means from target to file, Download means from file to target)
+    if upload_bin || download_bin {
+        let path = if bin_filename.is_empty() {
+            // Build HEX file path from ECU name
+            std::path::Path::new(&ecu_name).with_extension("hex")
+        } else {
+            std::path::Path::new(&bin_filename).with_extension("hex")
+        };
+        if !xcp_client.is_connected() {
+            return Err("XCP client not connected, cannot upload or download calibration segment data".into());
+        }
+        if upload_bin {
+            // Save to binary file
+            xcp_client.save_calibration_segments_to_file(&path).await?;
+        } else if download_bin {
+            // Load from binary file
+            xcp_client.load_calibration_segments_from_file(&path).await?;
         }
     }
 
@@ -930,6 +976,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             args.fix_a2l,
             args.elf,
             args.elf_unit_limit as usize,
+            args.bin,
+            args.upload_bin,
+            args.download_bin,
             args.list_cal,
             args.list_mea,
             args.mea,

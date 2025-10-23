@@ -644,7 +644,7 @@ pub async fn test_setup(task_count: usize, load_a2l: bool, upload_a2l: bool) -> 
     match res {
         Ok(_) => panic!("Should timeout"),
         Err(e) => {
-            e.downcast_ref::<XcpClientError>()
+            e.downcast_ref::<XcpError>()
                 .map(|e| {
                     debug!("XCP error code ERROR_CMD_TIMEOUT as expected: {}", e);
                     assert_eq!(e.get_error_code(), ERROR_CMD_TIMEOUT);
@@ -662,7 +662,7 @@ pub async fn test_setup(task_count: usize, load_a2l: bool, upload_a2l: bool) -> 
     match res {
         Ok(_) => panic!("Should return error"),
         Err(e) => {
-            e.downcast_ref::<XcpClientError>()
+            e.downcast_ref::<XcpError>()
                 .map(|e| {
                     assert_eq!(e.get_error_code(), CRC_CMD_SYNCH);
                     debug!("XCP error code CRC_CMD_SYNCH from SYNC as expected: {}", e);

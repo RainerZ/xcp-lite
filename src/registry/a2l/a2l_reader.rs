@@ -392,17 +392,10 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
             let size = m.size;
 
             // Check first segment is 'epk'
-            // @@@@ TODO: Improve checking and maybe automatically set the mode
-            if name == "epk" {
-                if index == 0 {
-                    // This seems to be a A2L file written by XCPlite or xcp-lite with EPK segment enabled
-                    assert!(registry.get_auto_epk_segment_mode());
-                    // Predefined memory segment for EPK, just skip it, don't increment index
-                    number += 1;
-                    continue;
-                } else {
-                    assert!(!registry.get_auto_epk_segment_mode());
-                }
+            if registry.get_auto_epk_segment_mode() && name == "epk" && index == 0 {
+                // Predefined memory segment for EPK, just skip it, don't increment index
+                number += 1;
+                continue;
             }
 
             // Get index from addr, in relative addressing mode the high word of the segment address is the segment number

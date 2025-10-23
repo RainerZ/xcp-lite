@@ -8,5 +8,6 @@
 // The library crate is named "xcp_client"
 #![crate_name = "xcp_client"]
 
-mod elf_reader;
+pub mod elf_reader;
+pub mod hex_reader;
 pub mod xcp_client;
