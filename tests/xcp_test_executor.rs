@@ -640,14 +640,14 @@ pub async fn test_setup(task_count: usize, load_a2l: bool, upload_a2l: bool) -> 
     //-------------------------------------------------------------------------------------------------------------------------------------
     // Check command timeout using a command CC_NOP (non standard) without response
     debug!("Check command timeout handling");
-    let res = xcp_client.command(CC_NOP).await; // Check unknown command
+    let res = xcp_client.command(xcp::CC_NOP).await; // Check unknown command
     match res {
         Ok(_) => panic!("Should timeout"),
         Err(e) => {
-            e.downcast_ref::<XcpError>()
+            e.downcast_ref::<xcp::XcpError>()
                 .map(|e| {
                     debug!("XCP error code ERROR_CMD_TIMEOUT as expected: {}", e);
-                    assert_eq!(e.get_error_code(), ERROR_CMD_TIMEOUT);
+                    assert_eq!(e.get_error_code(), xcp::ERROR_CMD_TIMEOUT);
                 })
                 .or_else(|| {
                     panic!("CC_NOP should return XCP error code ERROR_CMD_TIMEOUT");
@@ -658,13 +658,13 @@ pub async fn test_setup(task_count: usize, load_a2l: bool, upload_a2l: bool) -> 
     //-------------------------------------------------------------------------------------------------------------------------------------
     // Check error responses with CC_SYNC
     debug!("Check error response handling");
-    let res = xcp_client.command(CC_SYNC).await; // Check unknown command
+    let res = xcp_client.command(xcp::CC_SYNC).await; // Check unknown command
     match res {
         Ok(_) => panic!("Should return error"),
         Err(e) => {
-            e.downcast_ref::<XcpError>()
+            e.downcast_ref::<xcp::XcpError>()
                 .map(|e| {
-                    assert_eq!(e.get_error_code(), CRC_CMD_SYNCH);
+                    assert_eq!(e.get_error_code(), xcp::CRC_CMD_SYNCH);
                     debug!("XCP error code CRC_CMD_SYNCH from SYNC as expected: {}", e);
                 })
                 .or_else(|| {
@@ -685,7 +685,7 @@ pub async fn test_setup(task_count: usize, load_a2l: bool, upload_a2l: bool) -> 
         else {
             // Send XCP GET_ID GET_ID XCP_IDT_ASAM_NAME to obtain the A2L filename
             info!("XCP GET_ID XCP_IDT_ASAM_NAME");
-            let res = xcp_client.get_id(XCP_IDT_ASAM_NAME).await;
+            let res = xcp_client.get_id(xcp::XCP_IDT_ASAM_NAME).await;
             let a2l_name = match res {
                 Ok((_, Some(id))) => id,
                 Err(e) => {

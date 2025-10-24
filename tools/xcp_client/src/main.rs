@@ -45,13 +45,14 @@ This tool can:
 - Create complete A2L files from ELF debug information the XCP server event and memory segment information
 - Create A2L templates from the XCP server event and memory segment information
 - Read and write calibration variables (CAL)
+- Upload and download binary files (Intel-HEX) for calibration segments
 - Configure and acquire measurement data (DAQ)
 - List available variables and parameters with regex patterns
 - Execute test sequences
 
 Examples:
   xcp_client --tcp --dest-addr 192.168.1.100 --port 5555 --upload-a2l
-  xcp_client --dest-addr 192.168.1.100:8080 --upload-a2l
+  xcp_client --dest-addr 192.168.1.100 --upload-a2l
   xcp_client --bind-addr 192.168.1.50 --dest-addr 192.168.1.100 --upload-a2l
   xcp_client --mea \".*temperature.*\" --time 10
   xcp_client --elf myprogram.elf --create-a2l

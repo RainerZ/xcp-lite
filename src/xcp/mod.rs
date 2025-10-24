@@ -6,9 +6,12 @@
 use bitflags::bitflags;
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, AtomicU8, Ordering},
+use std::{
+    ptr::null,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU8, Ordering},
+    },
 };
 
 use crate::registry::{self, McEvent};
@@ -335,9 +338,9 @@ impl Xcp {
     // Lazy static initialization of the Xcp singleton
     fn new() -> Xcp {
         unsafe {
-            // Initialize the XCP protocol layer
+            // EPK and name not known at this time
             // @@@@ UNSAFE - C library calls
-            xcplib::XcpInit(true);
+            xcplib::XcpInit(null(), null(), true);
 
             // Register the callbacks from xcplib
             // @@@@ UNSAFE - C library calls
@@ -366,11 +369,8 @@ impl Xcp {
             registry_finalized: AtomicBool::new(false),
             event_list: Arc::new(Mutex::new(EventList::new())),
             epk: Mutex::new(""),
-
             ecu_cal_page: AtomicU8::new(XcpCalPage::Ram as u8), // ECU page defaults on RAM
-
             xcp_cal_page: AtomicU8::new(XcpCalPage::Ram as u8), // XCP page defaults on RAM
-
             calseg_list: Arc::new(Mutex::new(CalSegList::new())),
         }
     }
@@ -601,10 +601,9 @@ impl Xcp {
             if write_xcp_ifdata {
                 unsafe {
                     let reg = registry::get();
-
                     let name = std::ffi::CString::new(reg.application.get_name()).unwrap();
                     // @@@@ UNSAFE - C library call
-                    xcplib::ApplXcpSetA2lName(name.as_ptr());
+                    xcplib::XcpSetA2lName(name.as_ptr());
 
                     let epk = std::ffi::CString::new(reg.application.get_version()).unwrap();
                     // @@@@ UNSAFE - C library call
@@ -798,7 +797,7 @@ extern "C" fn cb_freeze_cal() -> u8 {
 
 #[unsafe(no_mangle)]
 unsafe extern "C" fn cb_read(addr: u32, len: u8, dst: *mut u8) -> u8 {
-    log::trace!("cb_read: addr=0x{:08X}, len={}, dst={:?}", addr, len, dst);
+    log::debug!("cb_read: addr=0x{:08X}, len={}, dst={:?}", addr, len, dst);
     assert!((addr & 0x80000000) != 0, "cb_read: invalid address");
     assert!(len > 0, "cb_read: zero length");
 
@@ -842,7 +841,7 @@ unsafe extern "C" fn cb_read(addr: u32, len: u8, dst: *mut u8) -> u8 {
 
 #[unsafe(no_mangle)]
 unsafe extern "C" fn cb_write(addr: u32, len: u8, src: *const u8, delay: u8) -> u8 {
-    log::trace!("cb_write: dst=0x{:08X}, len={}, src={:?}, delay={}", addr, len, src, delay);
+    log::debug!("cb_write: dst=0x{:08X}, len={}, src={:?}, delay={}", addr, len, src, delay);
     // @@@@ callbacks should not panic
     assert!(len > 0, "cb_write: zero length");
 

@@ -31,10 +31,10 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[doc = " Initialize the XCP singleton, activate XCP, must be called before starting the server\n If XCP is not activated, the server will not start and all XCP instrumentation will be passive with minimal overhead\n @param activate If true, the XCP library is activated"]
-    pub fn XcpInit(activate: bool);
+    pub fn XcpInit(name: *const ::std::os::raw::c_char, epk: *const ::std::os::raw::c_char, activate: bool);
 }
 unsafe extern "C" {
-    pub fn ApplXcpSetA2lName(name: *const ::std::os::raw::c_char);
+    pub fn XcpSetA2lName(name: *const ::std::os::raw::c_char);
 }
 unsafe extern "C" {
     pub fn XcpSetEpk(epk: *const ::std::os::raw::c_char);
