@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64};
 use tokio::time::{Duration, Instant};
 
 use xcp_client::xcp_client::*;
+use xcp_client::{EPK_SEG_ADDR, EPK_SEG_NAME};
 use xcp_lite::registry::*;
 use xcp_lite::*;
 
@@ -708,8 +709,8 @@ pub async fn test_setup(task_count: usize, load_a2l: bool, upload_a2l: bool) -> 
         }
 
         // Check EPK
-        // EPK addr is always 0x80000000 and len is hardcoded to 8
-        let res = xcp_client.short_upload(0x80000000, 0, 8).await;
+        // EPK addr is always in segment 0 which is EPK_SEG_ADDR and len is hardcoded to 8
+        let res = xcp_client.short_upload(EPK_SEG_ADDR, 0, 8).await;
         let resp: Vec<u8> = match res {
             Err(e) => {
                 panic!("Could not upload EPK, Error: {}", e);
@@ -720,7 +721,7 @@ pub async fn test_setup(task_count: usize, load_a2l: bool, upload_a2l: bool) -> 
         let epk_string = String::from_utf8(epk.clone()).unwrap();
         info!("Upload EPK = {} {:?}", epk_string, epk);
         debug!("A2l EPK = {}", xcp_client.a2l_epk().unwrap());
-        //assert_eq!(epk_string.as_str(), xcp_client.a2l_epk().unwrap(), "EPK mismatch");
+        //assert_eq!(epk_string.as_str(), xcp_client.a2l_epk().unwrap(), "EPK mismatch"); // @@@@ TODO
     }
 
     // Check the DAQ clock

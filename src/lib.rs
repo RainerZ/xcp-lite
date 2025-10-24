@@ -59,3 +59,14 @@ pub mod metrics;
 pub use xcp_idl_generator::prelude::*;
 #[doc(hidden)]
 pub use xcp_type_description::prelude::*;
+
+// EPK calibration segment
+pub(crate) const EPK_SEG_NAME: &str = "epk";
+pub(crate) const EPK_SEG_SIZE: usize = 31;
+pub(crate) const EPK_SEG_ADDR: u32 = 0x80000000;
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy)]
+struct EpkSeg {
+    epk: [u8; EPK_SEG_SIZE],
+}
+const EPK: EpkSeg = EpkSeg { epk: [0; EPK_SEG_SIZE] };

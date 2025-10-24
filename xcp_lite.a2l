@@ -82,8 +82,16 @@ ASAP2_VERSION 1 71
     /begin TYPEDEF_CHARACTERISTIC C_F32 "" VALUE F32 0 NO_COMPU_METHOD -1e12 1e12 /end TYPEDEF_CHARACTERISTIC
     
 /begin MOD_PAR "" 
-EPK "2025-10-23 19:12:30Z" ADDR_EPK 0x80000000
-/begin MEMORY_SEGMENT epk "" DATA FLASH INTERN 0x80000000 20 -1 -1 -1 -1 -1 /end MEMORY_SEGMENT
+EPK "2025-10-25 06:18:08Z" ADDR_EPK 0x80000000
+/begin MEMORY_SEGMENT epk "" DATA FLASH INTERN 0x80000000 31 -1 -1 -1 -1 -1
+/begin IF_DATA XCP
+    /begin SEGMENT 0 2 0 0 0
+    /begin CHECKSUM XCP_ADD_44 MAX_BLOCK_SIZE 0xFFFF EXTERNAL_FUNCTION "" /end CHECKSUM
+    /begin PAGE 0x0 ECU_ACCESS_DONT_CARE XCP_READ_ACCESS_DONT_CARE XCP_WRITE_ACCESS_DONT_CARE /end PAGE
+    /begin PAGE 0x1 ECU_ACCESS_DONT_CARE XCP_READ_ACCESS_DONT_CARE XCP_WRITE_ACCESS_NOT_ALLOWED /end PAGE
+    /end SEGMENT
+/end IF_DATA
+/end MEMORY_SEGMENT
 /begin MEMORY_SEGMENT calseg "" DATA FLASH INTERN 0x80010000 8 -1 -1 -1 -1 -1
 /begin IF_DATA XCP
     /begin SEGMENT 1 2 0 0 0
@@ -340,7 +348,7 @@ EPK "2025-10-23 19:12:30Z" ADDR_EPK 0x80000000
 
 /* Characteristic and Axis Groups */
 
-/begin GROUP Characteristics "" ROOT /begin SUB_GROUP calseg calseg1 calseg2 /end SUB_GROUP /end GROUP
+/begin GROUP Characteristics "" ROOT /begin SUB_GROUP epk calseg calseg1 calseg2 /end SUB_GROUP /end GROUP
 /begin GROUP calseg "" /begin REF_CHARACTERISTIC  calseg.cycle_time_ms  calseg.run  calseg.run1  calseg.run2 /end REF_CHARACTERISTIC /end GROUP
 /begin GROUP calseg1 "" /begin REF_CHARACTERISTIC  calseg1 /end REF_CHARACTERISTIC /end GROUP
 /begin GROUP calseg2 "" /begin REF_CHARACTERISTIC  calseg2.ampl  calseg2.array  calseg2.curve1  calseg2.curve2  calseg2.curve_axis  calseg2.map  calseg2.map_x_axis  calseg2.period /end REF_CHARACTERISTIC /end GROUP

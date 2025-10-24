@@ -311,18 +311,10 @@ impl GenerateA2l for McApplication {
     fn write_a2l(&self, writer: &mut A2lWriter) -> std::io::Result<()> {
         // Add EPK if available
         if self.has_epk() {
-            log::debug!("A2L writer: epk={} version_addr=0x{:08X}", self.version, self.version_addr);
-            writeln!(writer, "EPK \"{}\" ADDR_EPK 0x{:08X}", self.version, self.version_addr,)?
+            log::debug!("A2L writer: epk={} version_addr=0x{:08X}", self.version.epk, self.version.epk_addr);
+            writeln!(writer, "EPK \"{}\" ADDR_EPK 0x{:08X}", self.version.epk, self.version.epk_addr)?;
         }
-        // Add EPK memory segment for the EPK, to include the EPK in HEX-files
-        if writer.registry.get_auto_epk_segment_mode() {
-            writeln!(
-                writer,
-                "/begin MEMORY_SEGMENT epk \"\" DATA FLASH INTERN 0x{:08X} {} -1 -1 -1 -1 -1 /end MEMORY_SEGMENT",
-                self.version_addr,
-                self.version.len(),
-            )?
-        }
+
         Ok(())
     }
 }
@@ -333,15 +325,19 @@ impl GenerateA2l for McApplication {
 
 impl GenerateA2l for McCalibrationSegment {
     fn write_a2l(&self, writer: &mut A2lWriter) -> std::io::Result<()> {
-        let calseg = self;
-        let num = if writer.registry.get_auto_epk_segment_mode() { calseg.index + 1 } else { calseg.index };
-
-        log::debug!("A2L writer: memory segment {}  {}:0x{:X} size={}", calseg.name, calseg.addr_ext, calseg.addr, calseg.size);
+        log::debug!(
+            "A2L writer: memory segment {}:{}  {}:0x{:X} size={}",
+            self.index,
+            self.name,
+            self.addr_ext,
+            self.addr,
+            self.size
+        );
 
         writeln!(
             writer,
             r#"/begin MEMORY_SEGMENT {} "" DATA FLASH INTERN 0x{:X} {} -1 -1 -1 -1 -1"#,
-            calseg.name, calseg.addr, calseg.size,
+            self.name, self.addr, self.size,
         )?;
 
         writeln!(
@@ -353,7 +349,7 @@ impl GenerateA2l for McCalibrationSegment {
     /begin PAGE 0x1 ECU_ACCESS_DONT_CARE XCP_READ_ACCESS_DONT_CARE XCP_WRITE_ACCESS_NOT_ALLOWED /end PAGE
     /end SEGMENT
 /end IF_DATA"#,
-            num, calseg.addr_ext,
+            self.index, self.addr_ext,
         )?;
 
         writeln!(writer, r#"/end MEMORY_SEGMENT"#,)?;
@@ -1062,6 +1058,9 @@ ASAP2_VERSION 1 71
         if !self.registry.cal_seg_list.len() > 0 {
             write!(self, "\n/begin GROUP Characteristics \"\" ROOT /begin SUB_GROUP")?;
             for s in &self.registry.cal_seg_list {
+                if s.name == crate::EPK_SEG_NAME {
+                    continue;
+                }
                 write!(self, " {}", s.name)?;
             }
             writeln!(self, " /end SUB_GROUP /end GROUP")?;

@@ -229,14 +229,26 @@ impl CalSegList {
     }
 
     pub fn sort_by_name(&mut self) {
-        self.0.sort_by(|a, b| a.get_name().cmp(b.get_name()));
+        // Alphabetical sort by name, but keep the segment named EPK_SEG_NAME at index 0
+        self.0.sort_by(|a, b| {
+            let a_is_epk = a.get_name() == crate::EPK_SEG_NAME;
+            let b_is_epk = b.get_name() == crate::EPK_SEG_NAME;
+            match (a_is_epk, b_is_epk) {
+                (true, false) => std::cmp::Ordering::Less,    // EPK comes first
+                (false, true) => std::cmp::Ordering::Greater, // EPK comes first
+                _ => a.get_name().cmp(b.get_name()),          // Otherwise alphabetical
+            }
+        });
+        // Update indices in CalSegs
         self.0.iter_mut().enumerate().for_each(|(i, s)| {
+            info!("CalSeg index update: {} -> {}", s.get_name(), i);
             s.calseg.lock().set_index(i);
         });
     }
 
     pub fn register(&mut self) {
         // Sort the calibration segments by name to get a deterministic order
+        // (keeps the epk calibration segment at index 0)
         self.sort_by_name();
 
         // Register all calibration segments in the registry
@@ -436,7 +448,7 @@ mod cal_tests {
             let data: u8 = 1;
             let offset = &CAL_PAGE_TEST1.byte1 as *const u8 as usize - &CAL_PAGE_TEST1 as *const _ as *const u8 as usize;
             assert!(offset == 0);
-            cb_write(0x80010000u32, 1, &data, 0);
+            cb_write(0x80000000u32, 1, &data, 0);
         }
         cal_page_test1.sync();
         test = cal_page_test1.byte1;
@@ -473,13 +485,13 @@ mod cal_tests {
             assert!(offset == 3);
             assert!(index == 1);
             let data: u8 = 1;
-            cb_write(0x80020000u32, 1, &data, 0);
+            cb_write(0x80010000u32, 1, &data, 0);
             let data: u8 = 2;
-            cb_write(0x80020001u32, 1, &data, 0);
+            cb_write(0x80010001u32, 1, &data, 0);
             let data: u8 = 3;
-            cb_write(0x80020002u32, 1, &data, 0);
+            cb_write(0x80010002u32, 1, &data, 0);
             let data: u8 = 4;
-            cb_write(0x80020003u32, 1, &data, 0);
+            cb_write(0x80010003u32, 1, &data, 0);
         }
         t1.join().unwrap();
         t2.join().unwrap();

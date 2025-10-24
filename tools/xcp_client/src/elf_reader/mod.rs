@@ -1,3 +1,9 @@
+//--------------------------------------------------------------------------------------------------------------------------------------------------
+// Module elf_reader
+// Read ELF files and extract debug information
+
+#![allow(clippy::collapsible_else_if)]
+
 use indexmap::IndexMap;
 use std::error::Error;
 use std::ffi::OsStr;
@@ -188,7 +194,7 @@ impl ElfReader {
         Ok(())
     }
 
-    pub fn register_segments_and_events(&self, reg: &mut Registry, verbose: bool) -> Result<(), Box<dyn Error>> {
+    pub fn register_segments_and_events(&self, reg: &mut Registry, segment_relative: bool, verbose: usize) -> Result<(), Box<dyn Error>> {
         info!("Registering segment and event information");
 
         let mut next_event_id: u16 = 0;
@@ -223,7 +229,7 @@ impl ElfReader {
                     seg_name, seg_name, unit_name, function_name
                 );
 
-                // Lookup the reference page variable information to determine addr
+                // Lookup the reference page variable (naming convention is segment name!) information
                 let seg_var_info = if let Some(x) = self.debug_data.variables.get(seg_name) {
                     if x.len() != 1 {
                         error!("Calibration segment reference page variable '{}' has {} definitions, expected 1", seg_name, x.len());
@@ -234,67 +240,118 @@ impl ElfReader {
                     error!("Could not find calibration segment reference page variable '{}'", seg_name);
                     continue;
                 };
-                let addr: u32 = seg_var_info.address.1.try_into().unwrap(); // @@@@ TODO: Handle 64 bit addresses and signed relative 
-                let addr_ext: u8 = seg_var_info.address.0;
-                info!("  Segment '{}' default page variable '()' found in debug data:", seg_name);
-                info!("    Address = {}:{:#x}", addr_ext, addr);
 
-                // Lookup the reference page variable type to determine segment length
-                let length = if let Some(var_info) = self.debug_data.variables.get(seg_name) {
-                    if let Some(type_info) = self.debug_data.types.get(&var_info[0].typeref) {
+                // Determine segment length
+                let length = {
+                    if let Some(type_info) = self.debug_data.types.get(&seg_var_info.typeref) {
                         info!(
-                            "  Segment '{}' type information found, type={}, length = {}",
+                            "  Segment '{}' type information found, type={}, size = {}",
                             seg_name,
                             type_info.name.as_ref().map_or("<unnamed>", |s| s.as_str()),
                             type_info.get_size()
                         );
-                        if verbose {
+                        if verbose >= 1 {
                             info!("{}", type_info);
                         }
                         type_info.get_size()
                     } else {
-                        warn!("Could not determine length type for segment {}", seg_name);
+                        error!("Could not determine length type for segment {}", seg_name);
                         0
                     }
-                } else {
-                    warn!("Could not find calibration segment reference page variable {}", seg_name);
-                    0
                 };
-                info!("    Length = {:#x}", length);
 
-                // Check for valid address and length
-                if length > 0 && addr > 0 && addr_ext == 0 {
-                } else {
+                // Determine segment address
+                let (addr_ext, addr) = (seg_var_info.address.0, seg_var_info.address.1.try_into().unwrap()); // @@@@ TODO: Handle 64 bit addresses and signed relative
+
+                if !(length > 0 && addr > 0 && addr_ext == 0) {
                     error!(
-                        "Calibration segment from cal_<name> '{}' not found, has invalid address {:#x} or length {:#x}, skipped",
+                        "Calibration segment from cal_<name> '{}' not found, has invalid address {:#x} or size {:#x}, skipped",
                         seg_name, addr, length
                     );
                     continue; // skip this variable
                 }
 
-                // Find the segment in the registry
+                info!("  Segment '{}' default page variable found in debug data:", seg_name);
+                info!("    Address = {}:{:#x}", addr_ext, addr);
+                info!("    Size = {:#x}", length);
+
+                // Find the segment by name in the registry
                 if let Some(reg_seg) = reg.cal_seg_list.find_cal_seg(seg_name) {
-                    // Check if address and length match
-                    info!("Calibration segment '{}' already exists in registry, checking length and address", seg_name);
-                    if reg_seg.addr == addr && reg_seg.size == length as u32 {
-                        info!("Calibration segment '{}' matches existing registry entry", seg_name);
-                    } else {
-                        warn!("Calibration segment '{}' does not match existing registry entry, registry information updated", seg_name);
-                        unimplemented!();
+                    info!("Calibration segment '{}' {}:0x{:08X} found in registry", seg_name, reg_seg.addr_ext, reg_seg.addr);
+                    // Segment relative addressing mode
+                    if reg_seg.addr == 0x80000000 + ((reg_seg.index as u32) << 16) {
+                        info!(" Segment relative addressing");
+                        // Check if length matches
+                        if reg_seg.size == length as u32 {
+                            reg_seg.set_mem_addr(addr);
+                            info!("Calibration segment '{}' length matches existing registry entry", seg_name);
+                        } else {
+                            warn!("Calibration segment '{}' length does not match existing registry entry", seg_name);
+                            unimplemented!();
+                        }
                     }
+                    // Absolute addressing mode
+                    else {
+                        // Check if address and length match
+                        if reg_seg.mem_addr == addr && reg_seg.size == length as u32 {
+                            info!("Calibration segment address and length '{}' matches existing registry entry", seg_name);
+                        } else {
+                            warn!("Calibration segment '{}' does not match existing registry entry, registry information updated", seg_name);
+                            unimplemented!();
+                        }
+                    }
+
                     continue; // segment already exists, leave it as it is
                 }
-                // If not create it
+                // If not create the segment
+                // Use segment relative or absolute addressing mode
                 else {
-                    reg.cal_seg_list
-                        .add_cal_seg_by_addr(seg_name.to_string(), next_segment_number, addr_ext, addr, length as u32)
-                        .unwrap();
-                    info!(
-                        "Not yet defined segment '{}':  Created with number={}, addr = {:#x}, length = {:#x}",
-                        seg_name, next_segment_number, addr, length
-                    );
-                    next_segment_number += 1;
-                    continue; // skip this variable
+                    info!("Calibration segment '{}' not yet defined in registry", seg_name);
+
+                    if segment_relative {
+                        // Add in segment relative addressing mode
+                        let res = reg.cal_seg_list.add_cal_seg(seg_name.to_string(), next_segment_number, length as u32);
+                        if let Err(e) = res {
+                            error!("Failed to add calibration segment '{}': {}", seg_name, e);
+                            continue;
+                        }
+
+                        // Set memory address
+                        let new_seg = reg.cal_seg_list.find_cal_seg(seg_name).unwrap();
+                        new_seg.set_mem_addr(addr);
+
+                        info!(
+                            "Created segment {}: '{}' segment relative addressing mode, addr = 0x{:08X}, size = {}, mem_addr = 0x{:08X}",
+                            next_segment_number, seg_name, new_seg.addr, new_seg.size, new_seg.mem_addr
+                        );
+                    } else {
+                        // Absolute addressing mode
+                        if addr >= 0xFFFFFFFF {
+                            error!(
+                                "Calibration segment '{}' has 64 bit address {:#x}, which does not fit the 32 bit XCP address range",
+                                seg_name, addr
+                            );
+                            continue; // skip this variable
+                        }
+                        let res = reg
+                            .cal_seg_list
+                            .add_cal_seg_by_addr(seg_name.to_string(), next_segment_number, addr_ext, addr as u32, length as u32);
+                        if let Err(e) = res {
+                            error!("Failed to add calibration segment '{}': {}", seg_name, e);
+                            continue;
+                        }
+
+                        // Set memory address
+                        let new_seg = reg.cal_seg_list.find_cal_seg(seg_name).unwrap();
+                        new_seg.set_mem_addr(addr);
+
+                        info!(
+                            "Not yet defined segment: Created segment {}: '{}' absolute addr = {:#x}, size = {:#x}",
+                            new_seg.index, new_seg.name, new_seg.addr, new_seg.size
+                        );
+                        next_segment_number += 1;
+                        continue;
+                    }
                 }
             }
 
@@ -326,7 +383,8 @@ impl ElfReader {
         Ok(())
     }
 
-    pub fn register_event_locations(&self, reg: &mut Registry, verbose: bool) -> Result<(), Box<dyn Error>> {
+    // Find event triggers in the code and register their location (compilation unit, function, CFA offset)
+    pub fn register_event_locations(&self, reg: &mut Registry, verbose: usize) -> Result<(), Box<dyn Error>> {
         info!("Registering event locations");
 
         // Iterate over variables
@@ -373,12 +431,11 @@ impl ElfReader {
                         }
                     }
 
-                    if verbose {
+                    if verbose >= 1 {
                         info!("  Event '{}' trigger in function '{}', cfa = {}", evt_name, evt_function, evt_cfa);
                     }
 
                     // Store the unit and function name and canonical stack frame address offset for this event trigger
-
                     match reg.event_list.set_event_location(evt_name, evt_unit_idx, evt_function, evt_cfa) {
                         Ok(_) => {}
                         Err(e) => {
@@ -394,7 +451,7 @@ impl ElfReader {
         Ok(())
     }
 
-    pub fn register_variables(&self, reg: &mut Registry, verbose: bool, unit_idx_limit: usize) -> Result<(), Box<dyn Error>> {
+    pub fn register_variables(&self, reg: &mut Registry, segment_relative: bool, verbose: usize, unit_idx_limit: usize) -> Result<(), Box<dyn Error>> {
         // Load debug information from the ELF file
         info!("Registering variables");
 
@@ -448,17 +505,11 @@ impl ElfReader {
                     continue;
                 }
 
-                // @@@@ Create an option for this
-                // Register only global variables
-                // if var_info.address.0 != 0 || var_info.address.1 == 0 {
-                //     continue;
-                // }
-
                 let var_function = if let Some(f) = var_info.function.as_ref() { f.as_str() } else { "" };
 
                 // Address encoder
-                let a2l_addr_ext: u8 = var_info.address.0;
-                let a2l_addr: u32 = if a2l_addr_ext == 0 {
+                let mem_addr_ext: u8 = var_info.address.0;
+                let mem_addr: u64 = if mem_addr_ext == 0 {
                     // Encode absolute addressing mode
                     if var_info.address.1 == 0 {
                         error!("Variable '{}' in function '{}' skipped, no address", var_name, var_function);
@@ -481,11 +532,11 @@ impl ElfReader {
                         if count > 1 {
                             a2l_name = format!("{}.{}", var_function, var_name);
                         }
-                        var_info.address.1 as u32
+                        var_info.address.1
                     }
                 }
                 // Encode relative addressing mode
-                else if a2l_addr_ext == 2 {
+                else if mem_addr_ext == 2 {
                     // Find an event id for this local variable
                     if let Some(event) = reg.event_list.find_event_by_location(var_info.unit_idx, var_function) {
                         // Set the event id for this function
@@ -503,7 +554,7 @@ impl ElfReader {
                         );
                         // Encode dyn addressing mode from signed offset and event id
                         let offset: i16 = (var_info.address.1 as i64 - 0x80000000 + cfa).try_into().unwrap();
-                        ((offset as u32) & 0xFFFF) | ((event.id as u32) << 16)
+                        ((offset as u64) & 0xFFFF) | ((event.id as u64) << 16)
                     } else {
                         error!("Variable '{}' skipped, could not find event for dyn addressing mode", var_name);
                         continue;
@@ -511,16 +562,29 @@ impl ElfReader {
                 }
                 // @@@@ TODO: Handle other address extensions
                 else {
-                    error!("Variable '{}' skipped, has unsupported address extension {:#x}", var_name, a2l_addr_ext);
+                    error!("Variable '{}' skipped, has unsupported address extension {:#x}", var_name, mem_addr_ext);
                     continue; // skip this variable
                 };
 
                 // Check if the absolute address is in a calibration segment
-                // Create a McAddress with or without event id
-                let (object_type, mc_addr) = if reg.cal_seg_list.find_cal_seg_by_address(a2l_addr).is_some() {
-                    (McObjectType::Characteristic, McAddress::new_a2l(a2l_addr, a2l_addr_ext))
+                // For segments with segment relative and absolute addressing mode, we always need to check with the memory address of the segment, not the a2l address
+                let seg_name = reg.cal_seg_list.find_cal_seg_by_mem_address(mem_addr);
+                let (object_type, mc_addr) = if let Some(seg_name) = seg_name {
+                    let seg = reg.cal_seg_list.find_cal_seg(&seg_name).unwrap();
+                    let offset: u16 = (mem_addr - seg.mem_addr).try_into().unwrap();
+                    // Address extension of characteristics in memory segments is always 0, hardcoded here
+                    // @@@@ NOTE: This might change in the future
+                    (McObjectType::Characteristic, McAddress::new_a2l(seg.addr + offset as u32, 0))
                 } else {
-                    (McObjectType::Measurement, McAddress::new_a2l_with_event(xcp_event_id, a2l_addr, a2l_addr_ext))
+                    // Create a McAddress with event id, mem_addr is relative or absolute
+                    // @@@@ TODO: Not implemented dependency on target addressing scheme
+                    // Address extension might be 0, 1, 2 depending on the target addressing scheme
+                    let addr_ext = if segment_relative && mem_addr_ext == 0 {
+                        1 // set to absolute addressing mode
+                    } else {
+                        mem_addr_ext
+                    };
+                    (McObjectType::Measurement, McAddress::new_a2l_with_event(xcp_event_id, mem_addr as u32, addr_ext))
                 };
 
                 // Register measurement variable if possible
@@ -545,17 +609,17 @@ impl ElfReader {
                                 "Add {} instance for {}: addr = {}:0x{:08x}",
                                 if object_type == McObjectType::Characteristic { "characteristic" } else { "measurement" },
                                 a2l_name,
-                                a2l_addr_ext,
-                                a2l_addr
+                                mem_addr_ext,
+                                mem_addr
                             );
-                            if verbose {
+                            if verbose >= 2 {
                                 info!("{}", type_info);
                             }
                             let dim_type = self.get_dim_type(reg, type_info, object_type);
                             let res = reg.instance_list.add_instance(a2l_name.clone(), dim_type, McSupportData::new(object_type), mc_addr);
                             match res {
                                 Ok(_) => {
-                                    if verbose {
+                                    if verbose >= 1 {
                                         info!(
                                             "  Registered variable '{}' with type '{}', size = {}, event id = {}",
                                             a2l_name,

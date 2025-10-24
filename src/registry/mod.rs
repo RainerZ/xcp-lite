@@ -57,7 +57,7 @@ pub use mc_type::McValueTypeTrait;
 
 // McAddress
 mod mc_address;
-pub use mc_address::McAddrMode;
+//pub use mc_address::McAddrMode;
 pub use mc_address::McAddress;
 
 // McText
@@ -525,7 +525,7 @@ pub mod registry_test {
             let mut l = registry::get_lock();
             l.replace(Registry::new());
             l.as_mut().unwrap().application.set_info("test_setup", "created by test_setup", 0);
-            l.as_mut().unwrap().application.set_version("test_setup", Xcp::XCP_EPK_ADDR);
+            l.as_mut().unwrap().application.set_version("test_setup", crate::EPK_SEG_ADDR);
         }
         // Drop the closed registry singleton (unsafe)
         #[allow(invalid_reference_casting)]
@@ -577,7 +577,7 @@ pub mod registry_test {
         // Registry
         let mut reg = Registry::new();
         reg.application.set_info("test_registry_1", "created by test_registry_1", 0);
-        reg.application.set_version("EPK1.0.0", 0x80000000);
+        reg.application.set_version("EPK1.0.0", crate::EPK_SEG_ADDR);
         reg.set_xcp_params("UDP", Ipv4Addr::new(127, 0, 0, 1), 5555);
 
         reg.cal_seg_list.add_cal_seg("test_cal_seg_1", 0, 4).unwrap();
@@ -661,7 +661,7 @@ pub mod registry_test {
             .unwrap()
             .application
             .set_info("test_registry_2", "created by test_registry_2", 0);
-        registry::get_lock().as_mut().unwrap().application.set_version("EPK2.0.0", 0x80000000);
+        registry::get_lock().as_mut().unwrap().application.set_version("EPK2.0.0", 0x80000000); // @@@@ TODO: hardcoded address
         registry::get_lock().as_mut().unwrap().set_xcp_params("UDP", Ipv4Addr::new(127, 0, 0, 1), 5555);
 
         let _ = CalSeg::new("test_cal_seg_1", &CAL_PAGE).register_fields();

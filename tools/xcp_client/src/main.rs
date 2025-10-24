@@ -16,18 +16,22 @@
 use std::net::Ipv4Addr;
 use std::{error::Error, sync::Arc};
 
-mod xcp_client;
 use parking_lot::Mutex;
+
+mod xcp_client;
 use xcp_client::*;
 
 mod xcp_test_executor;
+
 use xcp_lite::registry::McEvent;
 use xcp_test_executor::test_executor;
 
 pub mod elf_reader;
 use elf_reader::ElfReader;
 
-pub mod hex_reader;
+pub mod bin_reader;
+
+use xcp_client::{EPK_SEG_ADDR, EPK_SEG_NAME};
 
 //-----------------------------------------------------------------------------
 // Command line arguments
@@ -519,7 +523,9 @@ async fn xcp_client(
     }
     reg.set_flatten_typedefs_mode(false);
     reg.set_prefix_names_mode(false);
-    reg.set_auto_epk_segment_mode(false);
+
+    // @@@@ TODO: How to determine that there is a EPK ????
+    //reg.application.set_version("EPK1.0.0",); // @@@@ TODO: a2l_creator
 
     // Set A2L default file path to given command line argument 'a2l' or to target name 'ecu_name' if available
     let mut a2l_path = std::path::Path::new(if !a2l_filename.is_empty() {
@@ -565,7 +571,6 @@ async fn xcp_client(
 
         // Read the A2L file into a registry
         // @@@@ TODO xcp_client does not support arrays, instances and typedefs yet, flatten the registry and mangle the names
-        // Autodetects the presence of an EPK segment and sets the auto_epk_segment_mode accordingly
         reg.load_a2l(&a2l_path, true, true, true, true)?;
     }
     //----------------------------------------------------------------
@@ -573,7 +578,8 @@ async fn xcp_client(
     // If option create-a2l is specified and no ELF file, create a A2L template from XCP server information
     // Read segment and event information obtained from the XCP server into registry
     // Add measurement and calibration variables from ELF file if specified
-    // Addressing scheme is XCP_LITE_ACSDD hardcoded
+    // Addressing scheme may be XCP_LITE_ACSDD or XCP_LITE_CASDD depending on the target configuration
+    // @@@@ TODO How to detect this ????????
     else if create_a2l || !elf_filename.is_empty() {
         let mode = if xcp_client.is_connected() {
             if !elf_filename.is_empty() {
@@ -602,16 +608,30 @@ async fn xcp_client(
         }
 
         // Read binary file if specified and create calibration variables in segments and all global measurement variables
-        // If events and calibration segments are defined in the ELF file, they must match the XCP server information
-        // If not they are created, but with dummy event id and segment number !!!!!!!!
-        // There are warnings in this case
+        // Events and calibration segments found in the ELF file, must match the XCP server information if present
+        // If not, they are created, but with dummy event id and segment number, which has to be fixed later !!!
         if !elf_filename.is_empty() {
             info!("Reading ELF file: {}", elf_filename);
+            // Read ELF file and DWARF debug information, compilation unit number may be limited to reduce processing time and memory needed
             let elf_reader = ElfReader::new(&elf_filename, verbose, elf_idx_unit_limit).ok_or(format!("Failed to read ELF file '{}'", elf_filename))?;
-            elf_reader.debug_data.print_debug_info(verbose, elf_idx_unit_limit); // print only variables <= compilation unit 0
-            elf_reader.register_segments_and_events(&mut reg, verbose > 0)?;
-            elf_reader.register_event_locations(&mut reg, verbose > 0)?;
-            elf_reader.register_variables(&mut reg, verbose > 0, elf_idx_unit_limit)?; // register only variables <= compilation unit 0
+            if verbose > 0 {
+                elf_reader.debug_data.print_debug_info(verbose, elf_idx_unit_limit); // print only variables <= compilation unit 0
+            }
+            // Register segments and event creations found in the code
+
+            // true - addr_ext==0 is segment relative addressing, addr_ext==1 is absolute addressing
+            // false - addr_ext==0 is absolute addressing, addr_ext==1 is segment relative addressing
+            let segment_relative = false;
+            info!(
+                "Using {} addressing for calibration segments",
+                if segment_relative { "segment relative" } else { "absolute" }
+            );
+
+            elf_reader.register_segments_and_events(&mut reg, segment_relative, verbose)?;
+            // Find event triggers in the code and register their location (compilation unit, function, CFA offset)
+            elf_reader.register_event_locations(&mut reg, verbose)?;
+            // Register accessible variables and their types
+            elf_reader.register_variables(&mut reg, segment_relative, verbose, elf_idx_unit_limit)?; // register only variables <= compilation unit 0
         }
 
         // Write the registry to A2L file

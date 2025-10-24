@@ -115,7 +115,7 @@ fn main() -> anyhow::Result<()> {
 
     // XCP: Initialize the XCP server
     let app_name = args.name.as_str();
-    let app_revision = build_info::format!("EPK_{}", $.timestamp);
+    let app_revision = build_info::format!("Version_{}", $.timestamp);
     let _xcp = Xcp::get()
         .set_app_name(app_name)
         .set_app_revision(app_revision)
@@ -137,6 +137,9 @@ fn main() -> anyhow::Result<()> {
     // XCP: Register a measurement event and bind measurement variables
     let event = daq_create_event!("my_event", 16);
     daq_register!(counter, event);
+
+    // @@@@ Test
+    _xcp.finalize_registry()?;
 
     loop {
         // XCP: Synchronize calibration parameters in cal_page and lock read access for consistency

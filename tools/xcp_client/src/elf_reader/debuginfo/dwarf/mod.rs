@@ -1,3 +1,6 @@
+//--------------------------------------------------------------------------------------------------------------------------------------------------
+// Module dwarf
+// Read ELF files and extract debug information
 // Taken from Github repository a2ltool by DanielT
 
 use indexmap::IndexMap;

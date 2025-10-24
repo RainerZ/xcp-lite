@@ -128,9 +128,6 @@ impl McAddress {
     pub const XCP_ADDR_EXT_UNDEF: u8 = 0xFF;
     pub const XCP_ADDR_OFFSET_UNDEF: i32 = 0x80000000u32 as i32;
 
-    /// Addr of the EPK used
-    pub const XCP_EPK_ADDR: u32 = 0x80000000;
-
     pub fn new_calseg_rel<T: Into<McIdentifier>>(calseg_name: T, addr_offset: i32) -> Self {
         McAddress {
             calseg_name: Some(calseg_name.into()),
@@ -288,7 +285,7 @@ impl McAddress {
     pub fn get_calseg_ext_addr_base(calseg_index: u16) -> (u8, u32) {
         // McAddress format for calibration segment field is index | 0x8000 in high word, addr_ext is 0 (CANape does not support addr_ext in memory segments)
         let addr_ext = McAddress::XCP_ADDR_EXT_SEG;
-        let addr = (((calseg_index as u32) + 1) | 0x8000) << 16;
+        let addr = ((calseg_index as u32) | 0x8000) << 16;
         (addr_ext, addr)
     }
 

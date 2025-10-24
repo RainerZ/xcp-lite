@@ -8,7 +8,6 @@
 // - Predefined conversion rule IDENTIY
 // - Predefined conversion rule BOOL
 // - Address format
-// - Segment 'epk' ignored
 // - Predefined record layout names U8, A_U8, M_U8, C_U8
 
 use super::*;
@@ -202,7 +201,7 @@ fn new_mc_address_from_a2l(registry: &Registry, addr: u32, addr_ext: u8, event_i
     } else {
         match addr_ext {
             McAddress::XCP_ADDR_EXT_SEG => {
-                if let Some(calseg_name) = registry.cal_seg_list.find_cal_seg_by_address(addr) {
+                if let Some(calseg_name) = registry.cal_seg_list.find_cal_seg_by_a2l_address(addr) {
                     let offset: u16 = (addr & 0xFFFF) as u16;
                     McAddress::new_calseg_rel(calseg_name, offset as i32)
                 } else {
@@ -292,7 +291,7 @@ fn update_typedef_field(
 }
 
 fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -> Result<(), String> {
-    let mut relative_segment_addressing: bool = false; // Predefined conversion BOOL, IDENTITY, address format conversion, EPK segment handling
+    let mut relative_segment_addressing: bool = false; // Predefined conversion BOOL, IDENTITY, address format conversion
     let mut convert_a2l_address: bool = false; // Convert A2L address to calseg_rel or event_rel/dyn/abs if possible
 
     info!("Load A2L file into registry:");
@@ -377,11 +376,14 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
             let version_epk = epk.identifier.clone();
             let version_addr = if !mod_par.addr_epk.is_empty() { mod_par.addr_epk[0].address } else { 0 };
             debug!("Set EPK: {} {:08X}", version_epk, version_addr);
+            if version_epk == crate::EPK_SEG_NAME && version_addr == crate::EPK_SEG_ADDR {
+                info!("XCPlite EPK '{}' detected with segment relative address", version_epk);
+            }
             registry.application.set_version(version_epk, version_addr);
         }
 
         // Memory segments
-        // @@@@ TODO: IF_DATA XCP not taken into account
+        // @@@@ TODO: IF_DATA XCP not taken into accounts
         // We assume here, that calibration segments are implicitly numbered, which is true for XCPlite and xcp-lite, but not general
         let mut index = 0;
         let mut number: u8 = 0;
@@ -391,17 +393,10 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
             let addr = m.address;
             let size = m.size;
 
-            // Check first segment is 'epk'
-            if registry.get_auto_epk_segment_mode() && name == "epk" && index == 0 {
-                // Predefined memory segment for EPK, just skip it, don't increment index
-                number += 1;
-                continue;
-            }
-
             // Get index from addr, in relative addressing mode the high word of the segment address is the segment number
             // @@@@ TODO: Improve checking and maybe automatically set the mode
             if relative_segment_addressing {
-                let i = ((addr >> 16) & 0x7FFF) as u16;
+                let i = ((addr >> 16) & 0x7FFF) as u16; // @@@@ TODO: Abstract address encoding
                 assert!(number as u16 == i);
             }
 

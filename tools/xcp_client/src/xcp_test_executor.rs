@@ -497,19 +497,19 @@ pub async fn test_setup(
         }
 
         // Check EPK
-        // EPK addr is always 0x80000000 and len is hardcoded to 8
-        // let res = xcp_client.short_upload(0x80000000, 0, 8).await;
-        // let resp: Vec<u8> = match res {
-        //     Err(e) => {
-        //         panic!("Could not upload EPK, Error: {}", e);
-        //     }
-        //     Ok(r) => r,
-        // };
-        // let epk = resp[1..=8].to_vec();
-        // let epk_string = String::from_utf8(epk.clone()).unwrap();
-        // info!("Upload EPK = {} {:?}", epk_string, epk);
-        // debug!("A2l EPK = {}", xcp_client.a2l_epk().unwrap());
-        //assert_eq!(epk_string.as_str(), xcp_client.a2l_epk().unwrap(), "EPK mismatch");
+        // EPK addr is always in segment 0 which is crate::EPK_SEG_ADDR 0x80000000 and len is hardcoded to 8
+        let res = xcp_client.short_upload(crate::EPK_SEG_ADDR, 0, 8).await;
+        let resp: Vec<u8> = match res {
+            Err(e) => {
+                panic!("Could not upload EPK, Error: {}", e);
+            }
+            Ok(r) => r,
+        };
+        let epk = resp[1..=8].to_vec();
+        let epk_string = String::from_utf8(epk.clone()).unwrap();
+        info!("Upload EPK = {} {:?}", epk_string, epk);
+        debug!("A2l EPK = {}", xcp_client.a2l_epk().unwrap());
+        //assert_eq!(epk_string.as_str(), xcp_client.a2l_epk().unwrap(), "EPK mismatch"); // @@@@ TODO
     }
 
     // Check the DAQ clock

@@ -753,7 +753,14 @@ impl XcpClient {
                 self.freeze_supported = (data[2] & 0x01) != 0;
             }
             Err(e) => {
-                warn!("GET_PAGE_PROCESSOR_INFO failed: {}", e);
+                if e.is::<XcpError>() {
+                    if e.downcast_ref::<XcpError>().unwrap().get_error_code() != CRC_CMD_UNKNOWN {
+                        warn!("GET_PAGE_PROCESSOR_INFO failed: {}", e);
+                    } else {
+                        info!("GET_PAGE_PROCESSOR_INFO not supported by server");
+                    }
+                }
+
                 self.max_segments = 0;
                 self.freeze_supported = false;
             }
@@ -1414,12 +1421,6 @@ impl XcpClient {
             let (addr_ext, addr, length, name) = self.get_segment_info(i).await?;
             info!(" Segment {}: {} addr={}:0x{:08X} length={} ", i, name, addr_ext, addr, length);
 
-            // Check for EPK segment with index 0 typical for XCPlite servers
-            // Just put the registry into epk segment mode
-            if reg.get_auto_epk_segment_mode() && name == "epk" && i == 0 {
-                warn!(" EPK segment found and skipped in implicit segment mode");
-                continue;
-            }
             // Otherwise the EPK segment would be handled like a normal calibration segment with 2 pages
             // Segment relative addressing is ignored, all addresses are treated as raw A2L addr_ext/addr
             // Segment relative addressing would be reg.cal_seg_list.add_cal_seg(name, i as u16, length as u32).unwrap();

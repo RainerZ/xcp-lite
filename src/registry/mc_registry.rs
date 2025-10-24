@@ -24,27 +24,24 @@ use super::RegistryError;
 use super::flatten_registry;
 
 //-------------------------------------------------------------------------------------------------
-// ApplicationVersion
-// EPK software version id
+// McApplicationVersion
+// Software version string identifier or EPK with address
 
-#[derive(Debug, Serialize, Deserialize)]
-struct ApplicationVersion {
-    epk: McText,
-    version_addr: u32,
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Serialize, Deserialize)]
+pub struct McApplicationVersion {
+    pub epk: McText,
+    pub epk_addr: u32,
 }
 
-impl ApplicationVersion {
-    fn new() -> ApplicationVersion {
-        ApplicationVersion::default()
+impl McApplicationVersion {
+    fn new() -> McApplicationVersion {
+        McApplicationVersion::default()
     }
 }
 
-impl Default for ApplicationVersion {
+impl Default for McApplicationVersion {
     fn default() -> Self {
-        ApplicationVersion {
-            epk: "EPK_".into(),
-            version_addr: 0,
-        }
+        McApplicationVersion { epk: "".into(), epk_addr: 0 }
     }
 }
 
@@ -54,13 +51,10 @@ impl Default for ApplicationVersion {
 /// Infos on the application
 #[derive(Debug, Default, Ord, PartialOrd, Eq, PartialEq, Serialize, Deserialize)]
 pub struct McApplication {
-    pub app_id: u8,          // Unique identifier for the application
-    pub name: McIdentifier,  // Name of the application, used as A2L filename and module name
-    pub description: McText, // Optional description of the application
-
-    // Version or EPK
-    pub version: McText,   // Version, used as A2L EPK
-    pub version_addr: u32, // Address of the EPK string in memory
+    pub app_id: u8,                    // Unique identifier for the application
+    pub name: McIdentifier,            // Name of the application, used as A2L filename and module name
+    pub description: McText,           // Optional description of the application
+    pub version: McApplicationVersion, // Version or EPK string with address
 }
 
 impl McApplication {
@@ -69,14 +63,13 @@ impl McApplication {
             app_id: 0,
             name: "".into(),
             description: "".into(),
-            version: "".into(),
-            version_addr: 0,
+            version: McApplicationVersion::default(),
         }
     }
 
-    /// Check if EPK version string and address is available for the application
+    /// Check if a version string or EPK and address is available for the application
     pub fn has_epk(&self) -> bool {
-        !self.version.is_empty()
+        !self.version.epk.is_empty()
     }
 
     /// Set application name
@@ -97,16 +90,16 @@ impl McApplication {
     }
 
     /// Set application version
-    pub fn set_version<T: Into<McText>>(&mut self, epk: T, version_addr: u32) {
+    pub fn set_version<T: Into<McText>>(&mut self, epk: T, epk_addr: u32) {
         let epk: McText = epk.into();
-        log::debug!("Registry set epk: {} 0x{:08X}", epk, version_addr);
-        self.version = epk;
-        self.version_addr = version_addr;
+        log::debug!("Registry set epk: {} 0x{:08X}", epk, epk_addr);
+        self.version.epk = epk;
+        self.version.epk_addr = epk_addr;
     }
 
     /// Get application version
     pub fn get_version(&self) -> &str {
-        self.version.as_str()
+        self.version.epk.as_str()
     }
 }
 
@@ -125,11 +118,6 @@ pub struct Registry {
     #[serde(skip_serializing)]
     #[serde(skip_deserializing)]
     prefix_names: bool,
-
-    // Has implicit EPK memory segment with index 0
-    #[serde(skip_serializing)]
-    #[serde(skip_deserializing)]
-    auto_epk_segment_mode: bool,
 
     // Application name and software version
     pub application: McApplication,
@@ -164,7 +152,6 @@ impl Registry {
         Registry {
             flatten_typedefs: false,
             prefix_names: false,
-            auto_epk_segment_mode: true,
             application: McApplication::new(),
             xcp_tl_params: None,
             event_list: McEventList::new(),
@@ -205,14 +192,6 @@ impl Registry {
     }
     pub fn get_prefix_names_mode(&self) -> bool {
         self.prefix_names
-    }
-
-    /// Implicit epk segment mode
-    pub fn set_auto_epk_segment_mode(&mut self, auto_epk_segment_mode: bool) {
-        self.auto_epk_segment_mode = auto_epk_segment_mode;
-    }
-    pub fn get_auto_epk_segment_mode(&self) -> bool {
-        self.auto_epk_segment_mode
     }
 
     //---------------------------------------------------------------------------------------------------------

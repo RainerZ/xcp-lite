@@ -13,8 +13,12 @@ use std::{
         atomic::{AtomicBool, AtomicU8, Ordering},
     },
 };
+use xcp_type_description::XcpTypeDescription;
 
-use crate::registry::{self, McEvent};
+use crate::{
+    registry::{self, McEvent},
+    xcp::cal::CalSegTrait,
+};
 
 //-----------------------------------------------------------------------------
 // Submodules
@@ -318,11 +322,8 @@ pub struct Xcp {
     registry_finalized: AtomicBool,
     event_list: Arc<Mutex<EventList>>,
     epk: Mutex<&'static str>,
-
     ecu_cal_page: AtomicU8,
-
     xcp_cal_page: AtomicU8,
-
     calseg_list: Arc<Mutex<CalSegList>>,
 }
 
@@ -331,9 +332,6 @@ lazy_static! {
 }
 
 impl Xcp {
-    /// Addr of the EPK
-    pub const XCP_EPK_ADDR: u32 = 0x80000000;
-
     // new
     // Lazy static initialization of the Xcp singleton
     fn new() -> Xcp {
@@ -401,9 +399,24 @@ impl Xcp {
 
     /// Set software version (will be used as A2L EPK string and for EPK memory segment)
     pub fn set_app_revision(&self, app_revision: &'static str) -> &'static Xcp {
-        assert!(app_revision.len() % 4 == 0); // @@@@ TODO check length of EPK string
+        assert!(app_revision.len() < crate::EPK_SEG_SIZE);
+
+        // Set the EPK in the XCP driver
         *(self.epk.lock()) = app_revision;
-        registry::get_lock().as_mut().unwrap().application.set_version(app_revision, Xcp::XCP_EPK_ADDR);
+
+        // Create EPK segment and initialize it with the given app_revision string
+        let epk_seg = CalSeg::new(crate::EPK_SEG_NAME, &crate::EPK);
+        // This segment must have index 0 in the calseg list
+        assert!(epk_seg.get_index() == 0);
+        {
+            let mut epk = epk_seg.write_lock();
+            epk.epk[..app_revision.len()].copy_from_slice(app_revision.as_bytes());
+            epk.epk[app_revision.len()..].fill(0);
+        }
+
+        // Set the EPK in the registry
+        registry::get_lock().as_mut().unwrap().application.set_version(app_revision, crate::EPK_SEG_ADDR);
+
         &XCP
     }
 
@@ -557,7 +570,6 @@ impl Xcp {
         assert!(!registry::is_closed());
 
         // Register all calibration segments
-
         self.calseg_list.lock().register();
 
         // Register all events
@@ -802,35 +814,12 @@ unsafe extern "C" fn cb_read(addr: u32, len: u8, dst: *mut u8) -> u8 {
     assert!(len > 0, "cb_read: zero length");
 
     // Decode addr
-    let index: u16 = (addr >> 16) as u16 & 0x7FFF;
+    let index: u16 = (addr >> 16) as u16 & 0x7FFF; // @@@@ TODO: abstract address encoding
     let offset: u16 = (addr & 0xFFFF) as u16;
 
-    // EPK read
-    // This might be more elegantly solved with a EPK segment in the registry, but this is a simple solution
-    // Otherwise we would have to introduce a read only CalSeg
-    if index == 0 {
-        let m = XCP.epk.lock();
-        let epk = *m;
-        let epk_len = epk.len();
-
-        // @@@@ TODO callbacks should not panic
-        assert!(
-            offset as usize + len as usize <= epk_len && epk_len <= 0xFF,
-            "cb_read: EPK length error ! offset={} len={} epk_len={}",
-            offset,
-            len,
-            epk_len
-        );
-
-        unsafe {
-            let src = epk.as_ptr().add(offset as usize);
-            std::ptr::copy_nonoverlapping(src, dst, len as usize);
-        }
-        CRC_CMD_OK
-    }
     // Calibration segment read
     // read_from is Unsafe function
-    else if !unsafe { XCP.calseg_list.lock().read_from((index - 1) as usize, offset, len, dst) } {
+    if !unsafe { XCP.calseg_list.lock().read_from((index) as usize, offset, len, dst) } {
         CRC_ACCESS_DENIED
     } else {
         CRC_CMD_OK
@@ -847,15 +836,12 @@ unsafe extern "C" fn cb_write(addr: u32, len: u8, src: *const u8, delay: u8) -> 
 
     // Decode addr
     assert!((addr & 0x80000000) != 0, "cb_write: invalid address");
-    let index: u16 = (addr >> 16) as u16 & 0x7FFF;
-    if index == 0 {
-        return CRC_ACCESS_DENIED; // EPK is read only
-    }
+    let index: u16 = (addr >> 16) as u16 & 0x7FFF; // @@@@ TODO: abstract address encoding
     let offset: u16 = (addr & 0xFFFF) as u16;
 
     // Write to calibration segment
     // read_from is Unsafe function
-    if !unsafe { XCP.calseg_list.lock().write_to((index - 1) as usize, offset, len, src, delay) } {
+    if !unsafe { XCP.calseg_list.lock().write_to((index) as usize, offset, len, src, delay) } {
         CRC_ACCESS_DENIED
     } else {
         CRC_CMD_OK

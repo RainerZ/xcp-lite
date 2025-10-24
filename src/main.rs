@@ -439,7 +439,7 @@ fn main() {
     let app_revision = build_info::format!("{}", $.timestamp);
     let xcp = Xcp::get()
         .set_app_name(app_name)
-        .set_app_revision(app_revision) // Create new EPK from build info timestamp
+        .set_app_revision(app_revision) // Create new EPK version string from build info timestamp
         .set_log_level(args.log_level);
 
     let _xcp = xcp
