@@ -1406,7 +1406,7 @@ impl XcpClient {
     // Get event and segment information from XCP server and add to registry
 
     pub async fn get_event_segment_info(&mut self, reg: &mut xcp_lite::registry::Registry) -> Result<(), Box<dyn Error>> {
-        info!("Reading event and segment information from connected XCP server");
+        info!("Reading event and segment information from connected XCP server:");
 
         // Get event information
         for i in 0..self.max_events {

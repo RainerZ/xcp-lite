@@ -28,34 +28,34 @@ pub struct CfaInfo {
 pub fn get_cfa_from_object(object_file: &object::File<'_>, cfa_info: &mut Vec<CfaInfo>, verbose: usize, unit_idx_limit: usize) -> Result<usize> {
     // Load DWARF sections - this is where all the debug information is stored
 
-    log::info!("cfa::get_cfa_from_object: CFA parser loading DWARF sections...");
+    log::debug!("get_cfa_from_object: CFA parser loading DWARF sections...");
     let dwarf = load_dwarf_sections(&object_file)?;
 
     // Extract function information from DWARF
-    log::info!("CFA parser: Extracting function information from DWARF...");
-    let n = extract_function_info(&dwarf, &object_file, cfa_info, unit_idx_limit)?;
+    log::debug!("get_cfa_from_object: CFA parser extracting function information from DWARF...");
+    let n = extract_function_info(&dwarf, &object_file, cfa_info, verbose, unit_idx_limit)?;
     if n == 0 {
         log::warn!("No functions found with debug information.");
         return Ok(0);
     }
-
-    // print_all_functions(&functions);
+    log::info!("CFA parser: Found {} functions with XCP events:", n);
 
     // Summary
     // Group by compilation unit
-    log::info!("CFA parser: Found {} functions with XCP events:", n);
-    let mut by_cu: HashMap<usize, Vec<&CfaInfo>> = HashMap::new();
-    for func in cfa_info {
-        by_cu.entry(func.unit_idx).or_default().push(func);
-    }
-    for (cu_idx, cu_functions) in by_cu {
-        println!("Compilation Unit {}: {} functions", cu_idx, cu_functions.len());
-        for func in cu_functions {
-            let cfa_info = match func.cfa_offset {
-                Some(offset) => format!("CFA+{}", offset),
-                None => "CFA unknown".to_string(),
-            };
-            println!("  {} (0x{:08x}-0x{:08x}) [{}]", func.function, func.low_pc, func.high_pc, cfa_info);
+    if verbose >= 1 {
+        let mut by_cu: HashMap<usize, Vec<&CfaInfo>> = HashMap::new();
+        for func in cfa_info {
+            by_cu.entry(func.unit_idx).or_default().push(func);
+        }
+        for (cu_idx, cu_functions) in by_cu {
+            println!("Compilation Unit {}: {} functions", cu_idx, cu_functions.len());
+            for func in cu_functions {
+                let cfa_info = match func.cfa_offset {
+                    Some(offset) => format!("CFA+{}", offset),
+                    None => "CFA unknown".to_string(),
+                };
+                println!("  {} (0x{:08x}-0x{:08x}) [{}]", func.function, func.low_pc, func.high_pc, cfa_info);
+            }
         }
     }
 
@@ -71,7 +71,7 @@ pub fn get_cfa_from_object(object_file: &object::File<'_>, cfa_info: &mut Vec<Cf
 /// - .debug_line: Contains line number information
 /// - .debug_frame/.eh_frame: Contains frame unwinding information (CFA data)
 fn load_dwarf_sections<'a>(file: &'a object::File<'a>) -> Result<Dwarf<EndianSlice<'a, LittleEndian>>> {
-    log::info!("cfa::load_dwarf_sections");
+    log::debug!("cfa::load_dwarf_sections");
 
     // Helper closure to load a section by name
     let load_section = |section_name: &str| -> EndianSlice<'a, LittleEndian> {
@@ -112,8 +112,14 @@ fn load_dwarf_sections<'a>(file: &'a object::File<'a>) -> Result<Dwarf<EndianSli
 /// This function walks through all compilation units in the DWARF data
 /// and extracts information about functions (subprograms in DWARF terminology).
 /// For each function, we try to determine its name, address range, and CFA offset.
-fn extract_function_info(dwarf: &Dwarf<EndianSlice<LittleEndian>>, object_file: &object::File, functions: &mut Vec<CfaInfo>, unit_idx_limit: usize) -> Result<usize> {
-    log::info!("cfa::extract_function_info: Extracting function info from DWARF...");
+fn extract_function_info(
+    dwarf: &Dwarf<EndianSlice<LittleEndian>>,
+    object_file: &object::File,
+    functions: &mut Vec<CfaInfo>,
+    verbose: usize,
+    unit_idx_limit: usize,
+) -> Result<usize> {
+    log::debug!("cfa::extract_function_info: Extracting function info from DWARF...");
 
     // Iterate through all compilation units
     // Each source file typically corresponds to one compilation unit
@@ -145,10 +151,8 @@ fn extract_function_info(dwarf: &Dwarf<EndianSlice<LittleEndian>>, object_file: 
         while let Some((_depth, entry)) = entries.next_dfs()? {
             // We're looking for subprogram DIEs (functions)
             if entry.tag() == gimli::DW_TAG_subprogram {
-                if let Some(func_info) = extract_function_from_die(dwarf, object_file, &unit, &entry, cu_index)? {
-                    {
-                        println!("  Found function: {} at 0x{:08x}-0x{:08x}", func_info.function, func_info.low_pc, func_info.high_pc);
-                    }
+                if let Some(func_info) = extract_function_from_die(dwarf, object_file, &unit, &entry, cu_index, verbose)? {
+                    log::trace!("  Found function: {} at 0x{:08x}-0x{:08x}", func_info.function, func_info.low_pc, func_info.high_pc);
                     functions.push(func_info);
                 }
             }
@@ -173,6 +177,7 @@ fn extract_function_from_die(
     unit: &Unit<EndianSlice<LittleEndian>>,
     entry: &gimli::DebuggingInformationEntry<EndianSlice<LittleEndian>>,
     cu_index: usize,
+    verbose: usize,
 ) -> Result<Option<CfaInfo>> {
     // Get the function name
     let name = match get_string_attribute(dwarf, unit, entry, gimli::DW_AT_name)? {
@@ -219,11 +224,11 @@ fn extract_function_from_die(
     // Use CFA offset from CFI, fallback to frame base offset
     let final_cfa_offset = cfa_offset.or(frame_base_offset);
 
-    {
+    if verbose >= 5 {
         print!("'{}': ", name);
         print!(" Frame base offset {:?}", frame_base_offset);
         print!(" CFI CFA offset for {:?}", cfa_offset);
-        print!("  Final CFA offset {:?}", final_cfa_offset);
+        println!("  Final CFA offset {:?}", final_cfa_offset);
     }
 
     Ok(Some(CfaInfo {
@@ -251,13 +256,7 @@ fn extract_frame_base_offset(entry: &gimli::DebuggingInformationEntry<EndianSlic
             // The frame base is described by a DWARF expression
             // For simple cases, this might be something like "DW_OP_call_frame_cfa + offset"
 
-            // if verbose {
-            //     println!(
-            //         "    Frame base expression found (length: {} bytes): {:?}",
-            //         expression.0.len(),
-            //         expression.0
-            //     );
-            // }
+            log::debug!("    Frame base expression found (length: {} bytes): {:?}", expression.0.len(), expression.0);
 
             // Parse the expression to try to extract a constant offset
             // This is a simplified parser - real DWARF expressions can be very complex
@@ -267,19 +266,15 @@ fn extract_frame_base_offset(entry: &gimli::DebuggingInformationEntry<EndianSlic
 
             // For more complex expressions, we might need to evaluate them
             // This would require a full DWARF expression evaluator
-
-            println!("    Complex frame base expression - cannot extract simple offset");
-
+            log::debug!("    Complex frame base expression - cannot extract simple offset");
             Ok(None)
         }
         Some(other) => {
-            println!("    Frame base attribute has unexpected type: {:?}", other);
-
+            log::debug!("    Frame base attribute has unexpected type: {:?}", other);
             Ok(None)
         }
         None => {
-            println!("    No frame base attribute found");
-
+            log::debug!("    No frame base attribute found");
             Ok(None)
         }
     }
@@ -299,13 +294,13 @@ fn extract_cfa_from_cfi(file: &object::File, function_address: u64) -> Result<Op
 
     // Try .eh_frame first (more common)
     if let Some(cfa_offset) = parse_eh_frame(file, function_address)? {
-        //println!("    Found CFA offset in .eh_frame: {}", cfa_offset);
+        // println!("    Found CFA offset in .eh_frame: {}", cfa_offset);
         return Ok(Some(cfa_offset));
     }
 
     // Fallback to .debug_frame
     if let Some(cfa_offset) = parse_debug_frame(file, function_address)? {
-        //println!("    Found CFA offset in .debug_frame: {}", cfa_offset);
+        // println!("    Found CFA offset in .debug_frame: {}", cfa_offset);
         return Ok(Some(cfa_offset));
     }
 
@@ -317,7 +312,7 @@ fn parse_eh_frame(file: &object::File, function_address: u64) -> Result<Option<i
     let eh_frame_section = match file.section_by_name(".eh_frame") {
         Some(section) => section,
         None => {
-            println!("    No .eh_frame section found");
+            log::error!("No .eh_frame section found");
 
             return Ok(None);
         }
@@ -343,8 +338,7 @@ fn parse_debug_frame(file: &object::File, function_address: u64) -> Result<Optio
     let debug_frame_section = match file.section_by_name(".debug_frame") {
         Some(section) => section,
         None => {
-            println!("    No .debug_frame section found");
-
+            log::warn!("    No .debug_frame section found");
             return Ok(None);
         }
     };
@@ -352,13 +346,7 @@ fn parse_debug_frame(file: &object::File, function_address: u64) -> Result<Optio
     let debug_frame_data = debug_frame_section.data()?;
     let debug_frame_address = debug_frame_section.address();
 
-    // if verbose {
-    //     println!(
-    //         "    Found .debug_frame section with {} bytes at 0x{:08x}",
-    //         debug_frame_data.len(),
-    //         debug_frame_address
-    //     );
-    // }
+    log::debug!("    Found .debug_frame section with {} bytes at 0x{:08x}", debug_frame_data.len(), debug_frame_address);
 
     let debug_frame = DebugFrame::new(debug_frame_data, LittleEndian);
     parse_cfi_section(&debug_frame, debug_frame_address, function_address, ".debug_frame")
@@ -435,7 +423,7 @@ fn parse_fde_for_cfa<R: gimli::Reader, Section: gimli::UnwindSection<R>>(fde: &g
         match *cfa {
             gimli::CfaRule::RegisterAndOffset { register, offset } => {
                 {
-                    print!(
+                    log::debug!(
                         "       Row {}: 0x{:08X}-0x{:08X} CFA rule: register {} + offset {}",
                         row_count,
                         row.start_address(),
@@ -450,7 +438,7 @@ fn parse_fde_for_cfa<R: gimli::Reader, Section: gimli::UnwindSection<R>>(fde: &g
                 match register.0 {
                     31 => {
                         {
-                            println!(" CFA = SP + {} (AArch64)", offset);
+                            log::debug!(" CFA = SP + {} (AArch64)", offset);
                         }
                         // Keep track of the largest positive offset (after prologue)
                         if offset > 0 && (best_cfa_offset.is_none() || offset > best_cfa_offset.unwrap()) {
@@ -459,7 +447,7 @@ fn parse_fde_for_cfa<R: gimli::Reader, Section: gimli::UnwindSection<R>>(fde: &g
                     }
                     7 => {
                         {
-                            println!(" CFA = RSP + {} (x86_64)", offset);
+                            log::debug!(" CFA = RSP + {} (x86_64)", offset);
                         }
                         // Keep track of the largest positive offset (after prologue)
                         if offset > 0 && (best_cfa_offset.is_none() || offset > best_cfa_offset.unwrap()) {
@@ -468,7 +456,7 @@ fn parse_fde_for_cfa<R: gimli::Reader, Section: gimli::UnwindSection<R>>(fde: &g
                     }
                     29 => {
                         {
-                            println!(" CFA = FP + {} (frame pointer based)", offset);
+                            log::debug!(" CFA = FP + {} (frame pointer based)", offset);
                         }
                         // Frame pointer based CFA - this is typically after prologue
                         // Return the previous SP-based offset if we have one
@@ -478,7 +466,7 @@ fn parse_fde_for_cfa<R: gimli::Reader, Section: gimli::UnwindSection<R>>(fde: &g
                     }
                     _ => {
                         {
-                            println!("    CFA uses register {} + {} (unknown architecture)", register.0, offset);
+                            log::debug!("    CFA uses register {} + {} (unknown architecture)", register.0, offset);
                         }
                         if offset > 0 && (best_cfa_offset.is_none() || offset > best_cfa_offset.unwrap()) {
                             best_cfa_offset = Some(offset);
@@ -487,17 +475,12 @@ fn parse_fde_for_cfa<R: gimli::Reader, Section: gimli::UnwindSection<R>>(fde: &g
                 }
             }
             gimli::CfaRule::Expression(_) => {
-                println!("    Row {}: CFA defined by expression (too complex to parse here)", row_count);
+                log::debug!("    Row {}: CFA defined by expression (too complex to parse here)", row_count);
             }
         }
     }
 
-    // if verbose {
-    //     println!(
-    //         "    Processed {} CFI rows, best CFA offset: {:?}",
-    //         row_count, best_cfa_offset
-    //     );
-    // }
+    log::debug!("    Processed {} CFI rows, best CFA offset: {:?}", row_count, best_cfa_offset);
 
     // Return the best (largest) CFA offset we found, or 0 if none
     Ok(best_cfa_offset.or(Some(0)))
@@ -630,29 +613,28 @@ fn get_string_attribute(
     Ok(None)
 }
 
-/// Print detailed information for all functions
-fn print_all_functions(functions: &[CfaInfo]) {
-    println!("\nAll Functions");
-
-    for (i, func) in functions.iter().enumerate() {
-        println!("\nFunction #{}: {}", i + 1, func.function);
-        println!("  Compilation Unit: {}", func.unit_idx);
-        println!(
-            "  Address Range: 0x{:08x} - 0x{:08x} (size: {} bytes)",
-            func.low_pc,
-            func.high_pc,
-            func.high_pc - func.low_pc
-        );
-
-        match func.cfa_offset {
-            Some(offset) => {
-                println!("  CFA Offset: {} (0x{:x})", offset, offset);
-                println!("  Local variables are likely at: CFA + {} + variable_offset", offset);
-            }
-            None => {
-                println!("  CFA Offset: Unknown - may require complex DWARF expression evaluation");
-                println!("  Note: This might indicate a more complex frame layout");
-            }
-        }
-    }
-}
+//
+// Print detailed information for all functions
+// fn print_all_functions(functions: &[CfaInfo]) {
+//     println!("\nAll Functions");
+//     for (i, func) in functions.iter().enumerate() {
+//         println!("\nFunction #{}: {}", i + 1, func.function);
+//         println!("  Compilation Unit: {}", func.unit_idx);
+//         println!(
+//             "  Address Range: 0x{:08x} - 0x{:08x} (size: {} bytes)",
+//             func.low_pc,
+//             func.high_pc,
+//             func.high_pc - func.low_pc
+//         );
+//         match func.cfa_offset {
+//             Some(offset) => {
+//                 println!("  CFA Offset: {} (0x{:x})", offset, offset);
+//                 println!("  Local variables are likely at: CFA + {} + variable_offset", offset);
+//             }
+//             None => {
+//                 println!("  CFA Offset: Unknown - may require complex DWARF expression evaluation");
+//                 println!("  Note: This might indicate a more complex frame layout");
+//             }
+//         }
+//     }
+// }

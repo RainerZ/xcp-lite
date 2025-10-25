@@ -60,14 +60,15 @@ impl DebugDataReader<'_> {
             Ok(typeinfo) => Ok(typeinfo),
             Err(errmsg) => {
                 // try to print a readable error message
-                println!("Failed to read type: {errmsg}");
-                for (idx, wip) in typereader_data.wip_items.iter().enumerate() {
-                    print!("  {:indent$}{}", "", wip.tag, indent = idx * 2);
-                    if let Some(name) = &wip.name {
-                        print!(" {name}");
-                    }
-                    println!(" @0x{:X}", wip.offset);
-                }
+                log::warn!("Failed to read type: {errmsg}");
+
+                // for (idx, wip) in typereader_data.wip_items.iter().enumerate() {
+                //     print!("  {:indent$}{}", "", wip.tag, indent = idx * 2);
+                //     if let Some(name) = &wip.name {
+                //         print!(" {name}");
+                //     }
+                //     println!(" @0x{:X}", wip.offset);
+                // }
 
                 // create a dummy typeinfo using DwarfDataType::Other, rather than propagate the error
                 // this allows the caller to continue, which is more useful

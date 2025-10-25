@@ -101,7 +101,7 @@ pub(crate) struct DebugData {
 impl DebugData {
     /// load the debug info from an elf file
     pub(crate) fn load_dwarf(filename: &OsStr, verbose: usize, unit_idx_limit: usize) -> Result<Self, String> {
-        dwarf::load_dwarf(filename, verbose, unit_idx_limit)
+        dwarf::load_elf_dwarf(filename, verbose, unit_idx_limit)
     }
 
     /// convert a full unit name, which might include a path, into a simple unit name

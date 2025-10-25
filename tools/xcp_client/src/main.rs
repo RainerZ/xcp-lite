@@ -65,18 +65,18 @@ Examples:
 struct Args {
     // -l --log-level
     /// Log level (Off=0, Error=1, Warn=2, Info=3, Debug=4, Trace=5)
-    #[arg(short, long, default_value_t = 3)]
+    #[arg(long, default_value_t = 3)]
     log_level: u8,
 
     // -v --verbose
     /// Verbose output
     /// Enables additional output when reading ELF files and creating A2L files.
-    #[arg(short, long, default_value_t = 0)]
+    #[arg(long, default_value_t = 0)]
     verbose: usize,
 
     // -d --dest_addr
     /// XCP server address (IP address or IP:port). If port is omitted, uses --port parameter.
-    #[arg(short, long, default_value = "127.0.0.1")]
+    #[arg(long, default_value = "127.0.0.1")]
     dest_addr: String,
 
     // --port
@@ -160,18 +160,18 @@ struct Args {
     #[arg(long, default_value = "")]
     list_mea: String,
 
-    // -m --mea
+    // --mea
     /// Specify variable names for DAQ measurement (list), may be list of names separated by space or single regular expressions (e.g. ".*").
-    #[arg(short, long, value_delimiter = ' ', num_args = 1..)]
+    #[arg(long, value_delimiter = ' ', num_args = 1..)]
     mea: Vec<String>,
 
     // --time-ms
     /// Limit measurement duration to n ms.
     #[arg(long, default_value_t = 0)]
     time_ms: u64,
-    // -t --time
+    // --time
     /// Limit measurement duration to n s.
-    #[arg(short, long, default_value_t = 0)]
+    #[arg(long, default_value_t = 0)]
     time: u64,
 
     // --list-cal
@@ -465,25 +465,27 @@ async fn xcp_client(
                 return Err("Failed to connect to XCP server".into());
             }
         }
-        info!("XCP MAX_CTO = {}", xcp_client.max_cto_size);
-        info!("XCP MAX_DTO = {}", xcp_client.max_dto_size);
+        info!("XCP Protocol Information:");
+        info!("  XCP MAX_CTO = {}", xcp_client.max_cto_size);
+        info!("  XCP MAX_DTO = {}", xcp_client.max_dto_size);
         info!(
-            "XCP RESOURCES = 0x{:02X} {} {} {} {}",
+            "  XCP RESOURCES = 0x{:02X} {} {} {} {}",
             xcp_client.resources,
             if (xcp_client.resources & 0x01) != 0 { "CAL" } else { "" },
             if (xcp_client.resources & 0x04) != 0 { "DAQ" } else { "" },
             if (xcp_client.resources & 0x10) != 0 { "PGM" } else { "" },
             if (xcp_client.resources & 0x40) != 0 { "STM" } else { "" }
         );
-        info!("XCP COMM_MODE_BASIC = 0x{:02X}", xcp_client.comm_mode_basic);
+        info!("  XCP COMM_MODE_BASIC = 0x{:02X}", xcp_client.comm_mode_basic);
         assert!((xcp_client.comm_mode_basic & 0x07) == 0); // Address granularity != 1 and motorola format not supported
-        info!("XCP PROTOCOL_VERSION = 0x{:04X}", xcp_client.protocol_version);
-        info!("XCP TRANSPORT_LAYER_VERSION = 0x{:04X}", xcp_client.transport_layer_version);
-        info!("XCP DRIVER_VERSION = 0x{:02X}", xcp_client.driver_version);
-        info!("XCP MAX_SEGMENTS = {}", xcp_client.max_segments);
-        info!("XCP FREEZE_SUPPORTED = {}", xcp_client.freeze_supported);
-        info!("XCP MAX_EVENTS = {}", xcp_client.max_events);
+        info!("  XCP PROTOCOL_VERSION = 0x{:04X}", xcp_client.protocol_version);
+        info!("  XCP TRANSPORT_LAYER_VERSION = 0x{:04X}", xcp_client.transport_layer_version);
+        info!("  XCP DRIVER_VERSION = 0x{:02X}", xcp_client.driver_version);
+        info!("  XCP MAX_SEGMENTS = {}", xcp_client.max_segments);
+        info!("  XCP FREEZE_SUPPORTED = {}", xcp_client.freeze_supported);
+        info!("  XCP MAX_EVENTS = {}", xcp_client.max_events);
 
+        info!("Reading target ECU information via XCP GET_ID commands:");
         // Get target ECU name
         let res = xcp_client.get_id(xcp::XCP_IDT_ASCII).await;
         ecu_name = match res {
@@ -495,13 +497,13 @@ async fn xcp_client(
                 panic!("Empty string");
             }
         };
-        info!("GET_ID XCP_IDT_ASCII = {}", ecu_name);
+        info!("  GET_ID XCP_IDT_ASCII = {}", ecu_name);
 
         // Get EPK
         let res = xcp_client.get_id(xcp::XCP_IDT_ASAM_EPK).await;
         let _ecu_epk = match res {
             Ok((_, Some(id))) => {
-                info!("GET_ID IDT_EPK = {}", id);
+                info!("  GET_ID IDT_EPK = {}", id);
                 id
             }
             Err(e) => {
@@ -993,11 +995,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .format_target(false)
         .init();
 
-    // Parse IP addresses with flexible port handling
+    // Parse IP addresses and ports
+    let mut tcp = args.tcp;
+    let udp = args.udp;
     let dest_addr: std::net::SocketAddr = parse_dest_addr(&args.dest_addr, args.port)?;
     let local_addr: std::net::SocketAddr = parse_dest_addr(&args.bind_addr, 0)?;
-    info!("XCP server dest addr: {}", dest_addr);
-    info!("XCP client local bind addr: {}", local_addr);
+    if args.offline {
+        info!("XCP client offline mode");
+    } else {
+        info!("XCP server dest addr: {}", dest_addr);
+        info!("XCP client local bind addr: {}", local_addr);
+        if !tcp && !udp {
+            warn!("No protocol specified, defaulting to TCP");
+            tcp = true;
+        }
+    }
 
     // Run the test executor if --test is specified
     if args.test {
@@ -1007,8 +1019,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     else {
         let res = xcp_client(
             args.verbose,
-            args.tcp,
-            args.udp,
+            tcp,
+            udp,
             dest_addr,
             local_addr,
             args.offline,

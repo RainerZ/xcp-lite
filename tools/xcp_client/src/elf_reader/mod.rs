@@ -197,7 +197,6 @@ impl ElfReader {
     pub fn get_target_signature(&self) -> Option<&str> {
         // Iterate over variables and look for XCPlite addressing mode marker
         for (var_name, var_infos) in &self.debug_data.variables {
-            log::info!("{}", var_name);
             if !var_name.starts_with("XCPLITE__") {
                 continue;
             }
@@ -209,7 +208,7 @@ impl ElfReader {
     }
 
     pub fn register_segments_and_events(&self, reg: &mut Registry, segment_relative: bool, verbose: usize) -> Result<(), Box<dyn Error>> {
-        info!("Registering segment and event information");
+        info!("Registering segment and event information:");
 
         let mut next_event_id: u16 = 0;
         let mut next_segment_number: u16 = 0;
@@ -285,20 +284,21 @@ impl ElfReader {
                     continue; // skip this variable
                 }
 
-                info!("  Segment '{}' default page variable found in debug data:", seg_name);
-                info!("    Address = {}:{:#x}", addr_ext, addr);
-                info!("    Size = {:#x}", length);
+                info!(
+                    "  Segment '{}' default page variable found in debug data: Address = {}:{:#x}, Size = {:#x}",
+                    seg_name, addr_ext, addr, length
+                );
 
                 // Find the segment by name in the registry
                 if let Some(reg_seg) = reg.cal_seg_list.find_cal_seg(seg_name) {
                     info!("Calibration segment '{}' {}:0x{:08X} found in registry", seg_name, reg_seg.addr_ext, reg_seg.addr);
                     // Segment relative addressing mode
                     if reg_seg.addr == 0x80000000 + ((reg_seg.index as u32) << 16) {
-                        info!(" Segment relative addressing");
+                        info!("  with segment relative addressing");
                         // Check if length matches
                         if reg_seg.size == length as u32 {
                             reg_seg.set_mem_addr(addr);
-                            info!("Calibration segment '{}' length matches existing registry entry", seg_name);
+                            info!("  matches existing registry entry");
                         } else {
                             warn!("Calibration segment '{}' length does not match existing registry entry", seg_name);
                             unimplemented!();
@@ -308,7 +308,7 @@ impl ElfReader {
                     else {
                         // Check if address and length match
                         if reg_seg.mem_addr == addr && reg_seg.size == length as u32 {
-                            info!("Calibration segment address and length '{}' matches existing registry entry", seg_name);
+                            info!(" matches existing registry entry");
                         } else {
                             warn!("Calibration segment '{}' does not match existing registry entry, registry information updated", seg_name);
                             unimplemented!();
@@ -399,7 +399,7 @@ impl ElfReader {
 
     // Find event triggers in the code and register their location (compilation unit, function, CFA offset)
     pub fn register_event_locations(&self, reg: &mut Registry, verbose: usize) -> Result<(), Box<dyn Error>> {
-        info!("Registering event locations");
+        info!("Registering event locations:");
 
         // Iterate over variables
         for (var_name, var_infos) in &self.debug_data.variables {
@@ -428,7 +428,10 @@ impl ElfReader {
                     format!("{evt_unit_idx}")
                 };
                 let evt_function = if let Some(f) = var_info.function.as_ref() { f.as_str() } else { "" };
-                info!("Event {} trigger found in {}:{}, address resolver mode {}", evt_name, evt_unit_name, evt_function, evt_mode);
+                info!(
+                    "  Event {} trigger found in {}:{}, address resolver mode {}",
+                    evt_name, evt_unit_name, evt_function, evt_mode
+                );
 
                 // Find the event in the registry
                 if let Some(_evt) = reg.event_list.find_event(evt_name, 0) {
@@ -467,7 +470,7 @@ impl ElfReader {
 
     pub fn register_variables(&self, reg: &mut Registry, segment_relative: bool, verbose: usize, unit_idx_limit: usize) -> Result<(), Box<dyn Error>> {
         // Load debug information from the ELF file
-        info!("Registering variables");
+        info!("Registering variables:");
 
         // Iterate over variables
         for (var_name, var_infos) in &self.debug_data.variables {
@@ -526,10 +529,10 @@ impl ElfReader {
                 let mem_addr: u64 = if mem_addr_ext == 0 {
                     // Encode absolute addressing mode
                     if var_info.address.1 == 0 {
-                        error!("Variable '{}' in function '{}' skipped, no address", var_name, var_function);
+                        debug!("Variable '{}' in function '{}' skipped, no address", var_name, var_function);
                         continue; // skip this variable
                     } else if var_info.address.1 >= 0xFFFFFFFF {
-                        error!(
+                        warn!(
                             "Variable '{}' skipped, has 64 bit address {:#x}, which does not fit the 32 bit XCP address range",
                             var_name, var_info.address.1
                         );
@@ -570,13 +573,13 @@ impl ElfReader {
                         let offset: i16 = (var_info.address.1 as i64 - 0x80000000 + cfa).try_into().unwrap();
                         ((offset as u64) & 0xFFFF) | ((event.id as u64) << 16)
                     } else {
-                        error!("Variable '{}' skipped, could not find event for dyn addressing mode", var_name);
-                        continue;
+                        debug!("Variable '{}' skipped, could not find event for dyn addressing mode", var_name);
+                        continue; // skip this variable
                     }
                 }
                 // @@@@ TODO: Handle other address extensions
                 else {
-                    error!("Variable '{}' skipped, has unsupported address extension {:#x}", var_name, mem_addr_ext);
+                    debug!("Variable '{}' skipped, has unsupported address extension {:#x}", var_name, mem_addr_ext);
                     continue; // skip this variable
                 };
 
@@ -620,7 +623,7 @@ impl ElfReader {
                         | DbgDataType::Array { .. }
                         | DbgDataType::Struct { .. } => {
                             info!(
-                                "Add {} instance for {}: addr = {}:0x{:08x}",
+                                "Add {} for {}: addr = {}:0x{:08x}",
                                 if object_type == McObjectType::Characteristic { "characteristic" } else { "measurement" },
                                 a2l_name,
                                 mem_addr_ext,

@@ -186,7 +186,10 @@ impl McValueType {
             McValueType::Ulong | McValueType::Slong | McValueType::Float32Ieee => 4,
             McValueType::Ulonglong | McValueType::Slonglong | McValueType::Float64Ieee => 8,
             McValueType::Blob(_) => panic!("get_size: Unknown blob size"),
-            McValueType::TypeDef(_) => panic!("get_size: Unknown instance size"),
+            McValueType::TypeDef(_) => {
+                log::error!("get_size: Unknown instance size");
+                0
+            }
             _ => panic!("get_size: Unsupported data type"),
         }
     }
