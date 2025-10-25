@@ -31,8 +31,6 @@ use elf_reader::ElfReader;
 
 pub mod bin_reader;
 
-use xcp_client::{EPK_SEG_ADDR, EPK_SEG_NAME};
-
 //-----------------------------------------------------------------------------
 // Command line arguments
 
@@ -138,8 +136,8 @@ struct Args {
 
     // --elf-unit-limit
     /// Parse only compilations units <= n.
-    #[arg(long, default_value_t = 0)]
-    elf_unit_limit: u32,
+    #[arg(long, default_value_t = usize::MAX)]
+    elf_unit_limit: usize,
 
     // --bin
     /// Specify the pathname of a binary file (Intel-HEX or XCPlite-BIN) for calibration parameter segment data
@@ -429,7 +427,6 @@ async fn xcp_client(
     a2l_filename: String,
     upload_a2l: bool,
     create_a2l: bool,
-
     fix_a2l: bool,
     elf_filename: String,
     elf_idx_unit_limit: usize,
@@ -447,6 +444,9 @@ async fn xcp_client(
 
     // Target ECU name
     let mut ecu_name = String::new();
+
+    // Calibration segment relative addressing mode
+    let mut segment_relative = false;
 
     //----------------------------------------------------------------
     // Connect the XCP server if required
@@ -578,8 +578,7 @@ async fn xcp_client(
     // If option create-a2l is specified and no ELF file, create a A2L template from XCP server information
     // Read segment and event information obtained from the XCP server into registry
     // Add measurement and calibration variables from ELF file if specified
-    // Addressing scheme may be XCP_LITE_ACSDD or XCP_LITE_CASDD depending on the target configuration
-    // @@@@ TODO How to detect this ????????
+    // Addressing scheme may be XCPLITE__ACSDD or XCPLITE__CASDD depending on the target configuration
     else if create_a2l || !elf_filename.is_empty() {
         let mode = if xcp_client.is_connected() {
             if !elf_filename.is_empty() {
@@ -612,21 +611,34 @@ async fn xcp_client(
         // If not, they are created, but with dummy event id and segment number, which has to be fixed later !!!
         if !elf_filename.is_empty() {
             info!("Reading ELF file: {}", elf_filename);
+
             // Read ELF file and DWARF debug information, compilation unit number may be limited to reduce processing time and memory needed
             let elf_reader = ElfReader::new(&elf_filename, verbose, elf_idx_unit_limit).ok_or(format!("Failed to read ELF file '{}'", elf_filename))?;
             if verbose > 0 {
                 elf_reader.debug_data.print_debug_info(verbose, elf_idx_unit_limit); // print only variables <= compilation unit 0
             }
-            // Register segments and event creations found in the code
 
+            // Detect addressing scheme for calibration segments
+            // Get target signature (CASDD, ACSDD, ...)from ELF file if available
             // true - addr_ext==0 is segment relative addressing, addr_ext==1 is absolute addressing
             // false - addr_ext==0 is absolute addressing, addr_ext==1 is segment relative addressing
-            let segment_relative = false;
+            segment_relative = {
+                let signature = elf_reader.get_target_signature();
+                if let Some(sig) = signature {
+                    info!("Target signature: {}", sig);
+                    if sig.starts_with("C") { true } else { false }
+                } else {
+                    warn!("No target signature found in ELF file");
+                    false
+                }
+            };
+
             info!(
                 "Using {} addressing for calibration segments",
                 if segment_relative { "segment relative" } else { "absolute" }
             );
 
+            // Register segments and event creations found in the code
             elf_reader.register_segments_and_events(&mut reg, segment_relative, verbose)?;
             // Find event triggers in the code and register their location (compilation unit, function, CFA offset)
             elf_reader.register_event_locations(&mut reg, verbose)?;
@@ -643,7 +655,16 @@ async fn xcp_client(
                 ecu_name = "project_name".into();
             }
             let title_info = format!("Created by xcp_client with {} - {}", mode, chrono::Utc::now().format("%Y-%m-%d %H:%M:%S"));
-            reg.write_a2l(&a2l_path, title_info.as_str(), &ecu_name, "", &ecu_name, "XCP_LITE_ACSDD", true).unwrap();
+            reg.write_a2l(
+                &a2l_path,
+                title_info.as_str(),
+                &ecu_name,
+                "",
+                &ecu_name,
+                if segment_relative { "XCPLITE__CASDD" } else { "XCPLITE__ACSDD" },
+                true,
+            )
+            .unwrap();
             info!("Created A2L with file: {} {}", a2l_path.display(), mode);
         }
     }
@@ -996,7 +1017,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             args.create_a2l,
             args.fix_a2l,
             args.elf,
-            args.elf_unit_limit as usize,
+            args.elf_unit_limit,
             args.bin,
             args.upload_bin,
             args.download_bin,

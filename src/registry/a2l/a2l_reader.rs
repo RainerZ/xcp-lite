@@ -2,13 +2,13 @@
 // Module a2l_reader
 // A2L reader for registry based on crate a2lfile
 // Detects Vector specific A2L usage if project id is "VECTOR"
-// Detects XCPlite specific A2L usage if project id is "XCP_LITE_xxxx" and then assumes predefined record layouts and typedefs
+// Detects XCPlite specific A2L usage if project id is "XCPLITE__xxxx" and then assumes predefined record layouts and typedefs
 
 // VECTOR mode:
 // - Predefined conversion rule IDENTIY
 // - Predefined conversion rule BOOL
 // - Address format
-// - Predefined record layout names U8, A_U8, M_U8, C_U8
+// - Predefined record layout names U8, A_U8, M_U8, C_U8, ...
 
 use super::*;
 
@@ -318,20 +318,20 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
                 info!("xcp-lite A2L detected, implicit EPK segment, CADR addressing mode");
             }
             // If this A2L file has been written by XCPlite
-            else if project_no.project_number.starts_with("XCP_LITE_") {
+            else if project_no.project_number.starts_with("XCPLITE__") {
                 // @@@@ XCPlite has flexible configuration options for address format, epk handling and calibration segment addressing and numbering
                 // @@@@ Currently harcoded here to ACSDD or CASDD mode, others are not supported yet
-                if project_no.project_number == "XCP_LITE_ACSDD" {
+                if project_no.project_number == "XCPLITE__ACSDD" {
                     relative_segment_addressing = false; // Don't activate this, because it assumes calibration segments are always in SEG addressing mode
                     convert_a2l_address = false; // In xcp-lite mode don't convert A2L address, use raw A2L address representation
                     info!("XCPlite A2L detected, {} addressing mode", project_no.project_number);
-                } else if project_no.project_number == "XCP_LITE_CASDD" {
+                } else if project_no.project_number == "XCPLITE__CASDD" {
                     relative_segment_addressing = true; // We assume calibration segments always have segment addressing mode
                     convert_a2l_address = true; // In xcp-lite mode don't convert A2L address, use raw A2L address representation
                     info!("XCPlite A2L detected, {} addressing mode", project_no.project_number);
                 } else {
                     error!(
-                        "Unsupported XCP_LITE addressing sheme,  project number {}, supported are XCP_LITE_ACSDD and XCP_LITE_CASDD",
+                        "Unsupported XCPLITE addressing sheme,  project number {}, supported are XCPLITE__ACSDD and XCPLITE__CASDD",
                         project_no.project_number
                     );
                 }

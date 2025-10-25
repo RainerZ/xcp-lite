@@ -194,6 +194,20 @@ impl ElfReader {
         Ok(())
     }
 
+    pub fn get_target_signature(&self) -> Option<&str> {
+        // Iterate over variables and look for XCPlite addressing mode marker
+        for (var_name, var_infos) in &self.debug_data.variables {
+            log::info!("{}", var_name);
+            if !var_name.starts_with("XCPLITE__") {
+                continue;
+            }
+            if let Some(signature) = var_name.strip_prefix("XCPLITE__") {
+                return Some(signature);
+            }
+        }
+        return None;
+    }
+
     pub fn register_segments_and_events(&self, reg: &mut Registry, segment_relative: bool, verbose: usize) -> Result<(), Box<dyn Error>> {
         info!("Registering segment and event information");
 

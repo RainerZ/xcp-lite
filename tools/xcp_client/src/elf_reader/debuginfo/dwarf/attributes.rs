@@ -492,7 +492,10 @@ fn evaluate_exprloc(
         };
     }
     let result = evaluation.result();
-    assert!(result.len() <= 1); // Pieces not supported yet
+    if result.len() > 1 {
+        log::warn!("evaluate_exprloc: Multiple pieces in evaluation result are not supported yet: {:?}", result);
+        return None;
+    }
     log::info!("evaluate_exprloc: Evaluation result: {:?}", result[0]);
     if result.is_empty() {
         log::error!("evaluate_exprloc: Evaluation result is empty");

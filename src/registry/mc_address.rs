@@ -391,7 +391,7 @@ mod mc_address_tests {
         let _ = test_setup();
 
         let mut reg = Registry::new();
-        reg.cal_seg_list.add_a2l_cal_seg("calseg", 0, 0, 0x80010000, 0x1000).unwrap();
+        reg.cal_seg_list.add_a2l_cal_seg("calseg", 0, 0, 0x80000000, 0x1000).unwrap();
 
         let addr = McAddress::new_calseg_rel("calseg", 11);
         assert_eq!(addr.calseg_name(), Some(McIdentifier::new("calseg")));
@@ -399,7 +399,7 @@ mod mc_address_tests {
         assert_eq!(addr.get_addr_offset(), 11);
         let a = addr.get_a2l_addr(&reg);
         assert!(a.0 == McAddress::XCP_ADDR_EXT_SEG);
-        assert_eq!(a.1, 0x8001000B);
+        assert_eq!(a.1, 0x80000000 + 11);
 
         let addr = McAddress::new_event_rel(1, -1);
         assert_eq!(addr.calseg_name(), None);

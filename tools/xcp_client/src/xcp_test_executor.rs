@@ -497,8 +497,8 @@ pub async fn test_setup(
         }
 
         // Check EPK
-        // EPK addr is always in segment 0 which is crate::EPK_SEG_ADDR 0x80000000 and len is hardcoded to 8
-        let res = xcp_client.short_upload(crate::EPK_SEG_ADDR, 0, 8).await;
+        // EPK addr is always in segment 0 which is xcp_client::EPK_SEG_ADDR 0x80000000 and len is hardcoded to 8
+        let res = xcp_client.short_upload(xcp_client::EPK_SEG_ADDR, 0, 8).await;
         let resp: Vec<u8> = match res {
             Err(e) => {
                 panic!("Could not upload EPK, Error: {}", e);
