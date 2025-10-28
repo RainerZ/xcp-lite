@@ -133,6 +133,13 @@ Options:
 xcp_client -- --list-cal ".*"
 ```
 
+### Upload an Intel-HEX file with the current calibration data
+
+```bash
+xcp_client -- --cal variable_name 42.5
+```
+
+
 ### Set a calibration variable
 
 ```bash

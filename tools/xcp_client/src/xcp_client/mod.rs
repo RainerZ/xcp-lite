@@ -1301,6 +1301,10 @@ impl XcpClient {
             return Err(Box::new(XcpError::new(ERROR_A2L, CC_GET_ID)) as Box<dyn Error>);
         }
 
+        // Check if the A2L file already exists and warn about overwriting
+        if a2l_path.as_ref().exists() {
+            warn!("A2L file {} already exists, overwriting", a2l_path.as_ref().display());
+        }
         // Upload the A2L file
         let a2l_name = a2l_path.as_ref().file_name().unwrap().to_string_lossy();
         info!("Upload A2L to {}", a2l_name);
@@ -1321,45 +1325,6 @@ impl XcpClient {
     }
 
     // Get the A2L via XCP upload and GET_ID4 (XCP_IDT_ASAM_UPLOAD)
-    pub async fn a2l_loader_old(&mut self, a2l_name: &str) -> Result<(), Box<dyn Error>> {
-        // Use the same filename for the uploaded file as CANape does <name>_autodetect.a2l
-        let a2l_filename = format!("{}_autodetect", a2l_name);
-        let mut a2l_path = std::path::PathBuf::new();
-        a2l_path.set_file_name(a2l_filename);
-        a2l_path.set_extension("a2l");
-
-        // Send XCP GET_ID 4 command to set MTA
-        let (file_size, _) = self.get_id(XCP_IDT_ASAM_UPLOAD).await?;
-        if file_size == 0 {
-            error!("A2L file not available, GET_ID 4 returned size 0");
-            return Err(Box::new(XcpError::new(ERROR_A2L, CC_GET_ID)) as Box<dyn Error>);
-        }
-
-        // Upload the A2L file
-        info!("Upload A2L to {}.a2l", a2l_path.display());
-        let file = std::fs::File::create(&a2l_path)?;
-        let mut writer = std::io::BufWriter::new(file);
-        let mut size = file_size;
-        while size > 0 {
-            let n = if size >= self.max_cto_size as u32 { self.max_cto_size - 1 } else { size as u8 };
-            size -= n as u32;
-            let data = self.upload(n).await?;
-            trace!("xcp_client.upload: {} bytes = {:?}", data.len(), data);
-            writer.write_all(&data[1..=n as usize])?;
-        }
-        writer.flush()?;
-        debug!("A2L upload completed, {} bytes loaded", file_size);
-
-        // Read the A2L file into a registry
-        let mut registry = xcp_lite::registry::Registry::new();
-        // @@@@ TODO xcp_client does not support arrays, instances and typedefs yet, flatten the registry and mangle the names
-        registry.load_a2l(&a2l_path, true, true, true, true)?;
-        self.registry = Some(registry);
-
-        Ok(())
-    }
-
-    // Get the A2L via XCP upload and GET_ID4 (XCP_IDT_ASAM_UPLOAD)
     pub async fn a2l_upload(&mut self, a2l_name: &str) -> Result<(), Box<dyn Error>> {
         // Use the same filename for the uploaded file as CANape does <name>_autodetect.a2l
         let a2l_filename = format!("{}_autodetect", a2l_name);
@@ -1374,6 +1339,10 @@ impl XcpClient {
             return Err(Box::new(XcpError::new(ERROR_A2L, CC_GET_ID)) as Box<dyn Error>);
         }
 
+        // Warn if the A2L file already exists
+        if a2l_path.exists() {
+            warn!("A2L file {} already exists, overwriting", a2l_path.display());
+        }
         // Upload the A2L file
         info!("Upload A2L to {}.a2l", a2l_path.display());
         let file = std::fs::File::create(&a2l_path)?;

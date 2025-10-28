@@ -38,28 +38,30 @@ use clap::Parser;
 
 #[derive(Parser, Debug)]
 #[command(name = "xcp_client")]
-#[command(about = concat!("XCP client v", env!("CARGO_PKG_VERSION"), " for testing XCP servers and managing A2L files"))]
-#[command(long_about = concat!("XCP client v", env!("CARGO_PKG_VERSION"), " for testing XCP servers and managing A2L files.
+#[command(about = concat!("XCP client v", env!("CARGO_PKG_VERSION"), " for testing XCP servers and managing A2L and HEX files"))]
+#[command(long_about = concat!("XCP client v", env!("CARGO_PKG_VERSION"), " for testing XCP servers and managing A2L and HEX files.
 
 This tool can:
-- Connect to XCP on Ethernet servers via TCP or UDP
+- Connect to XCP on Ethernet servers via TCP or UDP and show information about the XCP protocol and the target ECU
 - Upload A2L files from XCP servers (GET_ID command)
-- Create complete A2L files from ELF debug information the XCP server event and memory segment information
-- Create A2L templates from the XCP server event and memory segment information
+- Create A2L files from ELF/DWARF debug information including event and memory segment information obtained from the XCP server
+- Create A2L file templates for from a XCPlite ELF/DWARF
+- Fix A2L files with event and memory segment information from the XCP server
 - Read and write calibration variables (CAL)
-- Upload and download binary files (Intel-HEX) for calibration segments
-- Configure and acquire measurement data (DAQ)
-- List available variables and parameters with regex patterns
+- Upload (from target) and download (to target) binary files (Intel-HEX) with calibration segment data
+- List available measurement variables and parameters with regex patterns
+- Test data acquisition (DAQ)
 - Execute test sequences
 
 Examples:
   xcp_client --tcp --dest-addr 192.168.1.100 --port 5555 --upload-a2l
-  xcp_client --dest-addr 192.168.1.100 --upload-a2l
-  xcp_client --bind-addr 192.168.1.50 --dest-addr 192.168.1.100 --upload-a2l
+  xcp_client --list-mea \"sensor.*\" --list-cal \"param.*\"
+  xcp_client --cal variable_name 42.5
   xcp_client --mea \".*temperature.*\" --time 10
   xcp_client --elf myprogram.elf --create-a2l
-  xcp_client --cal variable_name 42.5
-  xcp_client --list-mea \"sensor.*\" --list-cal \"param.*\"
+  xcp_client --download-bin --bin test.hex
+  xcp_client --upload-bin --bin target_data.hex
+  xcp_client --elf myprogram.elf --create-a2l --offline --a2l my_a2l_file.a2l
   xcp_client --test"))]
 #[command(version)]
 struct Args {
@@ -140,18 +142,18 @@ struct Args {
     elf_unit_limit: usize,
 
     // --bin
-    /// Specify the pathname of a binary file (Intel-HEX or XCPlite-BIN) for calibration parameter segment data
+    /// Specify the pathname of a binary file (Intel-HEX) for calibration parameter segment data
     #[arg(long, default_value = "")]
     bin: String,
 
     // --upload-bin
-    /// Upload all calibration segments working page data and store into a given binary file.
+    /// Upload all calibration segments working page data from target and store into a Intel-HEX binary file.
     /// Requires that the XCP server supports GET_ID A2L upload.
     #[arg(long, default_value_t = false)]
     upload_bin: bool,
 
     // --download-bin
-    /// Download all calibration segments working page data in a given binary file.
+    /// Download all calibration segments working page data in a given Intel-HEX binary file to the target.
     #[arg(long, default_value_t = false)]
     download_bin: bool,
 
@@ -822,6 +824,7 @@ async fn xcp_client(
                         }
                     }
                 }
+                println!();
             }
             println!();
         } else {

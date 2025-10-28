@@ -335,7 +335,6 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
                         project_no.project_number
                     );
                 }
-                info!("XCPlite A2L detected, {} addressing mode", project_no.project_number);
             } else {
                 warn!("A2L file has not been written by xcp-lite, XCPlite (ACSDD or CASDD),or xcp_client, this is not a generic A2L reader, use at your own risk");
             }
