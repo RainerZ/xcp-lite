@@ -890,7 +890,6 @@ impl XcpClient {
 
     pub async fn get_ecu_page(&mut self, segment: u8) -> Result<u8, Box<dyn Error>> {
         let mode = CAL_PAGE_MODE_ECU;
-
         let data = self.send_command(XcpCommandBuilder::new(CC_GET_CAL_PAGE).add_u8(mode).add_u8(segment).build()).await?;
         let page = if data[3] != 0 { 1 } else { 0 };
         Ok(page)
@@ -1488,8 +1487,40 @@ impl XcpClient {
         if value > obj.a2l_limits.upper || value < obj.a2l_limits.lower {
             return Err(Box::new(XcpError::new(ERROR_LIMIT, 0)) as Box<dyn Error>);
         }
-        let size: usize = obj.get_type.size;
-        let slice = &value.to_le_bytes()[0..size];
+        let value_size: usize = obj.get_type.size;
+        let value_type: A2lType = obj.get_type;
+        let value: u64 = match value_type {
+            A2lType {
+                size: 4,
+                encoding: A2lTypeEncoding::Float,
+            } => {
+                let v = value as f32;
+                v.to_bits() as u64
+            }
+            A2lType {
+                size: 8,
+                encoding: A2lTypeEncoding::Float,
+            } => value.to_bits(),
+            A2lType {
+                size,
+                encoding: A2lTypeEncoding::Signed,
+            } => {
+                let v = value as i64;
+                v as u64
+            }
+            A2lType {
+                size,
+                encoding: A2lTypeEncoding::Unsigned,
+            } => {
+                let v = value as u64;
+                v
+            }
+            _ => {
+                error!("set_value_f64: unsupported type {:?}", value_type);
+                return Err(Box::new(XcpError::new(ERROR_TYPE_MISMATCH, 0)) as Box<dyn Error>);
+            }
+        };
+        let slice = &value.to_le_bytes()[0..value_size];
         self.short_download(obj.a2l_addr.addr, obj.a2l_addr.ext, slice).await?;
         self.calibration_object_list[handle.0].set_value(slice);
         Ok(())
@@ -1736,7 +1767,27 @@ impl XcpClient {
     }
 
     //---------------------------------------------------------------------------------
+    // Calibration page management
 
+    /// Set all calibration segments to page 0, working page
+    pub async fn init_calibration_segments(&mut self) -> Result<(), Box<dyn Error>> {
+        let reg = self.registry.as_mut().unwrap();
+        for index in 0..reg.cal_seg_list.len() {
+            let ecu_page = self.get_ecu_page(index.try_into().unwrap()).await?;
+            let xcp_page = self.get_xcp_page(index.try_into().unwrap()).await?;
+            info!("Calibration segment {}: ecu_page={}, xcp_page={}", index, ecu_page, xcp_page);
+        }
+
+        // Set all segments to working page 0
+        info!("Set ECU page access to working page for all segments");
+        self.set_ecu_page(0).await?;
+        info!("Set XCP page access to working page for all segments");
+        self.set_xcp_page(0).await?;
+
+        Ok(())
+    }
+
+    //---------------------------------------------------------------------------------
     // Upload and Download of calibration data
 
     // Usage:

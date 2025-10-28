@@ -100,6 +100,7 @@ pub const ERROR_LIMIT: u8 = 0xF3;
 pub const ERROR_ODT_SIZE: u8 = 0xF4;
 pub const ERROR_TASK_TERMINATED: u8 = 0xF5;
 pub const ERROR_SESSION_TERMINATION: u8 = 0xF6;
+pub const ERROR_TYPE_MISMATCH: u8 = 0xF7;
 
 #[derive(Default)]
 pub struct XcpError {

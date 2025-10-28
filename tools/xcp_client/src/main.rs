@@ -785,6 +785,11 @@ async fn xcp_client(
     // Assign registry to xcp_client
     xcp_client.registry = Some(reg);
 
+    // Check the status of all calibration segments and goto working page
+    if xcp_client.is_connected() {
+        xcp_client.init_calibration_segments().await?;
+    }
+
     // Print all known calibration objects and get their current value
     if !list_cal.is_empty() {
         println!();
@@ -859,12 +864,10 @@ async fn xcp_client(
             return Err("Calibration command requires exactly 2 arguments: variable name and value".into());
         }
 
+        // Parse the value as a double
         let var_name = &cal_args[0];
         let value_str = &cal_args[1];
-
-        // Parse the value as a double
         let value: f64 = value_str.parse().map_err(|_| format!("Failed to parse '{}' as a double value", value_str))?;
-
         info!("Setting calibration variable '{}' to {}", var_name, value);
 
         // Create calibration object
@@ -873,7 +876,7 @@ async fn xcp_client(
             .await
             .map_err(|e| format!("Failed to create calibration object for '{}': {}", var_name, e))?;
 
-        // Set the value using f64 (most calibration tools can handle type conversion)
+        // Set the value
         xcp_client
             .set_value_f64(handle, value)
             .await
