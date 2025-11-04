@@ -237,10 +237,11 @@ struct DaqDecoder {
     event_count: usize,
     byte_count: usize,
     daq_timestamp: [u64; MAX_EVENT],
+    verbose: usize,
 }
 
 impl DaqDecoder {
-    pub fn new() -> DaqDecoder {
+    pub fn new(verbose: usize) -> DaqDecoder {
         DaqDecoder {
             daq_odt_entries: None,
             timestamp_resolution: 0,
@@ -248,6 +249,7 @@ impl DaqDecoder {
             event_count: 0,
             byte_count: 0,
             daq_timestamp: [0; MAX_EVENT],
+            verbose,
         }
     }
 }
@@ -321,73 +323,85 @@ impl XcpDaqDecoder for DaqDecoder {
             t_last
         };
 
-        println!("DAQ: lost={}, daq={}, odt={}, t={}ns (+{}us)", lost, daq, odt, t, (t - t_last) / 1000);
+        if self.verbose >= 1 {
+            println!("DAQ: lost={}, daq={}, odt={}, t={}ns (+{}us)", lost, daq, odt, t, (t - t_last) / 1000);
 
-        // Get daq list
-        let daq_list = &self.daq_odt_entries.as_ref().unwrap()[daq as usize];
+            if self.verbose >= 2 {
+                // Get daq list
+                let daq_list = &self.daq_odt_entries.as_ref().unwrap()[daq as usize];
 
-        // Decode all odt entries
-        for odt_entry in daq_list.iter() {
-            let value_size = odt_entry.a2l_type.size;
-            let mut value_offset = odt_entry.offset as usize + value_size - 1;
-            let mut value: u64 = 0;
-            loop {
-                value |= data[value_offset] as u64;
-                if value_offset == odt_entry.offset as usize {
-                    break;
-                };
-                value <<= 8;
-                value_offset -= 1;
-            }
-            match odt_entry.a2l_type.encoding {
-                A2lTypeEncoding::Signed => {
-                    match value_size {
-                        1 => {
-                            let signed_value: i8 = value as u8 as i8;
-                            println!(" {} = {}", odt_entry.name, signed_value);
-                        }
-                        2 => {
-                            let signed_value: i16 = value as u16 as i16;
-                            println!(" {} = {}", odt_entry.name, signed_value);
-                        }
-                        4 => {
-                            let signed_value: i32 = value as u32 as i32;
-                            println!(" {} = {}", odt_entry.name, signed_value);
-                        }
-                        8 => {
-                            let signed_value: i64 = value as i64;
-                            println!(" {} = {}", odt_entry.name, signed_value);
-                        }
-                        _ => {
-                            warn!("Unsupported signed value size {}", value_size);
-                        }
-                    };
-                }
-                A2lTypeEncoding::Unsigned => {
-                    println!(" {} = {}", odt_entry.name, value);
-                }
-                A2lTypeEncoding::Float => {
-                    if odt_entry.a2l_type.size == 4 {
-                        // #[allow(clippy::transmute_int_to_float)]
-                        // let value: f32 = unsafe { std::mem::transmute(value as u32) };
-                        let value: f32 = f32::from_bits(value as u32);
-
-                        println!(" {} = {}", odt_entry.name, value);
-                    } else {
-                        // #[allow(clippy::transmute_int_to_float)]
-                        // let value: f64 = unsafe { std::mem::transmute(value) };
-                        let value: f64 = f64::from_bits(value);
-                        println!(" {} = {}", odt_entry.name, value);
+                // Decode all odt entries
+                for odt_entry in daq_list.iter() {
+                    let value_size = odt_entry.a2l_type.size;
+                    let mut value_offset = odt_entry.offset as usize + value_size - 1;
+                    let mut value: u64 = 0;
+                    loop {
+                        value |= data[value_offset] as u64;
+                        if value_offset == odt_entry.offset as usize {
+                            break;
+                        };
+                        value <<= 8;
+                        value_offset -= 1;
                     }
-                }
-                A2lTypeEncoding::Blob => {
-                    panic!("Blob not supported");
+                    match odt_entry.a2l_type.encoding {
+                        A2lTypeEncoding::Signed => {
+                            match value_size {
+                                1 => {
+                                    let signed_value: i8 = value as u8 as i8;
+                                    println!(" {} = {}", odt_entry.name, signed_value);
+                                }
+                                2 => {
+                                    let signed_value: i16 = value as u16 as i16;
+                                    println!(" {} = {}", odt_entry.name, signed_value);
+                                }
+                                4 => {
+                                    let signed_value: i32 = value as u32 as i32;
+                                    println!(" {} = {}", odt_entry.name, signed_value);
+                                }
+                                8 => {
+                                    let signed_value: i64 = value as i64;
+                                    println!(" {} = {}", odt_entry.name, signed_value);
+                                }
+                                _ => {
+                                    warn!("Unsupported signed value size {}", value_size);
+                                }
+                            };
+                        }
+                        A2lTypeEncoding::Unsigned => {
+                            println!(" {} = {}", odt_entry.name, value);
+                        }
+                        A2lTypeEncoding::Float => {
+                            if odt_entry.a2l_type.size == 4 {
+                                // #[allow(clippy::transmute_int_to_float)]
+                                // let value: f32 = unsafe { std::mem::transmute(value as u32) };
+                                let value: f32 = f32::from_bits(value as u32);
+
+                                println!(" {} = {}", odt_entry.name, value);
+                            } else {
+                                // #[allow(clippy::transmute_int_to_float)]
+                                // let value: f64 = unsafe { std::mem::transmute(value) };
+                                let value: f64 = f64::from_bits(value);
+                                println!(" {} = {}", odt_entry.name, value);
+                            }
+                        }
+                        A2lTypeEncoding::Blob => {
+                            panic!("Blob not supported");
+                        }
+                    }
                 }
             }
         }
 
         self.byte_count += data.len(); // overall payload byte count
         self.event_count += 1; // overall event count
+    }
+
+    fn get_byte_count(&self) -> usize {
+        self.byte_count
+    }
+
+    fn get_event_count(&self) -> usize {
+        self.event_count
     }
 }
 
@@ -457,7 +471,7 @@ async fn xcp_client(
         // Connect to the XCP server
         // Print protocol information
         info!("XCP Connect using {}", if tcp { "TCP" } else { "UDP" });
-        let daq_decoder = Arc::new(Mutex::new(DaqDecoder::new()));
+        let daq_decoder = Arc::new(Mutex::new(DaqDecoder::new(verbose))); // print DAQ data if verbose > 0
         match xcp_client.connect(Arc::clone(&daq_decoder), ServTextDecoder::new()).await {
             Ok(_) => {
                 info!("Connected to XCP server at {}", dest_addr);
@@ -734,10 +748,10 @@ async fn xcp_client(
                             s.get_index(),
                             seg.get_index()
                         );
-                    }
 
-                    // Create segment mapping information in a hash map
-                    seg_mapping.insert(s.get_index(), seg.get_index());
+                        // Create segment mapping information in a hash map
+                        seg_mapping.insert(s.get_index(), seg.get_index());
+                    }
                 } else {
                     error!("Calibration segment '{}' missing in A2L file {}", seg.get_name(), a2l_path.display());
                 }
@@ -778,7 +792,9 @@ async fn xcp_client(
                 }
             }
         } else if !event_mapping.is_empty() || !seg_mapping.is_empty() {
-            warn!("A2L file {} differs from target, but automatic correction not activated (--fix_a2l)", a2l_path.display());
+            warn!("A2L file {} differs from target, use automatic correction (--fix_a2l)", a2l_path.display());
+            info!("events: {:?}", event_mapping);
+            info!("segments: {:?}", seg_mapping);
         }
     } // load  A2L from specified file
 
