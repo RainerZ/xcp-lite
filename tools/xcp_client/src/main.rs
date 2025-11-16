@@ -100,6 +100,11 @@ struct Args {
     #[arg(long, default_value_t = false)]
     udp: bool,
 
+    // --connect-mode
+    /// XCP connect mode
+    #[arg(long, default_value_t = 0)]
+    connect_mode: u8,
+
     // --offline
     /// Force offline mode (no network communication), communication parameters are used to create A2L file.
     #[arg(long, default_value_t = false)]
@@ -439,6 +444,7 @@ async fn xcp_client(
     udp: bool,
     dest_addr: std::net::SocketAddr,
     local_addr: std::net::SocketAddr,
+    connect_mode: u8,
     offline: bool,
     a2l_filename: String,
     upload_a2l: bool,
@@ -458,8 +464,11 @@ async fn xcp_client(
     // Create xcp_client
     let mut xcp_client = XcpClient::new(tcp, dest_addr, local_addr);
 
-    // Target ECU name
+    // Target ECU name (from GET_ID)
     let mut ecu_name = String::new();
+
+    // A2L name (from GET_ID)
+    let mut a2l_name = String::new();
 
     // Calibration segment relative addressing mode
     let mut segment_relative = false;
@@ -472,7 +481,7 @@ async fn xcp_client(
         // Print protocol information
         info!("XCP Connect using {}", if tcp { "TCP" } else { "UDP" });
         let daq_decoder = Arc::new(Mutex::new(DaqDecoder::new(verbose))); // print DAQ data if verbose > 0
-        match xcp_client.connect(Arc::clone(&daq_decoder), ServTextDecoder::new()).await {
+        match xcp_client.connect(connect_mode, Arc::clone(&daq_decoder), ServTextDecoder::new()).await {
             Ok(_) => {
                 info!("Connected to XCP server at {}", dest_addr);
             }
@@ -502,18 +511,36 @@ async fn xcp_client(
         info!("  XCP MAX_EVENTS = {}", xcp_client.max_events);
 
         info!("Reading target ECU information via XCP GET_ID commands:");
+
         // Get target ECU name
         let res = xcp_client.get_id(xcp::XCP_IDT_ASCII).await;
-        ecu_name = match res {
-            Ok((_, Some(id))) => id,
+        match res {
+            Ok((_, Some(id))) => {
+                ecu_name = id;
+                info!("  GET_ID XCP_IDT_ASCII = {}", ecu_name);
+            }
             Err(e) => {
-                panic!("GET_ID failed, Error: {}", e);
+                error!("GET_ID XCP_IDT_ASCII failed, Error: {}", e);
             }
             _ => {
                 panic!("Empty string");
             }
         };
-        info!("  GET_ID XCP_IDT_ASCII = {}", ecu_name);
+
+        // Get A2L name
+        let res = xcp_client.get_id(xcp::XCP_IDT_ASAM_NAME).await;
+        match res {
+            Ok((_, Some(id))) => {
+                a2l_name = id;
+                info!("  GET_ID XCP_IDT_ASAM_NAME = {}", a2l_name);
+            }
+            Err(e) => {
+                error!("GET_ID XCP_IDT_ASAM_NAME failed, Error: {}", e);
+            }
+            _ => {
+                panic!("Empty string");
+            }
+        };
 
         // Get EPK
         let res = xcp_client.get_id(xcp::XCP_IDT_ASAM_EPK).await;
@@ -542,44 +569,27 @@ async fn xcp_client(
     reg.set_flatten_typedefs_mode(false);
     reg.set_prefix_names_mode(false);
 
-    // @@@@ TODO: How to determine that there is a EPK ????
-    //reg.application.set_version("EPK1.0.0",); // @@@@ TODO: a2l_creator
-
-    // Set A2L default file path to given command line argument 'a2l' or to target name 'ecu_name' if available
-    let mut a2l_path = std::path::Path::new(if !a2l_filename.is_empty() {
-        &a2l_filename
+    // Set A2L default file path to given command line argument 'a2l' or to what we got from GET_ID
+    // Use a2l_name if available, otherwise use target name 'ecu_name' if available
+    let a2l_path = std::path::Path::new(if !a2l_filename.is_empty() {
+        &a2l_filename // from command line argument
+    } else if !a2l_name.is_empty() {
+        &a2l_name // from GET_ID ASAM_NAME
     } else if !ecu_name.is_empty() {
-        &ecu_name
+        &ecu_name // from GET_ID ASCII
     } else {
         return Err("No A2L file name specified, use --a2l or connect to an XCP server".into());
     })
     .with_extension("a2l");
 
     //----------------------------------------------------------------
-    // Upload A2L the file from XCP server and load it into the registry
+    // Upload A2L
+    // From XCP server and load it into the registry
     if upload_a2l {
         info!("Upload A2L file from XCP server");
 
-        // Get A2L name from XCP server if no name has been specified as command line argument
-        // If upload A2L is supported, ecu should provide the ASAM name with GET_ID XCP_IDT_ASAM_NAME command
-        if a2l_filename.is_empty() {
-            let res = xcp_client.get_id(xcp::XCP_IDT_ASAM_NAME).await;
-            match res {
-                Ok((_, Some(id))) => {
-                    info!("GET_ID XCP_IDT_ASAM_NAME = {}", id);
-                    a2l_path = std::path::Path::new(&id).with_extension("a2l");
-                }
-                Err(e) => {
-                    warn!("GET_ID XCP_IDT_ASAM_NAME failed, Error: {}", e);
-                }
-                _ => {
-                    warn!("GET_ID XCP_IDT_ASAM_NAME returned empty string, using A2L name: {}", a2l_path.display());
-                }
-            };
-        }
-
         // Upload A2L file
-        info!("Uploading A2L file: {}", a2l_path.display());
+        info!("Uploading A2L into file: {}", a2l_path.display());
         let res = xcp_client.upload_a2l(&a2l_path).await;
         if let Err(e) = res {
             error!("A2L upload failed, Error: {}", e);
@@ -592,6 +602,7 @@ async fn xcp_client(
         reg.load_a2l(&a2l_path, true, true, true, true)?;
     }
     //----------------------------------------------------------------
+    // Create A2L file
     // If an ELF file is specified create an A2L file from the XCP server information and the ELF file
     // If option create-a2l is specified and no ELF file, create a A2L template from XCP server information
     // Read segment and event information obtained from the XCP server into registry
@@ -687,6 +698,7 @@ async fn xcp_client(
         }
     }
     //----------------------------------------------------------------
+    // Load A2L from local file
     // If not upload or create option load  A2L from specified file into registry
     // If fix-a2l option is specified, check and correct the A2L file with the XCP server information otherwise just warn about differences
     // Consider command line option --epk-segment
@@ -1045,6 +1057,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             udp,
             dest_addr,
             local_addr,
+            args.connect_mode,
             args.offline,
             args.a2l,
             args.upload_a2l,

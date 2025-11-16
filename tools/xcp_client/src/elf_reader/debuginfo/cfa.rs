@@ -35,10 +35,10 @@ pub fn get_cfa_from_object(object_file: &object::File<'_>, cfa_info: &mut Vec<Cf
     log::debug!("get_cfa_from_object: CFA parser extracting function information from DWARF...");
     let n = extract_function_info(&dwarf, &object_file, cfa_info, verbose, unit_idx_limit)?;
     if n == 0 {
-        log::warn!("No functions found with debug information.");
+        log::warn!("CFA parser: No functions found");
         return Ok(0);
     }
-    log::info!("CFA parser: Found {} functions with XCP events:", n);
+    log::info!("CFA parser: Found {} functions:", n);
 
     // Summary
     // Group by compilation unit

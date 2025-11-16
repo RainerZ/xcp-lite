@@ -256,7 +256,10 @@ impl McAddress {
             McAddrMode::A2l | McAddrMode::A2lEvent => {
                 self.a2l_addr = (self.a2l_addr as i64 + offset as i64) as u32;
             }
-            McAddrMode::Abs | McAddrMode::Undef => panic!("Address mode not supported"),
+            McAddrMode::Abs => {
+                self.addr_offset += offset;
+            }
+            McAddrMode::Undef => panic!("Address mode Undef"),
         }
     }
 

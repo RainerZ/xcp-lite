@@ -40,3 +40,6 @@ mandelbrot.png
 /no_a2l_demo.log
 /compare_hex.py
 /compare_hex_detailed.py
+/tools/xcp_client/no_a2l_demo.a2l
+/tools/xcp_client/no_a2l_demo.log
+/tools/xcp_client/no_a2l_demo.out

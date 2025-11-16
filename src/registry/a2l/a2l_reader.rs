@@ -351,7 +351,11 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
     //----------------------------------------------------------------------------------------------------------------
     // Event
     for if_data in &module.if_data {
-        if if_data.ifdata_valid {
+        if !if_data.ifdata_valid {
+            error!("IF_DATA block is not valid");
+
+            //info!("{:#?}", if_data);
+        } else {
             let decoded_ifdata = aml_ifdata::A2mlVector::load_from_ifdata(if_data).unwrap();
             if let Some(xcp) = decoded_ifdata.xcp {
                 if let Some(daq) = xcp.daq {
@@ -361,6 +365,8 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
                         registry.event_list.add_event(McEvent::new(e.event_channel_name, 0, e.event_channel_number, 0)).unwrap();
                     }
                 }
+            } else {
+                warn!("Could not decode XCP IF_DATA");
             }
         }
     }

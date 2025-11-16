@@ -36,8 +36,7 @@ fn main() {
             .allowlist_function("XcpEthServerShutdown")
             .allowlist_function("XcpEthServerStatus")
             // DAQ
-            .allowlist_function("XcpEvent")
-            .allowlist_function("XcpEventExt")
+            .allowlist_function("XcpEventExt2")
             // Misc
             .allowlist_function("XcpSetLogLevel")
             .allowlist_function("XcpPrint")

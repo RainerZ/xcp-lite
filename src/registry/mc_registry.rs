@@ -76,7 +76,7 @@ impl McApplication {
     pub fn set_info<A: Into<McIdentifier>, B: Into<McText>>(&mut self, name: A, description: B, id: u8) {
         let name: McIdentifier = name.into();
         let description: McText = description.into();
-        log::info!("Registry set application info, app_name={}, app_id={}, description={}", name, id, description);
+        log::info!("Registry set application info, app_name='{}', app_id={}, description='{}'", name, id, description);
 
         // Set name, id and description
         self.app_id = id;

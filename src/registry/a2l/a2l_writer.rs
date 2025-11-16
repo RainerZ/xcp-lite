@@ -877,7 +877,7 @@ ASAP2_VERSION 1 71
     fn write_a2l_modpar(&mut self) -> std::io::Result<()> {
         writeln!(self, "/begin MOD_PAR \"\" ")?;
 
-        // EPK segment
+        // EPK
         {
             let application = &self.registry.application;
             application.write_a2l(self)?;

@@ -635,7 +635,7 @@ pub async fn test_setup(task_count: usize, load_a2l: bool, upload_a2l: bool) -> 
     let mut xcp_client = XcpClient::new(false, dest_addr, local_addr);
     let daq_decoder: Arc<parking_lot::lock_api::Mutex<parking_lot::RawMutex, DaqDecoder>> = Arc::new(Mutex::new(DaqDecoder::new(task_count)));
     let serv_text_decoder = ServTextDecoder::new();
-    xcp_client.connect(Arc::clone(&daq_decoder), serv_text_decoder).await.unwrap();
+    xcp_client.connect(0, Arc::clone(&daq_decoder), serv_text_decoder).await.unwrap();
     tokio::time::sleep(Duration::from_micros(10000)).await;
 
     //-------------------------------------------------------------------------------------------------------------------------------------

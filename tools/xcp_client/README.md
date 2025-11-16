@@ -190,3 +190,21 @@ Create an A2L for an application ELF file with DWARF debug information.
 ```bash
 xcp_client --dest-addr=192.168.0.206 --tcp --elf no_a2l_demo.out  --create-a2l --create-epk-segment --a2l no_a2l_demo.a2l --offline >no_a2l_demo.log
 ```
+
+
+
+#### Demo
+
+```bash
+
+# A2l from no_a2l_demo.out
+cargo r --  --elf no_a2l_demo.out --elf-unit-limit 1000 --log-level 3  --create-a2l --a2l no_a2l_demo.a2l   --offline  
+
+
+cargo r --  --dest-addr 192.168.0.206 --udp --elf no_a2l_demo.out --elf-unit-limit 1000 --log-level 3  --create-a2l --a2l no_a2l_demo.a2l 
+
+cargo r --  --dest-addr 192.168.0.206  --elf no_a2l_demo.out --elf-unit-limit 1000 --log-level 3  --create-a2l --a2l no_a2l_demo.a2l --list-mea 'counter'
+
+cargo r --  --dest-addr 192.168.0.206  --elf no_a2l_demo.out --elf-unit-limit 1000 --log-level 3  --create-a2l --a2l no_a2l_demo.a2l --mea 'counter'  --time 5 --verbose 2
+
+```

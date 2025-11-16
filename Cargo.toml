@@ -96,7 +96,8 @@ xcp_idl_generator  = { path = "./xcp_idl_generator/"}
 xcp_idl_generator_derive  = { path = "./xcp_idl_generator/xcp_idl_generator_derive/"}
 
 # A2L checker (optional)
-a2lfile = { version="3.0.0", optional = true}
+a2lfile = { version="3.3.0", optional = true}
+
 anyhow = "1.0"
 
 [dev-dependencies]

@@ -155,8 +155,8 @@ impl XcpEvent {
     //#[allow(clippy::not_unsafe_ptr_arg_deref)]
     pub unsafe fn trigger_ext(self, base: *const u8) {
         // @@@@ UNSAFE - C library call and transferring a pointer and its valid memory range to XCPlite FFI
-
-        unsafe { xcplib::XcpEventExt(self.get_id(), base) }
+        // @@@@ TODO: Clarify DYN versus REL addressing mode
+        unsafe { xcplib::XcpEventExt2(self.get_id(), base, base) }
     }
 }
 
@@ -714,7 +714,7 @@ const CAL_PAGE_MODE_XCP: u8 = 0x02;
 const CAL_PAGE_MODE_ALL: u8 = 0x80; // switch all segments simultaneously
 
 #[unsafe(no_mangle)]
-extern "C" fn cb_connect() -> bool {
+extern "C" fn cb_connect(_mode: u8) -> bool {
     {
         log::trace!("cb_connect: generate and write Al2 file");
         if let Err(e) = XCP.finalize_registry() {

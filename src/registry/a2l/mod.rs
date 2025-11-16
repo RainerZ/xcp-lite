@@ -65,19 +65,19 @@ impl Registry {
 
                 // Print all log messages
                 if print_warnings {
+                    log::info!("{} A2L warnings:", log_msgs.len());
                     for log_msg in log_msgs {
-                        log::warn!("A2L warning: {}", log_msg);
+                        log::warn!("Warning: {}", log_msg);
                         warnings += 1;
                     }
                 }
 
                 // Perform additional consistency checks on a2lfile::A2lFile
                 if check {
-                    // let mut log_msgs = Vec::new();
-                    // a2l_file.check(&mut log_msgs);
                     let log_msgs = a2l_file.check();
+                    log::info!("{} A2L checker finding:", log_msgs.len());
                     for log_msg in log_msgs {
-                        log::warn!("A2L check: {}", log_msg);
+                        log::warn!("Check: {}", log_msg);
                         warnings += 1;
                     }
                 }

@@ -660,7 +660,7 @@ impl XcpClient {
     //------------------------------------------------------------------------
     // Connect/disconnect to server, create receive task
 
-    pub async fn connect<D, T>(&mut self, daq_decoder: Arc<Mutex<D>>, text_decoder: T) -> Result<(), Box<dyn Error>>
+    pub async fn connect<D, T>(&mut self, connect_mode: u8, daq_decoder: Arc<Mutex<D>>, text_decoder: T) -> Result<(), Box<dyn Error>>
     where
         T: XcpTextDecoder + Send + 'static,
         D: XcpDaqDecoder + Send + 'static,
@@ -705,7 +705,7 @@ impl XcpClient {
 
         // Connect
         debug!("XCP CONNECT");
-        let data = self.send_command(XcpCommandBuilder::new(CC_CONNECT).add_u8(0).build()).await?;
+        let data = self.send_command(XcpCommandBuilder::new(CC_CONNECT).add_u8(connect_mode).build()).await?;
         assert!(data.len() >= 8);
         let resources = data[1];
         let comm_mode_basic = data[2];

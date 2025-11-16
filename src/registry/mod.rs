@@ -454,8 +454,13 @@ fn create_flattened_instance_list(reg: &mut Registry, typedef_index: &HashMap<&'
         if let Some(typedef_name) = instance.get_typedef_name() {
             if instance.dim_type.get_dim()[0] > 1 {
                 // Multidimensional typedef field, not supported
-                log::error!("Instance {}: Multidimensional field of type {} can not be flattened", name, typedef_name);
-                assert!(false); // Only basic types are supported
+                log::error!(
+                    "Instance {}: Multidimensional field of type {} can not be flattened, dimension {} ignored",
+                    name,
+                    typedef_name,
+                    instance.dim_type.get_dim()[0]
+                );
+                // This is not possible, we don't unroll arrays, just ignore the dimension
             }
 
             if let Some(i) = typedef_index.get(typedef_name) {
