@@ -529,8 +529,8 @@ pub mod registry_test {
             registry::init();
             let mut l = registry::get_lock();
             l.replace(Registry::new());
-            l.as_mut().unwrap().application.set_info("test_setup", "created by test_setup", 0);
-            l.as_mut().unwrap().application.set_version("test_setup", crate::EPK_SEG_ADDR);
+            l.as_mut().unwrap().application.set_info("test", "created by test", 0);
+            l.as_mut().unwrap().application.set_version("EPK_V1.0.0", crate::EPK_SEG_ADDR);
         }
         // Drop the closed registry singleton (unsafe)
         #[allow(invalid_reference_casting)]
@@ -582,7 +582,7 @@ pub mod registry_test {
         // Registry
         let mut reg = Registry::new();
         reg.application.set_info("test_registry_1", "created by test_registry_1", 0);
-        reg.application.set_version("EPK1.0.0", crate::EPK_SEG_ADDR);
+        reg.application.set_version("EPK_V1.0.0", crate::EPK_SEG_ADDR);
         reg.set_xcp_params("UDP", Ipv4Addr::new(127, 0, 0, 1), 5555);
 
         reg.cal_seg_list.add_cal_seg("test_cal_seg_1", 0, 4).unwrap();
@@ -629,7 +629,7 @@ pub mod registry_test {
             .unwrap();
 
         // Write A2L file and check syntax
-        reg.write_a2l(&"test_registry_1.a2l", "xcp-lite test", "project_name", "", "module_name", "VECTOR", true)
+        reg.write_a2l(&"test_registry_1.a2l", "xcp-lite test", "project_name", "", "module_name", "XCPLITE__C_DR", true)
             .unwrap();
     }
 
@@ -918,7 +918,7 @@ pub mod registry_test {
 
         // Write A2L file and check syntax
         {
-            reg.write_a2l(&"test_registry_api.a2l", "xcp-lite test", "project_name", "", "module_name", "VECTOR", false)
+            reg.write_a2l(&"test_registry_api.a2l", "xcp-lite test", "project_name", "", "module_name", "XCPLITE__C_DR", false)
                 .unwrap();
 
             // Load the A2L file into another registry
@@ -967,7 +967,7 @@ pub mod registry_test {
 
         // Write A2L file and check syntax
         log::info!("Write A2L file test_registry_load_a2l.a2l");
-        reg.write_a2l(&"test_registry_load_a2l.a2l", "xcp-lite test", "project_name", "", "module_name", "VECTOR", true)
+        reg.write_a2l(&"test_registry_load_a2l.a2l", "xcp-lite test", "project_name", "", "module_name", "XCPLITE__C_DR", true)
             .unwrap();
 
         // Compare xcp_lite.a2l and xcp_lite2.a2l

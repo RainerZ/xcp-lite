@@ -310,19 +310,20 @@ impl McAddress {
             // Event relative addressing with async access
             McAddrMode::Dyn => McAddress::get_dyn_ext_addr(self.event_id.unwrap(), self.addr_offset.try_into().expect("offset too large")),
             // Absolute addressing with default event
-            McAddrMode::Abs => McAddress::get_abs_ext_addr(self.addr_offset.try_into().expect("addr too large")),
+            McAddrMode::Abs => McAddress::get_abs_ext_addr(self.addr_offset.try_into().expect("get_a2l_addr: addr too large")),
             // Explicit segment relative addressing
             McAddrMode::Cal => {
+                let name = self.calseg_name.as_ref().expect("get_a2l_addr: Calibration segment name not set");
                 let index = registry
                     .cal_seg_list
-                    .get_cal_seg_index(self.calseg_name.as_ref().unwrap())
-                    .expect("Relative addressing needs a calibration segment");
-                McAddress::get_calseg_ext_addr(index, self.addr_offset.try_into().expect("offset too large"))
+                    .get_cal_seg_index(name)
+                    .unwrap_or_else(|| panic!("get_a2l_addr: Calibration segment {} not found", name));
+                McAddress::get_calseg_ext_addr(index, self.addr_offset.try_into().expect("get_a2l_addroffset too large"))
             }
             // Explicit A2L address
             McAddrMode::A2l | McAddrMode::A2lEvent => (self.a2l_addr_ext, self.a2l_addr),
             // Undefined address mode
-            McAddrMode::Undef => panic!("Undefined address mode"),
+            McAddrMode::Undef => panic!("get_a2l_addr: Undefined address mode"),
         }
     }
 

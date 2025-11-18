@@ -181,10 +181,13 @@ fn task(index: usize) {
     daq_register_tli!(test31, event);
 
     loop {
-        let cal_seg = cal_seg.read_lock();
+        let (cycle_time_us, run) = {
+            let cal_seg = cal_seg.read_lock();
+            (cal_seg.cycle_time_us as u64, cal_seg.run)
+        };
 
         // Sleep for a calibratable amount of time
-        thread::sleep(Duration::from_micros(cal_seg.cycle_time_us as u64));
+        thread::sleep(Duration::from_micros(cycle_time_us as u64));
 
         time = Xcp::get().get_clock();
         let _ = time;
@@ -227,23 +230,27 @@ fn task(index: usize) {
         test31 = test30 + offset;
         _ = test31;
 
-        // Calculate a counter wrapping at cal_seg.counter_max
-        counter_max = cal_seg.counter_max;
-        counter += 1;
-        if counter > counter_max {
-            counter = 0;
-        }
+        {
+            let cal_seg = cal_seg.read_lock();
 
-        // Test atomic calibration
-        // Check that modified cal_seg.cal_test value is not corrupted and report the number of changes
-        if cal_test != cal_seg.cal_test {
-            changes += 1;
-            cal_test = cal_seg.cal_test;
-            assert_eq!((cal_test >> 32) ^ 0x55555555, cal_test & 0xFFFFFFFF);
-        }
+            // Calculate a counter wrapping at cal_seg.counter_max
+            counter_max = cal_seg.counter_max;
+            counter += 1;
+            if counter > counter_max {
+                counter = 0;
+            }
 
-        // Test consistent calibration
-        assert_eq!(cal_seg.sync_test1, cal_seg.sync_test2);
+            // Test atomic calibration
+            // Check that modified cal_seg.cal_test value is not corrupted and report the number of changes
+            if cal_test != cal_seg.cal_test {
+                changes += 1;
+                cal_test = cal_seg.cal_test;
+                assert_eq!((cal_test >> 32) ^ 0x55555555, cal_test & 0xFFFFFFFF);
+            }
+
+            // Test consistent calibration
+            assert_eq!(cal_seg.sync_test1, cal_seg.sync_test2);
+        }
 
         // Capture variable cal_test, to test capture buffer measurement mode
         daq_capture_tli!(cal_test, event);
@@ -255,7 +262,7 @@ fn task(index: usize) {
         // Check for termination and check server is healthy
         if loop_counter % 256 == 0 {
             // Check for termination
-            if !cal_seg.run {
+            if !run {
                 break;
             }
             // Server ok ?
@@ -289,12 +296,7 @@ async fn test_multi_thread() {
         .init();
 
     // Initialize XCP server
-    let xcp = match Xcp::get()
-        .set_app_name("test_multi_thread")
-        .set_app_revision("EPK1.0.0")
-        .set_log_level(OPTION_XCP_LOG_LEVEL)
-        .start_server(XcpTransportLayer::Udp, [127, 0, 0, 1], 5555, TEST_QUEUE_SIZE)
-    {
+    let xcp = match Xcp::init("test_multi_thread", "EPK1.0.0", OPTION_XCP_LOG_LEVEL).start_server(XcpTransportLayer::Udp, [127, 0, 0, 1], 5555, TEST_QUEUE_SIZE) {
         Err(res) => {
             error!("XCP initialization failed: {:?}", res);
             return;

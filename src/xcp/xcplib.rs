@@ -16,6 +16,34 @@ unsafe extern "C" {
     #[doc = " Get information about the XCP on Ethernet server instance address.\n @pre The server instance is running.\n @param out_is_tcp Optional out parameter to query if TCP or UDP is used.\n True if TCP, otherwise UDP.\n Pass NULL if not required.\n @param out_mac Optional out parameter to query the MAC address of the interface used in the server instance.\n Pass NULL if not required.\n @param out_address Optional out parameter to query the IP address used in the server instance.\n Pass NULL if not required.\n @param out_port Optional out parameter to query the port address used in the server instance.\n Pass NULL if not required."]
     pub fn XcpEthServerGetInfo(out_is_tcp: *mut bool, out_mac: *mut u8, out_address: *mut u8, out_port: *mut u16);
 }
+#[doc = " Calibration segment handle"]
+pub type tXcpCalSegIndex = u16;
+unsafe extern "C" {
+    #[doc = " Create a calibration segment and add it to the list of calibration segments.\n Create a named calibration segment and add it to the list of calibration segments.\n This calibration segment has a working page (RAM) and a reference page (FLASH), it creates a MEMORY_SEGMENT in the A2L file\n It provides safe (thread safe against XCP modifications), lock-free and consistent access to the calibration params\n It supports XCP/ECU independent page switching, checksum calculation, copy and reinitialization (copy reference page to working page)\n @param name Name of the calibration segment.\n @param default_page Pointer to the default page.\n @param size Size of the calibration page in bytes.\n @return a handle or XCP_UNDEFINED_CALSEG when out of memory or the name already exists."]
+    pub fn XcpCreateCalSeg(name: *const ::std::os::raw::c_char, default_page: *const ::std::os::raw::c_void, size: u16) -> tXcpCalSegIndex;
+}
+unsafe extern "C" {
+    #[doc = " Find a calibration segment by name, returns XCP_UNDEFINED_CALSEG if not found"]
+    pub fn XcpFindCalSeg(name: *const ::std::os::raw::c_char) -> tXcpCalSegIndex;
+}
+unsafe extern "C" {
+    #[doc = " Get the name of the calibration segment\n @return the name of the calibration segment or NULL if the index is invalid."]
+    pub fn XcpGetCalSegName(calseg: tXcpCalSegIndex) -> *const ::std::os::raw::c_char;
+}
+unsafe extern "C" {
+    #[doc = " Lock a calibration segment.\n @param calseg Calibration segment index.\n @return Pointer to the active page of the calibration segment (working page or reference page, controlled by the XCP client tool).\n The pointer is valid until the calibration segment is unlocked.\n The data can be safely accessed while the lock is held.\n There is no contention with the XCP client tool and with other threads acquiring the lock.\n Acquiring the lock is wait-free, locks may be recursive"]
+    pub fn XcpLockCalSeg(calseg: tXcpCalSegIndex) -> *const u8;
+}
+unsafe extern "C" {
+    #[doc = " Unlock a calibration segment"]
+    pub fn XcpUnlockCalSeg(calseg: tXcpCalSegIndex);
+}
+unsafe extern "C" {
+    pub fn XcpGetCalSegCount() -> u16;
+}
+unsafe extern "C" {
+    pub fn XcpGetCalSegSize(calseg: tXcpCalSegIndex) -> u16;
+}
 #[doc = " DAQ event id as handle"]
 pub type tXcpEventId = u16;
 unsafe extern "C" {
@@ -30,10 +58,11 @@ unsafe extern "C" {
     pub fn XcpInit(name: *const ::std::os::raw::c_char, epk: *const ::std::os::raw::c_char, activate: bool);
 }
 unsafe extern "C" {
-    pub fn XcpSetA2lName(name: *const ::std::os::raw::c_char);
+    #[doc = " Reset XCP library to initial state"]
+    pub fn XcpReset();
 }
 unsafe extern "C" {
-    pub fn XcpSetEpk(epk: *const ::std::os::raw::c_char);
+    pub fn XcpSetA2lName(name: *const ::std::os::raw::c_char);
 }
 unsafe extern "C" {
     #[doc = " Force Disconnect\n Stop DAQ, flush queue, flush pending calibrations"]

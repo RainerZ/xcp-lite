@@ -252,14 +252,9 @@ impl CalSegList {
         self.sort_by_name();
 
         // Register all calibration segments in the registry
-        // Address is index<<16, addr_ext is 0
         for (i, d) in self.0.iter().enumerate() {
             debug!("Register CalSeg {}, size={}", d.get_name(), d.get_size());
             assert!(i == d.calseg.lock().get_index());
-
-            // Address calculation
-            // Address format for calibration segment field is index | 0x8000 in high word, addr_ext is 0
-            // (CANape does not support addr_ext in memory segments)
             let index: u16 = i.try_into().unwrap();
             let size = d.get_size().try_into().unwrap();
             let _ = registry::get_lock().as_mut().unwrap().cal_seg_list.add_cal_seg(d.get_name(), index, size);

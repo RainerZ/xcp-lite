@@ -21,6 +21,7 @@ fn main() {
             .header("xcplib/inc/xcplib.h")
             //
             //.clang_args(&["-target", "x86_64-pc-windows-msvc"])
+            .clang_arg("-Ixcplib_cfg")
             .clang_arg("-Ixcplib/src")
             .clang_arg("-Ixcplib")
             .clang_arg("-DXCPLIB_FOR_RUST")
@@ -29,18 +30,26 @@ fn main() {
             .blocklist_type("T_CLOCK_INFO")
             // Protocol layer
             .allowlist_function("XcpInit")
+            .allowlist_function("XcpReset")
             .allowlist_function("XcpDisconnect")
             // Server
             .allowlist_function("XcpEthServerGetInfo")
             .allowlist_function("XcpEthServerInit")
             .allowlist_function("XcpEthServerShutdown")
             .allowlist_function("XcpEthServerStatus")
+            // CAL
+            .allowlist_function("XcpCreateCalSeg")
+            .allowlist_function("XcpFindCalSeg")
+            .allowlist_function("XcpGetCalSegCount")
+            .allowlist_function("XcpGetCalSegName")
+            .allowlist_function("XcpGetCalSegSize")
+            .allowlist_function("XcpLockCalSeg")
+            .allowlist_function("XcpUnlockCalSeg")
             // DAQ
             .allowlist_function("XcpEventExt2")
             // Misc
             .allowlist_function("XcpSetLogLevel")
             .allowlist_function("XcpPrint")
-            .allowlist_function("XcpSetEpk")
             .allowlist_function("XcpSetA2lName")
             .allowlist_function("ApplXcpRegisterCallbacks")
             .allowlist_function("XcpSendTerminateSessionEvent")
@@ -54,8 +63,11 @@ fn main() {
     // Build xcplib
     let mut builder = cc::Build::new();
     let builder = builder
+        .include("xcplib_cfg/")
+        .include("xcplib/inc/")
         .include("xcplib/src/")
         .file("xcplib/src/xcpAppl.c")
+        .file("xcplib/src/persistence.c")
         .file("xcplib/src/platform.c")
         .file("xcplib/src/xcpLite.c")
         .file("xcplib/src/xcpQueue64.c")
@@ -77,7 +89,8 @@ fn main() {
     builder.compile("xcplib");
 
     // Tell cargo to invalidate the built crate whenever any of these files changed.
-    println!("cargo:rerun-if-changed=xcplib/xcplib.h");
+    println!("cargo:rerun-if-changed=xcplib_cfg/xcplib_cfg.h");
+    println!("cargo:rerun-if-changed=xcplib/inc/xcplib.h");
     println!("cargo:rerun-if-changed=xcplib/src/main_cfg.h");
     println!("cargo:rerun-if-changed=xcplib/src/xcptl_cfg.h");
     println!("cargo:rerun-if-changed=xcplib/src/xcp_cfg.h");

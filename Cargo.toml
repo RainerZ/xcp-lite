@@ -38,7 +38,11 @@ version = "0.9.3"
 [features]
 
 
-#default = ["a2l_reader"] 
+default = ["c_cal"] 
+
+# Feature: Use XCPlite calibration segment management and lock/unlock
+c_cal = []
+
 
 # Feature a2l_reader using a2lfile
 # Automatic check of the generated A2L file

@@ -116,16 +116,12 @@ fn main() -> anyhow::Result<()> {
     // XCP: Initialize the XCP server
     let app_name = args.name.as_str();
     let app_revision = build_info::format!("Version_{}", $.timestamp);
-    let _xcp = Xcp::get()
-        .set_app_name(app_name)
-        .set_app_revision(app_revision)
-        .set_log_level(args.log_level)
-        .start_server(
-            if args.tcp { XcpTransportLayer::Tcp } else { XcpTransportLayer::Udp },
-            args.bind.octets(),
-            args.port,
-            XCP_QUEUE_SIZE,
-        )?;
+    let _xcp = Xcp::init(app_name, app_revision, args.log_level).start_server(
+        if args.tcp { XcpTransportLayer::Tcp } else { XcpTransportLayer::Udp },
+        args.bind.octets(),
+        args.port,
+        XCP_QUEUE_SIZE,
+    )?;
 
     // XCP: Create a calibration segment wrapper with default values and register the calibration parameters
     let params = CalSeg::new("my_params", &PARAMS);
