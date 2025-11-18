@@ -1,13 +1,12 @@
 # xcp-lite
 
-XCP for Rust - based on XCPlite (<https://github.com/vectorgrp/XCPlite>)  
+XCP for Rust - Rust API for XCPlite (<https://github.com/vectorgrp/XCPlite>)  
   
-Disclaimer: This code is in experimental state. There is no release yet.  
-Note: This repo refers to an unreleased version of XCPlite as a submodule (in folder xcplib, currently V0.9.2).  
 
 xcp-lite is a Rust API for measurement and calibration, which uses the ASAM XCP protocol for communication with a measurement and calibration tool like CANape and ASAM A2L for data description.  
 
 This is no complete implementation of XCP in Rust, the protocol and transport layer implementation is in C/C++ based on XCPlite.  
+For more details on XCP and XCPlite, see <https://github.com/vectorgrp/XCPlite>.  
 
 Main purpose was to experiment with Rust and to demonstrate some more advanced features of measurement and calibration with CANape:
 
@@ -20,7 +19,7 @@ Main purpose was to experiment with Rust and to demonstrate some more advanced f
 - Data objects and containers with dynamic size like point clouds or detection lists, to demonstrate CANape ADAS features
 - Support Google protobuf or OMG DDS/CDR serialized data objects with XCP and CANape
 
-Requires CANape 22. Example projects are updated to CANape 23.  
+Requires CANape 22 or later. Example projects are updated to CANape 23.  
   
 ## Introduction
 
@@ -48,11 +47,12 @@ The calibration parameter wrapper type CalSeg enables all advanced calibration f
 
 xcp-lite also implements a concept to measure variables on stack or as thread local instances.
 
-Currently xcp-lite for Rust uses a C library build from XCPlite sources, which contains the XCP server, an ethernet transport layer with its rx/tx server threads, the protocol layer, time stamp generation and time synchronization. The C implementation is optimized for speed by minimizing copying and locking data. There are no heap allocations. The Rust layer includes the registry and A2L generation, wrapper types for calibration parameters and macros to capture measurement data on events.
+Currently xcp-lite for Rust uses a C library build from XCPlite sources, which contains the XCP server, an ethernet transport layer with its rx/tx server threads, the protocol layer, time stamp generation and time synchronization. The C implementation is optimized for speed by minimizing copying and locking data. There are no heap allocations during runtime. The Rust layer includes the registry and A2L generation, wrapper types for calibration parameters and macros to capture measurement data on events.
 
 The code should work on Linux, Windows and Mac, Intel and ARM.  
   
-The project creates a library crate xcp and a main application to demonstrate all use case. A entry level example is hello_xcp in the example folder. There are other, more specific examples in the examples folder.  
+The project creates a library crate xcp and a main application to demonstrate all use cases. An entry level example is hello_xcp in the example folder. There are other, more specific examples in the examples folder.  
+
 There is an integration test, where the crate a2lfile is used to verify the generated A2L file and a quick and dirty, tokio based XCP client with hardcoded DAQ decoding for black box testing.
 
 ## Examples  
@@ -176,12 +176,10 @@ Use --nocapture because the debug output from the XCPlite C library is via norma
 
 ## Notes
 
-All measurement and calibration code instrumentation is non blocking and the trigger event and sync methods is optimized for speed and minimal locking.  
-There are no heap allocation during runtime, except for the lazy registrations of and for A2L generation.
+Like in C/C++ XCPlite, all measurement and calibration code instrumentation is non blocking and lock-free.
+There are no heap allocation during runtime, except for the lazy registrations for A2L generation.
   
 build.rs automatically builds a minimum static C library from individually pre configured core XCPlite sources.
-On C level, there is a synchronization mutex for the mpsc transmit queue.  
-The C code has the option to start the server with 2 normal threads for rx and tx socket handling.
 
 The generated A2L file is finalized on XCP connect and provided for upload via XCP.
 
@@ -189,13 +187,6 @@ The proc macro for more convenient A2L generation is still in an experimental st
 
 Measurement of local variables is done with a macro which either copies to a static transfer buffer in the event or directly accesses the value on stack.  
 This involves a lazy initialization of the structures to build the A2l file describing the local variables.  
-
-There are 4 different addressing schemes, indicated by address extension (called ABS, DYN, REL and APP in the code).  
-In mode APP, the low word of a calibration parameters memory address in the A2L file is a relative offset in the calibration page struct.  
-The high word (& 0x7FFF) is the index of the calibration segment in a alphabetic ordered list.  
-The memory addresses of local measurement variables are relative addresses (mode DYN) in their event capture buffer on stack or to the stack location of the variable holding the event.
-Mode ABS is the usual absolute addressing mode, relative to the module load address, which is only useful for static cells.
-These concepts are currently not supported by the A2L update tools, though A2L generation at runtime is the only option for now.
 
 The EPK version string in the A2L file can be set by the application. It resides a separate, hardcoded const memory segment.  
 

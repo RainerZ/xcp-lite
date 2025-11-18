@@ -81,18 +81,5 @@ unsafe extern "C" {
     pub fn ApplXcpGetClock64() -> u64;
 }
 unsafe extern "C" {
-    pub fn ApplXcpRegisterCallbacks(
-        cb_connect: ::std::option::Option<unsafe extern "C" fn(mode: u8) -> bool>,
-        cb_prepare_daq: ::std::option::Option<unsafe extern "C" fn() -> u8>,
-        cb_start_daq: ::std::option::Option<unsafe extern "C" fn() -> u8>,
-        cb_stop_daq: ::std::option::Option<unsafe extern "C" fn()>,
-        cb_freeze_daq: ::std::option::Option<unsafe extern "C" fn(clear: u8, config_id: u16) -> u8>,
-        cb_get_cal_page: ::std::option::Option<unsafe extern "C" fn(segment: u8, mode: u8) -> u8>,
-        cb_set_cal_page: ::std::option::Option<unsafe extern "C" fn(segment: u8, page: u8, mode: u8) -> u8>,
-        cb_freeze_cal: ::std::option::Option<unsafe extern "C" fn() -> u8>,
-        cb_init_cal: ::std::option::Option<unsafe extern "C" fn(src_page: u8, dst_page: u8) -> u8>,
-        cb_read: ::std::option::Option<unsafe extern "C" fn(src: u32, size: u8, dst: *mut u8) -> u8>,
-        cb_write: ::std::option::Option<unsafe extern "C" fn(dst: u32, size: u8, src: *const u8, delay: u8) -> u8>,
-        cb_flush: ::std::option::Option<unsafe extern "C" fn() -> u8>,
-    );
+    pub fn ApplXcpRegisterConnectCallback(cb_connect: ::std::option::Option<unsafe extern "C" fn(mode: u8) -> bool>);
 }

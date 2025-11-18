@@ -63,7 +63,7 @@ const CAL_PAR1: CalPage1 = CalPage1 {
     counter_max: 0xFFFF,
     cal_test: 0x5555555500000000u64,
     cycle_time_us: TEST_CYCLE_TIME_US,
-    page: XcpCalPage::Flash as u8,
+    page: 1,
     test_ints: TestInts {
         test_bool: false,
         test_u8: 0x12,

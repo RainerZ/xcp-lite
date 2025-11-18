@@ -51,7 +51,7 @@ fn main() {
             .allowlist_function("XcpSetLogLevel")
             .allowlist_function("XcpPrint")
             .allowlist_function("XcpSetA2lName")
-            .allowlist_function("ApplXcpRegisterCallbacks")
+            .allowlist_function("ApplXcpRegisterConnectCallback")
             .allowlist_function("XcpSendTerminateSessionEvent")
             .allowlist_function("ApplXcpGetClock64")
             //

@@ -15,7 +15,6 @@ use crate::registry;
 use crate::xcp;
 use crate::xcp::xcplib;
 use xcp::Xcp;
-use xcp::XcpCalPage;
 
 use std::{marker::PhantomData, ops::Deref, ops::DerefMut};
 

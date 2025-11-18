@@ -24,11 +24,11 @@ use crate::registry::{self, McEvent};
 pub mod daq;
 
 // Submodule cal
-// Calibration segment implementation in C library xcplib
 mod cal;
 pub use cal::CalCell;
 pub use cal::CalSeg;
 
+// Submodule xcplib ffi c bindings
 pub mod xcplib;
 
 //-----------------------------------------------------------------------------
@@ -61,20 +61,6 @@ pub enum XcpClientError {
 
     #[error("unknown error")]
     Unknown,
-}
-
-//----------------------------------------------------------------------------------------------
-// Session status
-
-bitflags! {
-    /// Represents a set of flags for the XCP session status
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct XcpSessionStatus: u16 {
-        const SS_DAQ            = 0x0040; // DAQ running
-        const SS_INITIALIZED    = 0x8000;
-        const SS_STARTED        = 0x4000;
-        const SS_CONNECTED      = 0x2000;
-    }
 }
 
 //----------------------------------------------------------------------------------------------
@@ -119,22 +105,12 @@ impl XcpEvent {
         XCP.event_list.lock().get_name(self).unwrap()
     }
 
-    // Get the event id as u16
-    // Event id is a unique number for each event
-    // pub fn get_id(self) -> u16 {
-    //     if let Some(event_map) = XCP_EVENT_MAP.get() {
-    //         event_map[self.id as usize]
-    //     } else {
-    //         panic!("XCP event map not initialized");
-    //         //self.id
-    //     }
-    // }
-
+    /// Get the event id as u16
     pub fn get_id(self) -> u16 {
         self.id
     }
 
-    /// Get the event id as u16
+    /// Get the event instance index as u16
     /// Event id is used to identify instances of the same function that generated this event with the same name
     /// This id is attached to signal names from different instances of the same signal
     pub fn get_index(self) -> u16 {
@@ -261,33 +237,6 @@ impl EventList {
 }
 
 //------------------------------------------------------------------------------------------
-// XcpCalPage
-
-// Calibration page type (RAM,FLASH) used by the FFI
-const XCP_CAL_PAGE_RAM: u8 = 0;
-const XCP_CAL_PAGE_FLASH: u8 = 1;
-
-/// Calibration page
-/// enum to specify the active calibration page (mutable by XCP ("Ram") or const default ("Flash")) of a calibration segment
-#[doc(hidden)] // For integration test
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum XcpCalPage {
-    /// The mutable page
-    Ram = XCP_CAL_PAGE_RAM as isize,
-    /// The default page
-    Flash = XCP_CAL_PAGE_FLASH as isize,
-}
-
-impl From<u8> for XcpCalPage {
-    fn from(item: u8) -> Self {
-        match item {
-            XCP_CAL_PAGE_RAM => XcpCalPage::Ram,
-            _ => XcpCalPage::Flash,
-        }
-    }
-}
-
-//------------------------------------------------------------------------------------------
 // XcpTransportLayer
 
 /// enum to specify the transport layer of the XCP server
@@ -324,7 +273,6 @@ lazy_static! {
 }
 
 impl Xcp {
-    
     fn new() -> Xcp {
         // Create the Xcp singleton
         Xcp {
@@ -335,35 +283,16 @@ impl Xcp {
 
     // Initialization of the Xcp singleton
     pub fn init(app_name: &str, app_revision: &str, log_level: u8) -> &'static Xcp {
+        // Initialize the XCP library
         // @@@@ UNSAFE - C library calls
         unsafe {
             xcplib::XcpSetLogLevel(log_level);
-
             assert!(app_revision.len() < crate::EPK_SEG_SIZE);
             let epk = std::ffi::CString::new(app_revision).unwrap();
-
             assert!(app_revision.len() < crate::EPK_SEG_SIZE);
             let name = std::ffi::CString::new(app_name).unwrap();
-
-            // EPK and name not known at this time
             xcplib::XcpInit(name.as_ptr(), epk.as_ptr(), true);
-
-       
-            xcplib::ApplXcpRegisterCallbacks(
-                Some(cb_connect),
-                Some(cb_prepare_daq),
-                Some(cb_start_daq),
-                Some(cb_stop_daq),
-                // @@@@ TODO Implement cb_freeze_daq
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            );
+            xcplib::ApplXcpRegisterConnectCallback(Some(cb_connect));
         }
 
         // Initialize the registry
@@ -385,9 +314,6 @@ impl Xcp {
         &XCP
     }
 
-
-       
-
     /// Set registry mode (flat or with typedefs, prefix names with app name)
     pub fn set_registry_mode(&self, flatten_typedefs: bool, prefix_names: bool) -> &'static Xcp {
         registry::get_lock().as_mut().unwrap().set_flatten_typedefs_mode(flatten_typedefs);
@@ -399,7 +325,6 @@ impl Xcp {
     #[allow(clippy::unused_self)]
     pub fn print(&self, msg: &str) {
         // @@@@ UNSAFE - C library call
-
         unsafe {
             let msg = std::ffi::CString::new(msg).unwrap();
             xcplib::XcpPrint(msg.as_ptr());
@@ -456,7 +381,6 @@ impl Xcp {
     #[allow(clippy::unused_self)]
     pub fn stop_server(&self) {
         // @@@@ UNSAFE - C library calls
-
         unsafe {
             xcplib::XcpSendTerminateSessionEvent(); // Send terminate session event, if the XCP client is still connected
             xcplib::XcpDisconnect();
@@ -468,7 +392,6 @@ impl Xcp {
     #[allow(clippy::unused_self)]
     pub fn disconnect_client(&self) {
         // @@@@ UNSAFE - C library calls
-
         unsafe {
             xcplib::XcpSendTerminateSessionEvent(); // Send terminate session event, if the XCP client is connected
         }
@@ -477,11 +400,8 @@ impl Xcp {
     //------------------------------------------------------------------------------------------
     // Calibration segments
 
-   
-
     /// Get calibration segment index by name
     pub fn get_calseg_index(&self, name: &str) -> Option<usize> {
-       
         unsafe {
             // @@@@ UNSAFE - C library call
             let c_name = std::ffi::CString::new(name).unwrap();
@@ -495,7 +415,6 @@ impl Xcp {
 
     /// Get calibration segment name by index
     fn get_calseg_name(&self, index: usize) -> &'static str {
-      
         unsafe {
             // @@@@ UNSAFE - C library call
             let name_ptr = xcplib::XcpGetCalSegName(index as u16);
@@ -548,15 +467,14 @@ impl Xcp {
         assert!(!registry::is_closed());
 
         // Register all calibration segments
-      
-            let calseg_count: u16 = unsafe { xcplib::XcpGetCalSegCount() };
-            for i in 0..calseg_count {
-                let name = unsafe { std::ffi::CStr::from_ptr(xcplib::XcpGetCalSegName(i)).to_str().unwrap() };
-                let size = unsafe { xcplib::XcpGetCalSegSize(i) };
-                log::info!("Register CalSeg {}, size={}", name, size);
-                let _ = registry::get_lock().as_mut().unwrap().cal_seg_list.add_cal_seg(name, i, size as u32);
-            }
-        
+
+        let calseg_count: u16 = unsafe { xcplib::XcpGetCalSegCount() };
+        for i in 0..calseg_count {
+            let name = unsafe { std::ffi::CStr::from_ptr(xcplib::XcpGetCalSegName(i)).to_str().unwrap() };
+            let size = unsafe { xcplib::XcpGetCalSegSize(i) };
+            log::info!("Register CalSeg {}, size={}", name, size);
+            let _ = registry::get_lock().as_mut().unwrap().cal_seg_list.add_cal_seg(name, i, size as u32);
+        }
 
         // Register all events
         self.event_list.lock().register();
@@ -599,9 +517,6 @@ impl Xcp {
         Ok(true)
     }
 
-    
-
-
     //------------------------------------------------------------------------------------------
     // Clock
     // For demo purposes:
@@ -618,22 +533,8 @@ impl Xcp {
 
 //--------------------------------------------------------------------------------------------------------------------------------------------------
 // Callback entrypoints for XCPlite C library protocol layer
-// on connect, page switch handling, init and freeze calibration segment, read and write memory
 
-// XCP error codes for callbacks from XCPlite
-const FALSE: u8 = 0;
-const TRUE: u8 = 1;
-const CRC_CMD_OK: u8 = 0;
-const CRC_MODE_NOT_VALID: u8 = 0x27;
-//const CRC_SEGMENT_NOT_VALID: u8 = 0x28;
-const CRC_ACCESS_DENIED: u8 = 0x24;
-
-// Modes for page switching
-// @@@@ TODO Individual segment switching is not supported yet
-const CAL_PAGE_MODE_ECU: u8 = 0x01;
-const CAL_PAGE_MODE_XCP: u8 = 0x02;
-const CAL_PAGE_MODE_ALL: u8 = 0x80; // switch all segments simultaneously
-
+// on connect
 #[unsafe(no_mangle)]
 extern "C" fn cb_connect(_mode: u8) -> bool {
     {
@@ -645,27 +546,6 @@ extern "C" fn cb_connect(_mode: u8) -> bool {
         true
     }
 }
-
-#[unsafe(no_mangle)]
-#[allow(unused_variables)]
-extern "C" fn cb_prepare_daq() -> u8 {
-    log::trace!("cb_prepare_daq");
-    1
-}
-
-#[unsafe(no_mangle)]
-#[allow(unused_variables)]
-extern "C" fn cb_start_daq() -> u8 {
-    log::trace!("cb_start_daq");
-
-    1
-}
-
-#[unsafe(no_mangle)]
-extern "C" fn cb_stop_daq() {
-    log::trace!("cb_stop_daq");
-}
-
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
@@ -707,7 +587,6 @@ pub mod xcp_test {
         let xcp = Xcp::init("Test", "EPK_V1.0.0", TEST_XCP_LOG_LEVEL);
         xcp.event_list.lock().clear();
 
-       
         xcp
     }
 }

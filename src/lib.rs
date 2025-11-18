@@ -42,7 +42,6 @@ mod xcp;
 pub use xcp::CalCell;
 pub use xcp::CalSeg;
 pub use xcp::Xcp;
-pub use xcp::XcpCalPage;
 pub use xcp::XcpEvent;
 pub use xcp::XcpTransportLayer;
 pub use xcp::daq::daq_event::DaqEvent;

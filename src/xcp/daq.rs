@@ -6,4 +6,5 @@
 // Submodules
 
 // DAQ event
+//#[cfg(not(feature = "c_daq"))]
 pub mod daq_event;

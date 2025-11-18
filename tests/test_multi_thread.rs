@@ -69,7 +69,7 @@ const CAL_PAR1: CalPage1 = CalPage1 {
     cal_test: 0x5555555500000000u64,
     sync_test1: 0,
     sync_test2: 0,
-    page: XcpCalPage::Flash as u8,
+    page: 1,
     test_ints: TestInts {
         test_bool: false,
         test_u8: 0x12,
