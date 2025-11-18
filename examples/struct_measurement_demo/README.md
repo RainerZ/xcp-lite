@@ -4,30 +4,24 @@ Demonstrate measurement of nested struct instances
 Make use of A2L objects INSTANCE, TYPEDEF_MEASUREMENT TYPEDEF_STRUCTURE and STRUCTURE_COMPONENT  
 
 Run:
+
 ```
-cargo run --example struct_measurement_demo  
+cargo run -p struct_measurement_demo  
 ```
 
 Start the CANape project in the CANape folder or find some screenshots below  
 
-
-
 ## CANape
- 
 
 ![CANape](CANape1.png)
 
-
 ![CANape](CANape2.png)
-
 
 ![CANape](CANape3.png)
 
-
 ![CANape](CANape4.png)
 
-
-## A2L file 
+## A2L file
 
 Code:
 
@@ -84,7 +78,6 @@ struct Data {
 
 ```
 
-
 Generated A2L:
 
 ```
@@ -94,9 +87,9 @@ Generated A2L:
 /begin TYPEDEF_MEASUREMENT b "counter*2" A_UINT64 IDENTITY 0 0 0 2000  /end TYPEDEF_MEASUREMENT
 /begin TYPEDEF_MEASUREMENT c "counter*3" FLOAT64_IEEE NO_COMPU_METHOD 0 0 0 3000  /end TYPEDEF_MEASUREMENT
 /begin TYPEDEF_STRUCTURE Counters "" 24
-	/begin STRUCTURE_COMPONENT a a 16 /end STRUCTURE_COMPONENT
-	/begin STRUCTURE_COMPONENT b b 0 /end STRUCTURE_COMPONENT
-	/begin STRUCTURE_COMPONENT c c 8 /end STRUCTURE_COMPONENT
+ /begin STRUCTURE_COMPONENT a a 16 /end STRUCTURE_COMPONENT
+ /begin STRUCTURE_COMPONENT b b 0 /end STRUCTURE_COMPONENT
+ /begin STRUCTURE_COMPONENT c c 8 /end STRUCTURE_COMPONENT
 /end TYPEDEF_STRUCTURE
 /begin TYPEDEF_MEASUREMENT cycle_counter "" ULONG IDENTITY 0 0 0 4294967295  /end TYPEDEF_MEASUREMENT
 /begin COMPU_METHOD cpu_temperature "" LINEAR "%.0" "deg/celcius" COEFFS_LINEAR 1 -50 /end COMPU_METHOD
@@ -108,29 +101,29 @@ Generated A2L:
 /begin TYPEDEF_MEASUREMENT y "y-coordinate" FLOAT32_IEEE NO_COMPU_METHOD 0 0 -10 10  /end TYPEDEF_MEASUREMENT
 /begin TYPEDEF_MEASUREMENT z "z-coordinate" FLOAT32_IEEE NO_COMPU_METHOD 0 0 -10 10  /end TYPEDEF_MEASUREMENT
 /begin TYPEDEF_STRUCTURE Point "" 12
-	/begin STRUCTURE_COMPONENT x x 0 /end STRUCTURE_COMPONENT
-	/begin STRUCTURE_COMPONENT y y 4 /end STRUCTURE_COMPONENT
-	/begin STRUCTURE_COMPONENT z z 8 /end STRUCTURE_COMPONENT
+ /begin STRUCTURE_COMPONENT x x 0 /end STRUCTURE_COMPONENT
+ /begin STRUCTURE_COMPONENT y y 4 /end STRUCTURE_COMPONENT
+ /begin STRUCTURE_COMPONENT z z 8 /end STRUCTURE_COMPONENT
 /end TYPEDEF_STRUCTURE
 /begin TYPEDEF_MEASUREMENT float_matrix "Matrix of 16*16 float values" FLOAT32_IEEE NO_COMPU_METHOD 0 0 -100000000000000000000000000000000 100000000000000000000000000000000  MATRIX_DIM 32 32 /end TYPEDEF_MEASUREMENT
 /begin TYPEDEF_STRUCTURE Data "" 4616
-	/begin STRUCTURE_COMPONENT cycle_counter cycle_counter 4592 /end STRUCTURE_COMPONENT
-	/begin STRUCTURE_COMPONENT cpu_temperature cpu_temperature 4612 /end STRUCTURE_COMPONENT
-	/begin STRUCTURE_COMPONENT cycle_time cycle_time 4596 /end STRUCTURE_COMPONENT
-	/begin STRUCTURE_COMPONENT cycle_time_distribution cycle_time_distribution 4192 /end STRUCTURE_COMPONENT
-	/begin STRUCTURE_COMPONENT point Point 4600 /end STRUCTURE_COMPONENT
-	/begin STRUCTURE_COMPONENT point_array Point 4096 MATRIX_DIM 8 /end STRUCTURE_COMPONENT
-	/begin STRUCTURE_COMPONENT float_matrix float_matrix 0 /end STRUCTURE_COMPONENT
+ /begin STRUCTURE_COMPONENT cycle_counter cycle_counter 4592 /end STRUCTURE_COMPONENT
+ /begin STRUCTURE_COMPONENT cpu_temperature cpu_temperature 4612 /end STRUCTURE_COMPONENT
+ /begin STRUCTURE_COMPONENT cycle_time cycle_time 4596 /end STRUCTURE_COMPONENT
+ /begin STRUCTURE_COMPONENT cycle_time_distribution cycle_time_distribution 4192 /end STRUCTURE_COMPONENT
+ /begin STRUCTURE_COMPONENT point Point 4600 /end STRUCTURE_COMPONENT
+ /begin STRUCTURE_COMPONENT point_array Point 4096 MATRIX_DIM 8 /end STRUCTURE_COMPONENT
+ /begin STRUCTURE_COMPONENT float_matrix float_matrix 0 /end STRUCTURE_COMPONENT
 /end TYPEDEF_STRUCTURE
 /begin TYPEDEF_CHARACTERISTIC mainloop_cycle_time "Cycle time of the mainloop" VALUE U32 0 IDENTITY 100 10000  /end TYPEDEF_CHARACTERISTIC
 /begin TYPEDEF_CHARACTERISTIC counter_max "Counter wraparound" VALUE U16 0 IDENTITY 0 10000  /end TYPEDEF_CHARACTERISTIC
 /begin TYPEDEF_CHARACTERISTIC ampl "Amplitude of the sine signal" VALUE F64 0 NO_COMPU_METHOD 0 500  /end TYPEDEF_CHARACTERISTIC
 /begin TYPEDEF_CHARACTERISTIC period "Period of the sine signal" VALUE F64 0 NO_COMPU_METHOD 0.001 10  /end TYPEDEF_CHARACTERISTIC
 /begin TYPEDEF_STRUCTURE Parameters "" 24
-	/begin STRUCTURE_COMPONENT mainloop_cycle_time mainloop_cycle_time 16 /end STRUCTURE_COMPONENT
-	/begin STRUCTURE_COMPONENT counter_max counter_max 20 /end STRUCTURE_COMPONENT
-	/begin STRUCTURE_COMPONENT ampl ampl 0 /end STRUCTURE_COMPONENT
-	/begin STRUCTURE_COMPONENT period period 8 /end STRUCTURE_COMPONENT
+ /begin STRUCTURE_COMPONENT mainloop_cycle_time mainloop_cycle_time 16 /end STRUCTURE_COMPONENT
+ /begin STRUCTURE_COMPONENT counter_max counter_max 20 /end STRUCTURE_COMPONENT
+ /begin STRUCTURE_COMPONENT ampl ampl 0 /end STRUCTURE_COMPONENT
+ /begin STRUCTURE_COMPONENT period period 8 /end STRUCTURE_COMPONENT
 /end TYPEDEF_STRUCTURE
 
 
@@ -149,7 +142,3 @@ Generated A2L:
 
 
 ```
-
-
-
- 

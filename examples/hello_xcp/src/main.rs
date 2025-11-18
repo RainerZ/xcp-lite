@@ -4,10 +4,10 @@
 // Demonstrates the usage of xcp-lite for Rust together with a CANape project
 //
 // Run the demo
-// cargo run --example hello_xcp
+// cargo run -p hello_xcp
 //
 // Run the test XCP client in another terminal or start CANape with the project in folder examples/hello_xcp/CANape
-// cargo run --example xcp_client -- -m "counter"
+// cargo run -p xcp_client -- -m "counter"
 
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn};
@@ -115,17 +115,13 @@ fn main() -> anyhow::Result<()> {
 
     // XCP: Initialize the XCP server
     let app_name = args.name.as_str();
-    let app_revision = build_info::format!("EPK_{}", $.timestamp);
-    let _xcp = Xcp::get()
-        .set_app_name(app_name)
-        .set_app_revision(app_revision)
-        .set_log_level(args.log_level)
-        .start_server(
-            if args.tcp { XcpTransportLayer::Tcp } else { XcpTransportLayer::Udp },
-            args.bind.octets(),
-            args.port,
-            XCP_QUEUE_SIZE,
-        )?;
+    let app_revision = build_info::format!("Version_{}", $.timestamp);
+    let _xcp = Xcp::init(app_name, app_revision, args.log_level).start_server(
+        if args.tcp { XcpTransportLayer::Tcp } else { XcpTransportLayer::Udp },
+        args.bind.octets(),
+        args.port,
+        XCP_QUEUE_SIZE,
+    )?;
 
     // XCP: Create a calibration segment wrapper with default values and register the calibration parameters
     let params = CalSeg::new("my_params", &PARAMS);
@@ -137,6 +133,9 @@ fn main() -> anyhow::Result<()> {
     // XCP: Register a measurement event and bind measurement variables
     let event = daq_create_event!("my_event", 16);
     daq_register!(counter, event);
+
+    // @@@@ Test
+    _xcp.finalize_registry()?;
 
     loop {
         // XCP: Synchronize calibration parameters in cal_page and lock read access for consistency

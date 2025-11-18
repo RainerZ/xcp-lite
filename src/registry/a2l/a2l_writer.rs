@@ -253,7 +253,7 @@ impl GenerateA2l for McXcpTransportLayer {
 
         log::debug!("A2L writer: transport layer: {protocol} {addr}:{port}");
 
-        writeln!(writer, "\n\t\t\t/begin XCP_ON_{protocol}_IP 0x104 {port} ADDRESS \"{addr}\" /end XCP_ON_{protocol}_IP")
+        writeln!(writer, "\n\t\t/begin XCP_ON_{protocol}_IP 0x104 {port} ADDRESS \"{addr}\" /end XCP_ON_{protocol}_IP")
     }
 }
 
@@ -279,6 +279,17 @@ impl GenerateA2l for McEvent {
             time_unit += 1;
         }
 
+        // Write comment with function name, unit and CFA offset if available
+        if let Some(function) = self.function.as_ref() {
+            writeln!(
+                writer,
+                "\t\t\t/* compilation unit = {}, function = {}, CFA = {} */",
+                self.unit.unwrap_or(0),
+                function,
+                self.cfa
+            )?;
+        }
+
         // long name 100+1 characters
         // short name 8+1 characters
         // TimeCycle 0
@@ -286,9 +297,9 @@ impl GenerateA2l for McEvent {
         // Priority 0
         // @@@@ TODO CANape does not accept CONSISTENCY EVENT for serialized data types !!!!!!!!!!
         if index > 0 {
-            write!(writer, "/begin EVENT \"{:.98}_{}\" \"{:.6}_{}\" ", name, index, name, index)?;
+            write!(writer, "\t\t\t/begin EVENT \"{:.98}_{}\" \"{:.6}_{}\" ", name, index, name, index)?;
         } else {
-            write!(writer, "/begin EVENT \"{:.100}\" \"{:.8}\" ", name, name)?;
+            write!(writer, "\t\t\t/begin EVENT \"{:.100}\" \"{:.8}\" ", name, name)?;
         }
         writeln!(writer, "{} DAQ 0xFF {} {} {} CONSISTENCY DAQ /end EVENT", id, time_cycle, time_unit, priority)
     }
@@ -298,16 +309,13 @@ impl GenerateA2l for McEvent {
 
 impl GenerateA2l for McApplication {
     fn write_a2l(&self, writer: &mut A2lWriter) -> std::io::Result<()> {
-        // Add a EPK memory segment for the EPK, to include the EPK in HEX-files
-        log::debug!("A2L writer: epk={} version_addr=0x{:08X}", self.version, self.version_addr);
-        writeln!(
-            writer,
-            "EPK \"{}\" ADDR_EPK 0x{:08X}\n/begin MEMORY_SEGMENT epk \"\" DATA FLASH INTERN 0x{:08X} {} -1 -1 -1 -1 -1 /end MEMORY_SEGMENT",
-            self.version,
-            self.version_addr,
-            self.version_addr,
-            self.version.len(),
-        )
+        // Add EPK if available
+        if self.has_epk() {
+            log::debug!("A2L writer: epk={} version_addr=0x{:08X}", self.version.epk, self.version.epk_addr);
+            writeln!(writer, "EPK \"{}\" ADDR_EPK 0x{:08X}", self.version.epk, self.version.epk_addr)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -317,16 +325,19 @@ impl GenerateA2l for McApplication {
 
 impl GenerateA2l for McCalibrationSegment {
     fn write_a2l(&self, writer: &mut A2lWriter) -> std::io::Result<()> {
-        let calseg = self;
-        let n = calseg.index;
-
-        //for (n, calseg) in self.iter().enumerate() {
-        log::debug!("A2L writer: memory segment {}  {}:0x{:X} size={}", calseg.name, calseg.addr_ext, calseg.addr, calseg.size);
+        log::debug!(
+            "A2L writer: memory segment {}:{}  {}:0x{:X} size={}",
+            self.index,
+            self.name,
+            self.addr_ext,
+            self.addr,
+            self.size
+        );
 
         writeln!(
             writer,
             r#"/begin MEMORY_SEGMENT {} "" DATA FLASH INTERN 0x{:X} {} -1 -1 -1 -1 -1"#,
-            calseg.name, calseg.addr, calseg.size,
+            self.name, self.addr, self.size,
         )?;
 
         writeln!(
@@ -338,8 +349,7 @@ impl GenerateA2l for McCalibrationSegment {
     /begin PAGE 0x1 ECU_ACCESS_DONT_CARE XCP_READ_ACCESS_DONT_CARE XCP_WRITE_ACCESS_NOT_ALLOWED /end PAGE
     /end SEGMENT
 /end IF_DATA"#,
-            n + 1,
-            calseg.addr_ext,
+            self.index, self.addr_ext,
         )?;
 
         writeln!(writer, r#"/end MEMORY_SEGMENT"#,)?;
@@ -522,7 +532,7 @@ impl McInstance {
 
         //
         // BLOB used for dynamic objects
-        // With Vector specific IDL annotation
+        // With CANape specific IDL annotation
         if let McValueType::Blob(annotation) = &self.dim_type.value_type {
             let buffer_size = dim_type.get_dim()[0];
             assert!(dim_type.get_dim()[0] > 0 && dim_type.get_dim()[1] == 1, "Blob must have x_dim > 0 and y_dim == 1");
@@ -774,104 +784,110 @@ impl<'a> A2lWriter<'a> {
         false
     }
 
-    fn write_a2l_head(&mut self, project_name: &str, module_name: &str) -> std::io::Result<()> {
-        write!(
+    fn write_a2l_head(&mut self, title_comment: &str, project_name: &str, project_description: &str, module_name: &str, project_no: &str) -> std::io::Result<()> {
+        writeln!(
             self,
             r#"
-    ASAP2_VERSION 1 71
-    /begin PROJECT {project_name} ""
-    /begin HEADER "" VERSION "1.0" PROJECT_NO VECTOR /end HEADER
+/* {title_comment} */
+ASAP2_VERSION 1 71
+/begin PROJECT {project_name} "{project_description}"
+/begin HEADER "" VERSION "1.0" PROJECT_NO {project_no} /end HEADER
 
-    /begin MODULE {module_name} ""
-            
-            /include "XCP_104.aml"
-         
-            /begin MOD_COMMON ""
-            BYTE_ORDER MSB_LAST
-            ALIGNMENT_BYTE 1
-            ALIGNMENT_WORD 1
-            ALIGNMENT_LONG 1
-            ALIGNMENT_FLOAT16_IEEE 1
-            ALIGNMENT_FLOAT32_IEEE 1
-            ALIGNMENT_FLOAT64_IEEE 1
-            ALIGNMENT_INT64 1
-            /end MOD_COMMON
-            
-            /* Predefined conversion rule for bool */
-            /begin COMPU_METHOD BOOL ""
-                TAB_VERB "%.0" "" COMPU_TAB_REF BOOL.table
-            /end COMPU_METHOD
-            /begin COMPU_VTAB BOOL.table "" TAB_VERB 2
-                0 "false" 1 "true"
-            /end COMPU_VTAB
-
-            /* Predefined conversion rule identity with no phys unit and zero decimal places */
-            /begin COMPU_METHOD IDENTITY ""
-                IDENTICAL "%.0" "" 
-            /end COMPU_METHOD
-    
-            /* Predefined characteristic record layouts for standard types */
-            /begin RECORD_LAYOUT BOOL FNC_VALUES 1 UBYTE ROW_DIR DIRECT /end RECORD_LAYOUT
-            /begin RECORD_LAYOUT U8 FNC_VALUES 1 UBYTE ROW_DIR DIRECT /end RECORD_LAYOUT
-            /begin RECORD_LAYOUT U16 FNC_VALUES 1 UWORD ROW_DIR DIRECT /end RECORD_LAYOUT
-            /begin RECORD_LAYOUT U32 FNC_VALUES 1 ULONG ROW_DIR DIRECT /end RECORD_LAYOUT
-            /begin RECORD_LAYOUT U64 FNC_VALUES 1 A_UINT64 ROW_DIR DIRECT /end RECORD_LAYOUT
-            /begin RECORD_LAYOUT I8 FNC_VALUES 1 SBYTE ROW_DIR DIRECT /end RECORD_LAYOUT
-            /begin RECORD_LAYOUT I16 FNC_VALUES 1 SWORD ROW_DIR DIRECT /end RECORD_LAYOUT
-            /begin RECORD_LAYOUT I32 FNC_VALUES 1 SLONG ROW_DIR DIRECT /end RECORD_LAYOUT
-            /begin RECORD_LAYOUT I64 FNC_VALUES 1 A_INT64 ROW_DIR DIRECT /end RECORD_LAYOUT
-            /begin RECORD_LAYOUT F32 FNC_VALUES 1 FLOAT32_IEEE ROW_DIR DIRECT /end RECORD_LAYOUT
-            /begin RECORD_LAYOUT F64 FNC_VALUES 1 FLOAT64_IEEE ROW_DIR DIRECT /end RECORD_LAYOUT
+/begin MODULE {module_name} ""
         
-            /* Predefined axis record layouts for standard types */
-            /begin RECORD_LAYOUT A_U8 AXIS_PTS_X 1 UBYTE INDEX_INCR DIRECT /end RECORD_LAYOUT
-            /begin RECORD_LAYOUT A_U16 AXIS_PTS_X 1 UWORD INDEX_INCR DIRECT /end RECORD_LAYOUT
-            /begin RECORD_LAYOUT A_U32 AXIS_PTS_X 1 ULONG INDEX_INCR DIRECT /end RECORD_LAYOUT
-            /begin RECORD_LAYOUT A_U64 AXIS_PTS_X 1 A_UINT64 INDEX_INCR DIRECT /end RECORD_LAYOUT
-            /begin RECORD_LAYOUT A_I8 AXIS_PTS_X 1 SBYTE INDEX_INCR DIRECT /end RECORD_LAYOUT
-            /begin RECORD_LAYOUT A_I16 AXIS_PTS_X 1 SWORD INDEX_INCR DIRECT /end RECORD_LAYOUT
-            /begin RECORD_LAYOUT A_I32 AXIS_PTS_X 1 SLONG INDEX_INCR DIRECT /end RECORD_LAYOUT
-            /begin RECORD_LAYOUT A_I64 AXIS_PTS_X 1 A_INT64 INDEX_INCR DIRECT /end RECORD_LAYOUT
-            /begin RECORD_LAYOUT A_F32 AXIS_PTS_X 1 FLOAT32_IEEE INDEX_INCR DIRECT /end RECORD_LAYOUT
-            /begin RECORD_LAYOUT A_F64 AXIS_PTS_X 1 FLOAT64_IEEE INDEX_INCR DIRECT /end RECORD_LAYOUT
+    /include "XCP_104.aml"
+    
+    /begin MOD_COMMON ""
+    BYTE_ORDER MSB_LAST
+    ALIGNMENT_BYTE 1
+    ALIGNMENT_WORD 1
+    ALIGNMENT_LONG 1
+    ALIGNMENT_FLOAT16_IEEE 1
+    ALIGNMENT_FLOAT32_IEEE 1
+    ALIGNMENT_FLOAT64_IEEE 1
+    ALIGNMENT_INT64 1
+    /end MOD_COMMON
+    
+    /* Predefined conversion rule for bool */
+    /begin COMPU_METHOD BOOL ""
+        TAB_VERB "%.0" "" COMPU_TAB_REF BOOL.table
+    /end COMPU_METHOD
+    /begin COMPU_VTAB BOOL.table "" TAB_VERB 2
+        0 "false" 1 "true"
+    /end COMPU_VTAB
 
-            /* Predefined measurement and characteristic typedefs for standard types */
-            /begin TYPEDEF_MEASUREMENT M_BOOL "" UBYTE BOOL 0 0 0 1 /end TYPEDEF_MEASUREMENT
-            /begin TYPEDEF_MEASUREMENT M_U8 "" UBYTE NO_COMPU_METHOD 0 0 0 255 /end TYPEDEF_MEASUREMENT
-            /begin TYPEDEF_MEASUREMENT M_U16 "" UWORD NO_COMPU_METHOD 0 0 0 65535 /end TYPEDEF_MEASUREMENT
-            /begin TYPEDEF_MEASUREMENT M_U32 "" ULONG NO_COMPU_METHOD 0 0 0 4294967295 /end TYPEDEF_MEASUREMENT
-            /begin TYPEDEF_MEASUREMENT M_U64 "" A_UINT64 NO_COMPU_METHOD 0 0 0 1e12 /end TYPEDEF_MEASUREMENT
-            /begin TYPEDEF_MEASUREMENT M_I8 "" SBYTE NO_COMPU_METHOD 0 0 -128 127 /end TYPEDEF_MEASUREMENT
-            /begin TYPEDEF_MEASUREMENT M_I16 "" SWORD NO_COMPU_METHOD 0 0 -32768 32767 /end TYPEDEF_MEASUREMENT
-            /begin TYPEDEF_MEASUREMENT M_I32 "" SLONG NO_COMPU_METHOD 0 0 -2147483648 2147483647 /end TYPEDEF_MEASUREMENT
-            /begin TYPEDEF_MEASUREMENT M_I64 "" A_INT64 NO_COMPU_METHOD 0 0 -1e12 1e12 /end TYPEDEF_MEASUREMENT
-            /begin TYPEDEF_MEASUREMENT M_F32 "" FLOAT32_IEEE NO_COMPU_METHOD 0 0 -1e12 1e12 /end TYPEDEF_MEASUREMENT
-            /begin TYPEDEF_MEASUREMENT M_F64 "" FLOAT64_IEEE NO_COMPU_METHOD 0 0 -1e12 1e12 /end TYPEDEF_MEASUREMENT
-            /begin TYPEDEF_CHARACTERISTIC C_BOOL "" VALUE U8 0 BOOL 0 1 /end TYPEDEF_CHARACTERISTIC
-            /begin TYPEDEF_CHARACTERISTIC C_U8 "" VALUE U8 0 NO_COMPU_METHOD 0 255 /end TYPEDEF_CHARACTERISTIC
-            /begin TYPEDEF_CHARACTERISTIC C_U16 "" VALUE U16 0 NO_COMPU_METHOD 0 65535 /end TYPEDEF_CHARACTERISTIC
-            /begin TYPEDEF_CHARACTERISTIC C_U32 "" VALUE U32 0 NO_COMPU_METHOD 0 4294967295 /end TYPEDEF_CHARACTERISTIC
-            /begin TYPEDEF_CHARACTERISTIC C_U64 "" VALUE U64 0 NO_COMPU_METHOD 0 1e12 /end TYPEDEF_CHARACTERISTIC
-            /begin TYPEDEF_CHARACTERISTIC C_I8 "" VALUE I8 0 NO_COMPU_METHOD -128 127 /end TYPEDEF_CHARACTERISTIC
-            /begin TYPEDEF_CHARACTERISTIC C_I16 "" VALUE I16 0 NO_COMPU_METHOD -32768 32767 /end TYPEDEF_CHARACTERISTIC
-            /begin TYPEDEF_CHARACTERISTIC C_I32 "" VALUE I32 0 NO_COMPU_METHOD -2147483648 2147483647 /end TYPEDEF_CHARACTERISTIC
-            /begin TYPEDEF_CHARACTERISTIC C_I64 "" VALUE I64 0 NO_COMPU_METHOD -1e12 1e12 /end TYPEDEF_CHARACTERISTIC
-            /begin TYPEDEF_CHARACTERISTIC C_F64 "" VALUE F64 0 NO_COMPU_METHOD -1e12 1e12 /end TYPEDEF_CHARACTERISTIC
-            /begin TYPEDEF_CHARACTERISTIC C_F32 "" VALUE F32 0 NO_COMPU_METHOD -1e12 1e12 /end TYPEDEF_CHARACTERISTIC
-            "#,
+    /* Predefined conversion rule identity with no phys unit and zero decimal places */
+    /begin COMPU_METHOD IDENTITY ""
+        IDENTICAL "%.0" "" 
+    /end COMPU_METHOD
+
+    /* Predefined characteristic record layouts for standard types */
+    /begin RECORD_LAYOUT BOOL FNC_VALUES 1 UBYTE ROW_DIR DIRECT /end RECORD_LAYOUT
+    /begin RECORD_LAYOUT U8 FNC_VALUES 1 UBYTE ROW_DIR DIRECT /end RECORD_LAYOUT
+    /begin RECORD_LAYOUT U16 FNC_VALUES 1 UWORD ROW_DIR DIRECT /end RECORD_LAYOUT
+    /begin RECORD_LAYOUT U32 FNC_VALUES 1 ULONG ROW_DIR DIRECT /end RECORD_LAYOUT
+    /begin RECORD_LAYOUT U64 FNC_VALUES 1 A_UINT64 ROW_DIR DIRECT /end RECORD_LAYOUT
+    /begin RECORD_LAYOUT I8 FNC_VALUES 1 SBYTE ROW_DIR DIRECT /end RECORD_LAYOUT
+    /begin RECORD_LAYOUT I16 FNC_VALUES 1 SWORD ROW_DIR DIRECT /end RECORD_LAYOUT
+    /begin RECORD_LAYOUT I32 FNC_VALUES 1 SLONG ROW_DIR DIRECT /end RECORD_LAYOUT
+    /begin RECORD_LAYOUT I64 FNC_VALUES 1 A_INT64 ROW_DIR DIRECT /end RECORD_LAYOUT
+    /begin RECORD_LAYOUT F32 FNC_VALUES 1 FLOAT32_IEEE ROW_DIR DIRECT /end RECORD_LAYOUT
+    /begin RECORD_LAYOUT F64 FNC_VALUES 1 FLOAT64_IEEE ROW_DIR DIRECT /end RECORD_LAYOUT
+
+    /* Predefined axis record layouts for standard types */
+    /begin RECORD_LAYOUT A_U8 AXIS_PTS_X 1 UBYTE INDEX_INCR DIRECT /end RECORD_LAYOUT
+    /begin RECORD_LAYOUT A_U16 AXIS_PTS_X 1 UWORD INDEX_INCR DIRECT /end RECORD_LAYOUT
+    /begin RECORD_LAYOUT A_U32 AXIS_PTS_X 1 ULONG INDEX_INCR DIRECT /end RECORD_LAYOUT
+    /begin RECORD_LAYOUT A_U64 AXIS_PTS_X 1 A_UINT64 INDEX_INCR DIRECT /end RECORD_LAYOUT
+    /begin RECORD_LAYOUT A_I8 AXIS_PTS_X 1 SBYTE INDEX_INCR DIRECT /end RECORD_LAYOUT
+    /begin RECORD_LAYOUT A_I16 AXIS_PTS_X 1 SWORD INDEX_INCR DIRECT /end RECORD_LAYOUT
+    /begin RECORD_LAYOUT A_I32 AXIS_PTS_X 1 SLONG INDEX_INCR DIRECT /end RECORD_LAYOUT
+    /begin RECORD_LAYOUT A_I64 AXIS_PTS_X 1 A_INT64 INDEX_INCR DIRECT /end RECORD_LAYOUT
+    /begin RECORD_LAYOUT A_F32 AXIS_PTS_X 1 FLOAT32_IEEE INDEX_INCR DIRECT /end RECORD_LAYOUT
+    /begin RECORD_LAYOUT A_F64 AXIS_PTS_X 1 FLOAT64_IEEE INDEX_INCR DIRECT /end RECORD_LAYOUT
+
+    /* Predefined measurement and characteristic typedefs for standard types */
+    /begin TYPEDEF_MEASUREMENT M_BOOL "" UBYTE BOOL 0 0 0 1 /end TYPEDEF_MEASUREMENT
+    /begin TYPEDEF_MEASUREMENT M_U8 "" UBYTE NO_COMPU_METHOD 0 0 0 255 /end TYPEDEF_MEASUREMENT
+    /begin TYPEDEF_MEASUREMENT M_U16 "" UWORD NO_COMPU_METHOD 0 0 0 65535 /end TYPEDEF_MEASUREMENT
+    /begin TYPEDEF_MEASUREMENT M_U32 "" ULONG NO_COMPU_METHOD 0 0 0 4294967295 /end TYPEDEF_MEASUREMENT
+    /begin TYPEDEF_MEASUREMENT M_U64 "" A_UINT64 NO_COMPU_METHOD 0 0 0 1e12 /end TYPEDEF_MEASUREMENT
+    /begin TYPEDEF_MEASUREMENT M_I8 "" SBYTE NO_COMPU_METHOD 0 0 -128 127 /end TYPEDEF_MEASUREMENT
+    /begin TYPEDEF_MEASUREMENT M_I16 "" SWORD NO_COMPU_METHOD 0 0 -32768 32767 /end TYPEDEF_MEASUREMENT
+    /begin TYPEDEF_MEASUREMENT M_I32 "" SLONG NO_COMPU_METHOD 0 0 -2147483648 2147483647 /end TYPEDEF_MEASUREMENT
+    /begin TYPEDEF_MEASUREMENT M_I64 "" A_INT64 NO_COMPU_METHOD 0 0 -1e12 1e12 /end TYPEDEF_MEASUREMENT
+    /begin TYPEDEF_MEASUREMENT M_F32 "" FLOAT32_IEEE NO_COMPU_METHOD 0 0 -1e12 1e12 /end TYPEDEF_MEASUREMENT
+    /begin TYPEDEF_MEASUREMENT M_F64 "" FLOAT64_IEEE NO_COMPU_METHOD 0 0 -1e12 1e12 /end TYPEDEF_MEASUREMENT
+    /begin TYPEDEF_CHARACTERISTIC C_BOOL "" VALUE U8 0 BOOL 0 1 /end TYPEDEF_CHARACTERISTIC
+    /begin TYPEDEF_CHARACTERISTIC C_U8 "" VALUE U8 0 NO_COMPU_METHOD 0 255 /end TYPEDEF_CHARACTERISTIC
+    /begin TYPEDEF_CHARACTERISTIC C_U16 "" VALUE U16 0 NO_COMPU_METHOD 0 65535 /end TYPEDEF_CHARACTERISTIC
+    /begin TYPEDEF_CHARACTERISTIC C_U32 "" VALUE U32 0 NO_COMPU_METHOD 0 4294967295 /end TYPEDEF_CHARACTERISTIC
+    /begin TYPEDEF_CHARACTERISTIC C_U64 "" VALUE U64 0 NO_COMPU_METHOD 0 1e12 /end TYPEDEF_CHARACTERISTIC
+    /begin TYPEDEF_CHARACTERISTIC C_I8 "" VALUE I8 0 NO_COMPU_METHOD -128 127 /end TYPEDEF_CHARACTERISTIC
+    /begin TYPEDEF_CHARACTERISTIC C_I16 "" VALUE I16 0 NO_COMPU_METHOD -32768 32767 /end TYPEDEF_CHARACTERISTIC
+    /begin TYPEDEF_CHARACTERISTIC C_I32 "" VALUE I32 0 NO_COMPU_METHOD -2147483648 2147483647 /end TYPEDEF_CHARACTERISTIC
+    /begin TYPEDEF_CHARACTERISTIC C_I64 "" VALUE I64 0 NO_COMPU_METHOD -1e12 1e12 /end TYPEDEF_CHARACTERISTIC
+    /begin TYPEDEF_CHARACTERISTIC C_F64 "" VALUE F64 0 NO_COMPU_METHOD -1e12 1e12 /end TYPEDEF_CHARACTERISTIC
+    /begin TYPEDEF_CHARACTERISTIC C_F32 "" VALUE F32 0 NO_COMPU_METHOD -1e12 1e12 /end TYPEDEF_CHARACTERISTIC
+    "#,
         )
     }
 
     // MOD_PAR
     fn write_a2l_modpar(&mut self) -> std::io::Result<()> {
-        // EPK segment
-        let application = &self.registry.application;
-        write!(self, "/begin MOD_PAR \"\" ")?;
-        application.write_a2l(self)?;
+        writeln!(self, "/begin MOD_PAR \"\" ")?;
+
+        // EPK
+        {
+            let application = &self.registry.application;
+            application.write_a2l(self)?;
+        }
+
+        // Calibration segments
         for s in &self.registry.cal_seg_list {
             s.write_a2l(self)?;
         }
-        writeln!(self, " /end MOD_PAR")
+        writeln!(self, "/end MOD_PAR\n")
     }
 
     // IF_DATA XCP
@@ -879,44 +895,44 @@ impl<'a> A2lWriter<'a> {
         write!(
             self,
             r#"/begin IF_DATA XCP
-            /begin PROTOCOL_LAYER
-            0x104 1000 2000 0 0 0 0 0 252 1468 BYTE_ORDER_MSB_LAST ADDRESS_GRANULARITY_BYTE
-            OPTIONAL_CMD GET_COMM_MODE_INFO
-            OPTIONAL_CMD GET_ID
-            OPTIONAL_CMD SET_REQUEST
-            OPTIONAL_CMD SET_MTA
-            OPTIONAL_CMD UPLOAD
-            OPTIONAL_CMD SHORT_UPLOAD
-            OPTIONAL_CMD DOWNLOAD
-            OPTIONAL_CMD SHORT_DOWNLOAD
-            OPTIONAL_CMD GET_CAL_PAGE
-            OPTIONAL_CMD SET_CAL_PAGE
-            OPTIONAL_CMD COPY_CAL_PAGE
-            OPTIONAL_CMD BUILD_CHECKSUM
-            OPTIONAL_CMD GET_DAQ_RESOLUTION_INFO
-            OPTIONAL_CMD GET_DAQ_PROCESSOR_INFO
-            OPTIONAL_CMD FREE_DAQ
-            OPTIONAL_CMD ALLOC_DAQ
-            OPTIONAL_CMD ALLOC_ODT
-            OPTIONAL_CMD ALLOC_ODT_ENTRY
-            OPTIONAL_CMD SET_DAQ_PTR
-            OPTIONAL_CMD WRITE_DAQ
-            OPTIONAL_CMD GET_DAQ_LIST_MODE
-            OPTIONAL_CMD SET_DAQ_LIST_MODE
-            OPTIONAL_CMD START_STOP_SYNCH
-            OPTIONAL_CMD START_STOP_DAQ_LIST
-            OPTIONAL_CMD GET_DAQ_CLOCK
-            OPTIONAL_CMD WRITE_DAQ_MULTIPLE
-            OPTIONAL_CMD TIME_CORRELATION_PROPERTIES
-            OPTIONAL_CMD USER_CMD
-            OPTIONAL_LEVEL1_CMD GET_VERSION
-            /end PROTOCOL_LAYER"#
+        /begin PROTOCOL_LAYER
+        0x104 1000 2000 0 0 0 0 0 252 1468 BYTE_ORDER_MSB_LAST ADDRESS_GRANULARITY_BYTE
+        OPTIONAL_CMD GET_COMM_MODE_INFO
+        OPTIONAL_CMD GET_ID
+        OPTIONAL_CMD SET_REQUEST
+        OPTIONAL_CMD SET_MTA
+        OPTIONAL_CMD UPLOAD
+        OPTIONAL_CMD SHORT_UPLOAD
+        OPTIONAL_CMD DOWNLOAD
+        OPTIONAL_CMD SHORT_DOWNLOAD
+        OPTIONAL_CMD GET_CAL_PAGE
+        OPTIONAL_CMD SET_CAL_PAGE
+        OPTIONAL_CMD COPY_CAL_PAGE
+        OPTIONAL_CMD BUILD_CHECKSUM
+        OPTIONAL_CMD GET_DAQ_RESOLUTION_INFO
+        OPTIONAL_CMD GET_DAQ_PROCESSOR_INFO
+        OPTIONAL_CMD FREE_DAQ
+        OPTIONAL_CMD ALLOC_DAQ
+        OPTIONAL_CMD ALLOC_ODT
+        OPTIONAL_CMD ALLOC_ODT_ENTRY
+        OPTIONAL_CMD SET_DAQ_PTR
+        OPTIONAL_CMD WRITE_DAQ
+        OPTIONAL_CMD GET_DAQ_LIST_MODE
+        OPTIONAL_CMD SET_DAQ_LIST_MODE
+        OPTIONAL_CMD START_STOP_SYNCH
+        OPTIONAL_CMD START_STOP_DAQ_LIST
+        OPTIONAL_CMD GET_DAQ_CLOCK
+        OPTIONAL_CMD WRITE_DAQ_MULTIPLE
+        OPTIONAL_CMD TIME_CORRELATION_PROPERTIES
+        OPTIONAL_CMD USER_CMD
+        OPTIONAL_LEVEL1_CMD GET_VERSION
+        /end PROTOCOL_LAYER"#
         )?;
 
         let event_count = self.registry.event_list.len();
         writeln!(
             self,
-            "\n\n\t\t\t/begin DAQ
+            "\n\n\t\t/begin DAQ
             DYNAMIC 0 {event_count} 0 OPTIMISATION_TYPE_DEFAULT ADDRESS_EXTENSION_FREE IDENTIFICATION_FIELD_TYPE_RELATIVE_BYTE GRANULARITY_ODT_ENTRY_SIZE_DAQ_BYTE 0xF8 OVERLOAD_INDICATION_PID
             /begin TIMESTAMP_SUPPORTED
                 0x1 SIZE_DWORD UNIT_1US TIMESTAMP_FIXED
@@ -929,7 +945,7 @@ impl<'a> A2lWriter<'a> {
             e.write_a2l(self)?;
         }
 
-        write!(self, "\n\t\t\t/end DAQ\n")?;
+        write!(self, "\n\t\t/end DAQ\n")?;
 
         // Transport layer parameters in IF_DATA
         if let Some(xcp_tl_params) = self.registry.xcp_tl_params {
@@ -954,16 +970,28 @@ impl<'a> A2lWriter<'a> {
         writeln!(self, "\n/* Measurements */")?;
 
         // Measurable objects with event_id
+        for e in &self.registry.event_list {
+            writeln!(self, "\n/* Measurements for event '{}' */", e.name)?;
+            for m in self.registry.instance_list.into_iter() {
+                // If with event or explicitly a measurement object
+                if m.is_measurement_object() && m.address.event_id() == Some(e.id) {
+                    m.write_measurement(self)?;
+                }
+            }
+        }
+
+        // Measurable objects without event_id
+        writeln!(self, "\n/* Measurements without fixed event */")?;
         for m in self.registry.instance_list.into_iter() {
-            // If with event or explicitly a measurement object
-            if m.is_measurement_object() || m.address.event_id().is_some() {
+            // If without event and not explicitly a measurement object
+            if m.is_measurement_object() && m.address.event_id().is_none() {
                 m.write_measurement(self)?;
             }
         }
 
         // GROUP
         // Group root measurement
-        write!(self, "/begin GROUP Measurements \"\" ROOT /begin SUB_GROUP")?;
+        write!(self, "\n/begin GROUP Measurements \"\" ROOT /begin SUB_GROUP")?;
         for e in &self.registry.event_list {
             // Ignore all but the first event instance
             if e.index > 1 {
@@ -1016,8 +1044,6 @@ impl<'a> A2lWriter<'a> {
             if !c.is_axis() {
                 // This is the inverse condition of the one in write_a2l_measurements
                 if !(c.is_measurement_object() || c.address.event_id().is_some()) {
-                    assert!(c.address.is_segment_relative());
-                    assert!(!c.is_measurement_object());
                     c.write_characteristic(self)?;
                 }
             }
@@ -1030,8 +1056,11 @@ impl<'a> A2lWriter<'a> {
         // Write ROOT GROUP "Characteristics" with subgroups for all calibration segments
         writeln!(self, "\n/* Characteristic and Axis Groups */")?;
         if !self.registry.cal_seg_list.len() > 0 {
-            write!(self, "/begin GROUP Characteristics \"\" ROOT /begin SUB_GROUP")?;
+            write!(self, "\n/begin GROUP Characteristics \"\" ROOT /begin SUB_GROUP")?;
             for s in &self.registry.cal_seg_list {
+                if s.name == crate::EPK_SEG_NAME {
+                    continue;
+                }
                 write!(self, " {}", s.name)?;
             }
             writeln!(self, " /end SUB_GROUP /end GROUP")?;
@@ -1061,8 +1090,9 @@ impl<'a> A2lWriter<'a> {
         self.write_all("\n/end MODULE\n/end PROJECT\n".as_bytes())
     }
 
-    pub fn write_a2l(&mut self, project_name: &str, module_name: &str) -> Result<(), std::io::Error> {
-        self.write_a2l_head(project_name, module_name)?;
+    pub fn write_a2l(&mut self, title_comment: &str, project_name: &str, project_description: &str, module_name: &str, project_no: &str) -> Result<(), std::io::Error> {
+        assert!(!project_name.is_empty() && !module_name.is_empty() && !project_no.is_empty());
+        self.write_a2l_head(title_comment, project_name, project_description, module_name, project_no)?;
         self.write_a2l_modpar()?;
         if self.registry.has_xcp_params() {
             self.write_a2l_if_data()?;

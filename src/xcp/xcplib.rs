@@ -16,14 +16,38 @@ unsafe extern "C" {
     #[doc = " Get information about the XCP on Ethernet server instance address.\n @pre The server instance is running.\n @param out_is_tcp Optional out parameter to query if TCP or UDP is used.\n True if TCP, otherwise UDP.\n Pass NULL if not required.\n @param out_mac Optional out parameter to query the MAC address of the interface used in the server instance.\n Pass NULL if not required.\n @param out_address Optional out parameter to query the IP address used in the server instance.\n Pass NULL if not required.\n @param out_port Optional out parameter to query the port address used in the server instance.\n Pass NULL if not required."]
     pub fn XcpEthServerGetInfo(out_is_tcp: *mut bool, out_mac: *mut u8, out_address: *mut u8, out_port: *mut u16);
 }
-pub type tXcpEventId = u16;
+#[doc = " Calibration segment handle"]
+pub type tXcpCalSegIndex = u16;
 unsafe extern "C" {
-    #[doc = " Trigger the XCP event 'event' for stack absolute addressing mode (XCP_ADDR_EXT_ABS)\n @param event Event id.\n Assumes XCP address extension XCP_ADDR_EXT_REL is used for stack relative addressing and XCP_ADDR_EXT_ABS for absolute addressing."]
-    pub fn XcpEvent(event: tXcpEventId);
+    #[doc = " Create a calibration segment and add it to the list of calibration segments.\n Create a named calibration segment and add it to the list of calibration segments.\n This calibration segment has a working page (RAM) and a reference page (FLASH), it creates a MEMORY_SEGMENT in the A2L file\n It provides safe (thread safe against XCP modifications), lock-free and consistent access to the calibration params\n It supports XCP/ECU independent page switching, checksum calculation, copy and reinitialization (copy reference page to working page)\n @param name Name of the calibration segment.\n @param default_page Pointer to the default page.\n @param size Size of the calibration page in bytes.\n @return a handle or XCP_UNDEFINED_CALSEG when out of memory or the name already exists."]
+    pub fn XcpCreateCalSeg(name: *const ::std::os::raw::c_char, default_page: *const ::std::os::raw::c_void, size: u16) -> tXcpCalSegIndex;
 }
 unsafe extern "C" {
-    #[doc = " Trigger the XCP event 'event' for relative or absolute addressing mode with explicitly given base address (XCP_ADDR_EXT_DYN)\n @param event\n @param base address pointer for the relative (XCP_ADDR_EXT_DYN) addressing mode"]
-    pub fn XcpEventExt(event: tXcpEventId, base: *const u8);
+    #[doc = " Find a calibration segment by name, returns XCP_UNDEFINED_CALSEG if not found"]
+    pub fn XcpFindCalSeg(name: *const ::std::os::raw::c_char) -> tXcpCalSegIndex;
+}
+unsafe extern "C" {
+    #[doc = " Get the name of the calibration segment\n @return the name of the calibration segment or NULL if the index is invalid."]
+    pub fn XcpGetCalSegName(calseg: tXcpCalSegIndex) -> *const ::std::os::raw::c_char;
+}
+unsafe extern "C" {
+    #[doc = " Lock a calibration segment.\n @param calseg Calibration segment index.\n @return Pointer to the active page of the calibration segment (working page or reference page, controlled by the XCP client tool).\n The pointer is valid until the calibration segment is unlocked.\n The data can be safely accessed while the lock is held.\n There is no contention with the XCP client tool and with other threads acquiring the lock.\n Acquiring the lock is wait-free, locks may be recursive"]
+    pub fn XcpLockCalSeg(calseg: tXcpCalSegIndex) -> *const u8;
+}
+unsafe extern "C" {
+    #[doc = " Unlock a calibration segment"]
+    pub fn XcpUnlockCalSeg(calseg: tXcpCalSegIndex);
+}
+unsafe extern "C" {
+    pub fn XcpGetCalSegCount() -> u16;
+}
+unsafe extern "C" {
+    pub fn XcpGetCalSegSize(calseg: tXcpCalSegIndex) -> u16;
+}
+#[doc = " DAQ event id as handle"]
+pub type tXcpEventId = u16;
+unsafe extern "C" {
+    pub fn XcpEventExt2(event: tXcpEventId, base2: *const u8, base3: *const u8);
 }
 unsafe extern "C" {
     #[doc = " Set log level\n Log level 4 provides a trace of all XCP commands and responses.\n @param level (0 = no logging, 1 = error, 2 = warning, 3 = info, 4 = debug, 5 = trace)"]
@@ -31,13 +55,14 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[doc = " Initialize the XCP singleton, activate XCP, must be called before starting the server\n If XCP is not activated, the server will not start and all XCP instrumentation will be passive with minimal overhead\n @param activate If true, the XCP library is activated"]
-    pub fn XcpInit(activate: bool);
+    pub fn XcpInit(name: *const ::std::os::raw::c_char, epk: *const ::std::os::raw::c_char, activate: bool);
 }
 unsafe extern "C" {
-    pub fn ApplXcpSetA2lName(name: *const ::std::os::raw::c_char);
+    #[doc = " Reset XCP library to initial state"]
+    pub fn XcpReset();
 }
 unsafe extern "C" {
-    pub fn XcpSetEpk(epk: *const ::std::os::raw::c_char);
+    pub fn XcpSetA2lName(name: *const ::std::os::raw::c_char);
 }
 unsafe extern "C" {
     #[doc = " Force Disconnect\n Stop DAQ, flush queue, flush pending calibrations"]
@@ -56,18 +81,5 @@ unsafe extern "C" {
     pub fn ApplXcpGetClock64() -> u64;
 }
 unsafe extern "C" {
-    pub fn ApplXcpRegisterCallbacks(
-        cb_connect: ::std::option::Option<unsafe extern "C" fn() -> bool>,
-        cb_prepare_daq: ::std::option::Option<unsafe extern "C" fn() -> u8>,
-        cb_start_daq: ::std::option::Option<unsafe extern "C" fn() -> u8>,
-        cb_stop_daq: ::std::option::Option<unsafe extern "C" fn()>,
-        cb_freeze_daq: ::std::option::Option<unsafe extern "C" fn(clear: u8, config_id: u16) -> u8>,
-        cb_get_cal_page: ::std::option::Option<unsafe extern "C" fn(segment: u8, mode: u8) -> u8>,
-        cb_set_cal_page: ::std::option::Option<unsafe extern "C" fn(segment: u8, page: u8, mode: u8) -> u8>,
-        cb_freeze_cal: ::std::option::Option<unsafe extern "C" fn() -> u8>,
-        cb_init_cal: ::std::option::Option<unsafe extern "C" fn(src_page: u8, dst_page: u8) -> u8>,
-        cb_read: ::std::option::Option<unsafe extern "C" fn(src: u32, size: u8, dst: *mut u8) -> u8>,
-        cb_write: ::std::option::Option<unsafe extern "C" fn(dst: u32, size: u8, src: *const u8, delay: u8) -> u8>,
-        cb_flush: ::std::option::Option<unsafe extern "C" fn() -> u8>,
-    );
+    pub fn ApplXcpRegisterConnectCallback(cb_connect: ::std::option::Option<unsafe extern "C" fn(mode: u8) -> bool>);
 }

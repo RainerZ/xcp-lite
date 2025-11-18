@@ -3,26 +3,22 @@
 Basic demo
 
 Run:
+
 ```
-cargo run --example hello_xcp
+cargo run -p hello_xcp
 ```
 
 Run the test XCP client in another terminal with the following command:
+
 ```
-cargo run --example xcp_client 
+cargo run -p xcp_client 
 ```
-
-
-
 
 ## CANape
- 
 
 ![CANape](CANape.png)
 
-
-
-## A2L file 
+## A2L file
 
 The demo creates the A2L file below:
 
@@ -95,5 +91,3 @@ The demo creates the A2L file below:
     /end PROJECT
     
 ```
-
-

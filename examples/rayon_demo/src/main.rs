@@ -2,7 +2,7 @@
 // Visualize start and stop of synchronous tasks in worker thread pool
 // Inspired by the mandelbrot rayon example in the book "Programming Rust" by Jim Blandy and Jason Orendorff
 
-// cargo r --example rayon_demo
+// cargo r -p rayon_demo
 // Creates madelbrot.a2l and mandelbrot.png in current directory
 
 #![allow(unused_imports)]
@@ -227,16 +227,12 @@ fn main() -> Result<()> {
     // XCP: Initialize the XCP server
     let app_name = args.name.as_str();
     let app_revision = build_info::format!("{}", $.timestamp);
-    let _ = Xcp::get()
-        .set_app_name(app_name)
-        .set_app_revision(app_revision)
-        .set_log_level(args.log_level)
-        .start_server(
-            if args.tcp { XcpTransportLayer::Tcp } else { XcpTransportLayer::Udp },
-            args.bind.octets(),
-            args.port,
-            XCP_QUEUE_SIZE,
-        )?;
+    let _ = Xcp::init(app_name, app_revision, args.log_level).start_server(
+        if args.tcp { XcpTransportLayer::Tcp } else { XcpTransportLayer::Udp },
+        args.bind.octets(),
+        args.port,
+        XCP_QUEUE_SIZE,
+    )?;
 
     let mandelbrot = CalSeg::new("mandelbrot", &MANDELBROT);
     mandelbrot.register_fields();

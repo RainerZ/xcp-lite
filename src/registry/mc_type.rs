@@ -186,8 +186,35 @@ impl McValueType {
             McValueType::Ulong | McValueType::Slong | McValueType::Float32Ieee => 4,
             McValueType::Ulonglong | McValueType::Slonglong | McValueType::Float64Ieee => 8,
             McValueType::Blob(_) => panic!("get_size: Unknown blob size"),
-            McValueType::TypeDef(_) => panic!("get_size: Unknown instance size"),
+            McValueType::TypeDef(_) => {
+                log::error!("get_size: Unknown instance size");
+                0
+            }
             _ => panic!("get_size: Unsupported data type"),
+        }
+    }
+
+    // Create from size and signed flag
+    pub fn from_integer_size(size: usize, signed: bool) -> McValueType {
+        match (size, signed) {
+            (1, false) => McValueType::Ubyte,
+            (1, true) => McValueType::Sbyte,
+            (2, false) => McValueType::Uword,
+            (2, true) => McValueType::Sword,
+            (4, false) => McValueType::Ulong,
+            (4, true) => McValueType::Slong,
+            (8, false) => McValueType::Ulonglong,
+            (8, true) => McValueType::Slonglong,
+            _ => McValueType::Unknown,
+        }
+    }
+
+    // Create from size for floating point
+    pub fn from_float_size(size: usize) -> McValueType {
+        match size {
+            4 => McValueType::Float32Ieee,
+            8 => McValueType::Float64Ieee,
+            _ => McValueType::Unknown,
         }
     }
 

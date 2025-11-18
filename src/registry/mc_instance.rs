@@ -2,9 +2,8 @@
 // Types:
 //  McInstance, McInstanceList, McInstanceListIterator
 
-use std::borrow::Cow;
-
 use regex::Regex;
+use std::borrow::Cow;
 
 use super::McAddress;
 use super::McDimType;
@@ -61,8 +60,8 @@ impl McInstance {
     /// Get the instance name with optional application name prefix
     /// The instance name may not be unique
     pub fn get_prefixed_name(&self, registry: &Registry) -> Cow<'static, str> {
-        if registry.prefix_names {
-            return Cow::Owned(format!("{}.{}", registry.get_app_name(), self.name));
+        if registry.get_prefix_names_mode() {
+            return Cow::Owned(format!("{}.{}", registry.application.get_name(), self.name));
         }
         Cow::Borrowed(self.name.as_str())
     }
@@ -73,16 +72,16 @@ impl McInstance {
         if let Some(event_id) = self.address.event_id() {
             if let Some(event) = registry.event_list.find_event_id(event_id) {
                 if event.index > 0 {
-                    if registry.prefix_names {
-                        return Cow::Owned(format!(r#"{}.{}_{}"#, registry.get_app_name(), self.name, event.index));
+                    if registry.get_prefix_names_mode() {
+                        return Cow::Owned(format!(r#"{}.{}_{}"#, registry.application.get_name(), self.name, event.index));
                     } else {
                         return Cow::Owned(format!(r#"{}_{}"#, self.name, event.index));
                     }
                 }
             }
         }
-        if registry.prefix_names {
-            Cow::Owned(format!(r#"{}.{}"#, registry.get_app_name(), self.name))
+        if registry.get_prefix_names_mode() {
+            Cow::Owned(format!(r#"{}.{}"#, registry.application.get_name(), self.name))
         } else {
             Cow::Borrowed(self.name.as_str())
         }
@@ -245,9 +244,9 @@ impl McInstanceList {
         assert!(mc_support_data.get_object_type() != McObjectType::Unspecified, "Object type must be specified");
 
         // Error if duplicate in instance namespace (A2l characteristics, measurements, axis and instances)
-        // Names may not be unique, when there is a unique event_id
-        if self.into_iter().any(|i| i.get_address() == &address && i.name == name) {
-            log::error!("Duplicate instance {}!", name);
+        // Note that multiple instances of the same name are allowed if they have same event_id and different event_index
+        if self.into_iter().any(|i| (i.name == name) && (i.event_id() == address.event_id())) {
+            log::error!("Duplicate instance named '{}'!", name);
             return Err(RegistryError::Duplicate(name.to_string()));
         }
 
@@ -326,6 +325,37 @@ impl<'a> IntoIterator for &'a McInstanceList {
 
     fn into_iter(self) -> McInstanceListIterator<'a> {
         McInstanceListIterator::new(self)
+    }
+}
+
+//-------------------------------------------------------------------------------------------------
+// McInstanceListIteratorMut (Mutable Iterator)
+
+/// Mutable iterator for InstanceList
+pub struct McInstanceListIteratorMut<'a> {
+    iter: std::slice::IterMut<'a, McInstance>,
+}
+
+impl<'a> McInstanceListIteratorMut<'a> {
+    pub fn new(list: &'a mut McInstanceList) -> McInstanceListIteratorMut<'a> {
+        McInstanceListIteratorMut { iter: list.0.iter_mut() }
+    }
+}
+
+impl<'a> Iterator for McInstanceListIteratorMut<'a> {
+    type Item = &'a mut McInstance;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut McInstanceList {
+    type Item = &'a mut McInstance;
+    type IntoIter = McInstanceListIteratorMut<'a>;
+
+    fn into_iter(self) -> McInstanceListIteratorMut<'a> {
+        McInstanceListIteratorMut::new(self)
     }
 }
 

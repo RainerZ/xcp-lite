@@ -333,10 +333,10 @@ mod mc_text_tests {
         assert_eq!(t, "Identifier");
 
         let result = std::panic::catch_unwind(|| {
-            // Creating McIdentifier with invalid characters should panic
+            // Creating McIdentifier with invalid characters
             let _ = McIdentifier::new("Illegal Identifier");
         });
-        assert!(result.is_err()); // Check if the function panicked
+        assert!(result.is_err()); // Check 
 
         let s1 = McIdentifier::from("&Legal .Identifier ".to_string());
         assert_eq!(s1.as_str(), "_Legal_.Identifier_");

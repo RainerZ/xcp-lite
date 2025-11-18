@@ -2,8 +2,10 @@
 // Types:
 //  Registry
 
+use log::info;
 use serde::Deserialize;
 use serde::Serialize;
+use std::collections::HashMap;
 use std::net::Ipv4Addr;
 
 use super::is_closed;
@@ -22,27 +24,24 @@ use super::RegistryError;
 use super::flatten_registry;
 
 //-------------------------------------------------------------------------------------------------
-// ApplicationVersion
-// EPK software version id
+// McApplicationVersion
+// Software version string identifier or EPK with address
 
-#[derive(Debug, Serialize, Deserialize)]
-struct ApplicationVersion {
-    epk: McText,
-    version_addr: u32,
+#[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Serialize, Deserialize)]
+pub struct McApplicationVersion {
+    pub epk: McText,
+    pub epk_addr: u32,
 }
 
-impl ApplicationVersion {
-    fn new() -> ApplicationVersion {
-        ApplicationVersion::default()
+impl McApplicationVersion {
+    fn new() -> McApplicationVersion {
+        McApplicationVersion::default()
     }
 }
 
-impl Default for ApplicationVersion {
+impl Default for McApplicationVersion {
     fn default() -> Self {
-        ApplicationVersion {
-            epk: "EPK_".into(),
-            version_addr: 0,
-        }
+        McApplicationVersion { epk: "".into(), epk_addr: 0 }
     }
 }
 
@@ -52,12 +51,56 @@ impl Default for ApplicationVersion {
 /// Infos on the application
 #[derive(Debug, Default, Ord, PartialOrd, Eq, PartialEq, Serialize, Deserialize)]
 pub struct McApplication {
-    pub app_id: u8,          // Unique identifier for the application
-    pub name: McIdentifier,  // Name of the application, used as A2L filename and module name
-    pub description: McText, // Optional description of the application
-    // Version or EPK
-    pub version: McText,   // Version, used as A2L EPK
-    pub version_addr: u32, // Address of the EPK string in memory
+    pub app_id: u8,                    // Unique identifier for the application
+    pub name: McIdentifier,            // Name of the application, used as A2L filename and module name
+    pub description: McText,           // Optional description of the application
+    pub version: McApplicationVersion, // Version or EPK string with address
+}
+
+impl McApplication {
+    pub fn new() -> McApplication {
+        McApplication {
+            app_id: 0,
+            name: "".into(),
+            description: "".into(),
+            version: McApplicationVersion::default(),
+        }
+    }
+
+    /// Check if a version string or EPK and address is available for the application
+    pub fn has_epk(&self) -> bool {
+        !self.version.epk.is_empty()
+    }
+
+    /// Set application name
+    pub fn set_info<A: Into<McIdentifier>, B: Into<McText>>(&mut self, name: A, description: B, id: u8) {
+        let name: McIdentifier = name.into();
+        let description: McText = description.into();
+        log::info!("Registry set application info, app_name='{}', app_id={}, description='{}'", name, id, description);
+
+        // Set name, id and description
+        self.app_id = id;
+        self.name = name;
+        self.description = description;
+    }
+
+    /// Get application name
+    pub fn get_name(&self) -> &'static str {
+        if !self.name.is_empty() { self.name.as_str() } else { "application" }
+    }
+
+    /// Set application version
+    pub fn set_version<T: Into<McText>>(&mut self, epk: T, epk_addr: u32) {
+        let epk: McText = epk.into();
+        log::debug!("Registry set epk: {} 0x{:08X}", epk, epk_addr);
+        self.version.epk = epk;
+        self.version.epk_addr = epk_addr;
+    }
+
+    /// Get application version
+    pub fn get_version(&self) -> &str {
+        self.version.epk.as_str()
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -66,19 +109,15 @@ pub struct McApplication {
 /// Measurement and calibration object database
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Registry {
-    // Use Vector specific extensions
-    // XCP definition of address extensions
-    vector_xcp_mode: bool,
-
     // Flatten typedefs to measurement and calibration objects when writing A2L
     #[serde(skip_serializing)]
     #[serde(skip_deserializing)]
-    pub flatten_typedefs: bool,
+    flatten_typedefs: bool,
 
     // Prefix name wit application name when writing A2L
     #[serde(skip_serializing)]
     #[serde(skip_deserializing)]
-    pub prefix_names: bool,
+    prefix_names: bool,
 
     // Application name and software version
     pub application: McApplication,
@@ -111,48 +150,15 @@ impl Registry {
     /// Create a measurement and calibration registry
     pub fn new() -> Registry {
         Registry {
-            vector_xcp_mode: true,
             flatten_typedefs: false,
             prefix_names: false,
-            application: McApplication::default(),
+            application: McApplication::new(),
             xcp_tl_params: None,
             event_list: McEventList::new(),
             cal_seg_list: McCalibrationSegmentList::new(),
             typedef_list: McTypeDefList::new(),
             instance_list: McInstanceList::new(),
         }
-    }
-
-    //---------------------------------------------------------------------------------------------------------
-
-    /// Set application name
-    pub fn set_app_info<A: Into<McIdentifier>, B: Into<McText>>(&mut self, name: A, description: B, id: u8) {
-        let name: McIdentifier = name.into();
-        let description: McText = description.into();
-        log::info!("Registry set application info, app_name={}, app_id={}, description={}", name, id, description);
-
-        // Set name, id and description
-        self.application.app_id = id;
-        self.application.name = name;
-        self.application.description = description;
-    }
-
-    /// Get application name
-    pub fn get_app_name(&self) -> &'static str {
-        self.application.name.as_str()
-    }
-
-    /// Set application version
-    pub fn set_app_version<T: Into<McText>>(&mut self, epk: T, version_addr: u32) {
-        let epk: McText = epk.into();
-        log::debug!("Registry set epk: {} 0x{:08X}", epk, version_addr);
-        self.application.version = epk;
-        self.application.version_addr = version_addr;
-    }
-
-    /// Get application version
-    pub fn get_app_version(&self) -> &str {
-        self.application.version.as_str()
     }
 
     //---------------------------------------------------------------------------------------------------------
@@ -169,29 +175,30 @@ impl Registry {
         self.xcp_tl_params.is_some()
     }
 
-    /// Vector specific handling mode of address extensions, predefined artefacts, naming conventions, usage of typedefs, ...
-    pub fn set_vector_xcp_mode(&mut self, vector_xcp_mode: bool) {
-        self.vector_xcp_mode = vector_xcp_mode;
-    }
-    pub fn is_vector_xcp_mode(&self) -> bool {
-        self.vector_xcp_mode
-    }
+    //---------------------------------------------------------------------------------------------------------
+    // Modes
 
     /// Flatten typedefs (TYPEDEF_STRUCTURE) to measurement and calibration objects (MEASUREMENT, CHARACTERISTC  and AXIS) when writing A2L
-    pub fn set_flatten_typedefs(&mut self, flatten_typedefs: bool) {
+    pub fn set_flatten_typedefs_mode(&mut self, flatten_typedefs: bool) {
         self.flatten_typedefs = flatten_typedefs;
+    }
+    pub fn get_flatten_typedefs_mode(&self) -> bool {
+        self.flatten_typedefs
     }
 
     /// Prefix name with application name when writing A2L
-    pub fn set_prefix_names(&mut self, prefix_names: bool) {
+    pub fn set_prefix_names_mode(&mut self, prefix_names: bool) {
         self.prefix_names = prefix_names;
+    }
+    pub fn get_prefix_names_mode(&self) -> bool {
+        self.prefix_names
     }
 
     //---------------------------------------------------------------------------------------------------------
     // Typedefs
 
     /// Add a typedef component to a typedef
-    pub fn add_typedef_component<T: Into<McIdentifier>>(
+    pub fn add_typedef_field<T: Into<McIdentifier>>(
         &mut self,
         type_name: &str,
         field_name: T,
@@ -200,7 +207,7 @@ impl Registry {
         offset: u16,
     ) -> Result<(), RegistryError> {
         let field_name = field_name.into();
-        log::debug!("Registry add_typedef_component: {}.{} dim_type={} offset={}", type_name, field_name, dim_type, offset);
+        log::debug!("Registry add_typedef_field: {}.{} dim_type={} offset={}", type_name, field_name, dim_type, offset);
 
         if let Some(typedef) = self.typedef_list.find_typedef_mut(type_name) {
             // Duplicate field name
@@ -231,7 +238,6 @@ impl Registry {
         }
 
         // Add to typedef list
-
         self.typedef_list.push(McTypeDef::new(type_name, size));
         let index = self.typedef_list.len() - 1;
         Ok(self.typedef_list.get_mut(index))
@@ -242,6 +248,61 @@ impl Registry {
     /// Collapses all typedefs to measurement and calibration objects with mangled names
     pub fn flatten_typedefs(&mut self) {
         flatten_registry(self);
+    }
+
+    // ---------------------------------------------------------------------------------------------------------
+    // Update the calibration segment numbers from a mapping table
+    pub fn update_cal_seg_mapping(&mut self, mapping: &HashMap<u16, u16>) {
+        for segment in &mut self.cal_seg_list {
+            if let Some(new_index) = mapping.get(&segment.get_index()) {
+                segment.set_index(*new_index);
+                info!("Update calibration segment index {} -> {}", segment.get_index(), new_index);
+            }
+        }
+
+        // @@@@ XCPlite with absolute segment addressing mode needs no update
+        // Update of ADDR_MODE_A2L not checked
+
+        for instance in &self.instance_list {
+            if instance.address.is_segment_relative() {
+                // Not implemented
+                unimplemented!();
+            }
+        }
+    }
+
+    // Update the event id from a mapping table
+    pub fn update_event_mapping(&mut self, mapping: &HashMap<u16, u16>) {
+        for event in &mut self.event_list {
+            if let Some(new_id) = mapping.get(&event.get_id()) {
+                info!("Update event {} id {} -> {}", event.get_name(), event.get_id(), new_id);
+                event.set_id(*new_id);
+            }
+        }
+        for instance in &mut self.instance_list {
+            if instance.address.is_event_relative() {
+                unimplemented!();
+            }
+            if instance.address.get_addr_mode().is_a2l() {
+                // @@@@ XCPlite specific handling of address extensions
+                let addr = instance.address.get_raw_a2l_addr();
+                if addr.0 >= 2 {
+                    let event_id: u16 = (addr.1 >> 16) as u16;
+                    info!("Checking address update for {}: {}:0x{:08X} event_id={}", instance.get_name(), addr.0, addr.1, event_id);
+                    if let Some(new_id) = mapping.get(&event_id) {
+                        let new_addr: u32 = ((*new_id as u32) << 16) | (addr.1 & 0xFFFF);
+                        instance.address.set_raw_a2l_addr(addr.0, new_addr);
+                        log::info!(
+                            "XCPlite specific event id update in address of ‘{}‘: {}:0x{:08X} -> 0x{:08X}",
+                            instance.get_name(),
+                            addr.0,
+                            addr.1,
+                            new_addr
+                        );
+                    }
+                }
+            }
+        }
     }
 
     //---------------------------------------------------------------------------------------------------------

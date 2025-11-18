@@ -14,7 +14,6 @@ impl FieldAttribute {
             FieldAttribute::Measurement => "measurement",
             FieldAttribute::Axis => "axis",
             FieldAttribute::Characteristic => "characteristic",
-
             FieldAttribute::Undefined => "undefined",
         }
     }

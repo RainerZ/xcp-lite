@@ -11,6 +11,7 @@ use crate::registry::Registry;
 use crate::registry::RegistryError;
 
 use super::McIdentifier;
+use super::McText;
 
 //----------------------------------------------------------------------------------------------
 // McEvent
@@ -24,6 +25,9 @@ pub struct McEvent {
     pub index: u16,                // Instance index 1..n, 0 if single instance
     pub id: u16,                   // Unique event id number used in A2L and XCP protocol, unique event identifier for an application
     pub target_cycle_time_ns: u32, // 0 -> no cycle time = sporadic event
+    pub function: Option<McText>,  // Name of the function where the event is defined, used to find local variables for this event
+    pub unit: Option<usize>,       // Index of the compilation unit where the event is defined, used to find local variables for this event
+    pub cfa: i32,                  // Canonical stack frame address offset where the event is defined, used to access local variables for this event
 }
 
 impl McEvent {
@@ -35,6 +39,9 @@ impl McEvent {
             index,
             id,
             target_cycle_time_ns,
+            function: None,
+            unit: None,
+            cfa: 0,
         }
     }
 
@@ -43,17 +50,30 @@ impl McEvent {
         self.name.as_str()
     }
 
+    /// Get the event id
+    /// This is the unique identifier for the event
+    pub fn get_id(&self) -> u16 {
+        self.id
+    }
+
+    // Set the event id
+    // For internal use only
+    // The event id must be unique, no checks
+    pub fn set_id(&mut self, id: u16) {
+        self.id = id;
+    }
+
     /// Get the full indexed name of the event
     /// The event name may not be unique, events with the same name may be created by multiple thread instances of a task, this is indicated by index > 0
     pub fn get_unique_name(&self, registry: &Registry) -> Cow<'static, str> {
         if self.index > 0 {
-            if registry.prefix_names {
-                Cow::Owned(format!("{}.{}_{}", registry.get_app_name(), self.name, self.index))
+            if registry.get_prefix_names_mode() {
+                Cow::Owned(format!("{}.{}_{}", registry.application.get_name(), self.name, self.index))
             } else {
                 Cow::Owned(format!("{}_{}", self.name, self.index))
             }
         } else {
-            if registry.prefix_names {
+            if registry.get_prefix_names_mode() {
                 Cow::Owned(format!("{}_{}", self.name, self.index))
             } else {
                 Cow::Borrowed(self.name.as_str())
@@ -117,6 +137,27 @@ impl McEventList {
     pub fn find_event_id(&self, id: u16) -> Option<&McEvent> {
         self.0.iter().find(|e| e.id == id)
     }
+
+    /// Find an event by unit index and function name
+    /// This is used to find local variables for this event
+    /// If multiple events are defined in the same function, the first event is returned
+    pub fn find_event_by_location(&self, unit_idx: usize, function: &str) -> Option<&McEvent> {
+        self.0.iter().find(|e| e.unit == Some(unit_idx) && e.function.as_deref() == Some(function))
+    }
+
+    /// Store the unit index and function name where the event is defined
+    /// This is used to find local variables for this event
+    /// Multiple events may be defined in the same function
+    pub fn set_event_location(&mut self, name: &str, unit_idx: usize, function: &str, cfa: i32) -> Result<(), RegistryError> {
+        if let Some(event) = self.0.iter_mut().find(|e| e.name == name) {
+            event.unit = Some(unit_idx);
+            event.function = Some(function.to_string().into());
+            event.cfa = cfa;
+            Ok(())
+        } else {
+            Err(RegistryError::NotFound(name.to_string()))
+        }
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -154,5 +195,36 @@ impl<'a> IntoIterator for &'a McEventList {
 
     fn into_iter(self) -> McEventListIterator<'a> {
         McEventListIterator::new(self)
+    }
+}
+
+//-------------------------------------------------------------------------------------------------
+// McEventListIteratorMut (Mutable Iterator)
+
+/// Mutable iterator for EventList
+pub struct McEventListIteratorMut<'a> {
+    iter: std::slice::IterMut<'a, McEvent>,
+}
+
+impl<'a> McEventListIteratorMut<'a> {
+    pub fn new(list: &'a mut McEventList) -> McEventListIteratorMut<'a> {
+        McEventListIteratorMut { iter: list.0.iter_mut() }
+    }
+}
+
+impl<'a> Iterator for McEventListIteratorMut<'a> {
+    type Item = &'a mut McEvent;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut McEventList {
+    type Item = &'a mut McEvent;
+    type IntoIter = McEventListIteratorMut<'a>;
+
+    fn into_iter(self) -> McEventListIteratorMut<'a> {
+        McEventListIteratorMut::new(self)
     }
 }

@@ -172,16 +172,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // XCP: Initialize the XCP server
     let app_name = args.name.as_str();
     let app_revision = build_info::format!("{}", $.timestamp);
-    let _ = Xcp::get()
-        .set_app_name(app_name)
-        .set_app_revision(app_revision)
-        .set_log_level(args.log_level)
-        .start_server(
-            if args.tcp { XcpTransportLayer::Tcp } else { XcpTransportLayer::Udp },
-            args.bind.octets(),
-            args.port,
-            XCP_QUEUE_SIZE,
-        )?;
+    let _ = Xcp::init(app_name, app_revision, args.log_level).start_server(
+        if args.tcp { XcpTransportLayer::Tcp } else { XcpTransportLayer::Udp },
+        args.bind.octets(),
+        args.port,
+        XCP_QUEUE_SIZE,
+    )?;
 
     // Create and register calibration parameter sets
     // This will define a MEMORY_SEGMENT named "params" in A2L

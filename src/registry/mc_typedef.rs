@@ -23,10 +23,10 @@ pub struct McTypeDef {
 }
 
 impl McTypeDef {
-    pub fn new<T: Into<McIdentifier>>(type_name: T, size: usize) -> McTypeDef {
-        let type_name: McIdentifier = type_name.into();
+    pub fn new<T: Into<McIdentifier>>(name: T, size: usize) -> McTypeDef {
+        let name: McIdentifier = name.into();
         McTypeDef {
-            name: type_name,
+            name,
             fields: McTypeDefFieldList::new(),
             size,
         }

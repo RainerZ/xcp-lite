@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64};
 use tokio::time::{Duration, Instant};
 
 use xcp_client::xcp_client::*;
+use xcp_client::{EPK_SEG_ADDR, EPK_SEG_NAME};
 use xcp_lite::registry::*;
 use xcp_lite::*;
 
@@ -634,20 +635,20 @@ pub async fn test_setup(task_count: usize, load_a2l: bool, upload_a2l: bool) -> 
     let mut xcp_client = XcpClient::new(false, dest_addr, local_addr);
     let daq_decoder: Arc<parking_lot::lock_api::Mutex<parking_lot::RawMutex, DaqDecoder>> = Arc::new(Mutex::new(DaqDecoder::new(task_count)));
     let serv_text_decoder = ServTextDecoder::new();
-    xcp_client.connect(Arc::clone(&daq_decoder), serv_text_decoder).await.unwrap();
+    xcp_client.connect(0, Arc::clone(&daq_decoder), serv_text_decoder).await.unwrap();
     tokio::time::sleep(Duration::from_micros(10000)).await;
 
     //-------------------------------------------------------------------------------------------------------------------------------------
     // Check command timeout using a command CC_NOP (non standard) without response
     debug!("Check command timeout handling");
-    let res = xcp_client.command(CC_NOP).await; // Check unknown command
+    let res = xcp_client.command(xcp::CC_NOP).await; // Check unknown command
     match res {
         Ok(_) => panic!("Should timeout"),
         Err(e) => {
-            e.downcast_ref::<XcpClientError>()
+            e.downcast_ref::<xcp::XcpError>()
                 .map(|e| {
                     debug!("XCP error code ERROR_CMD_TIMEOUT as expected: {}", e);
-                    assert_eq!(e.get_error_code(), ERROR_CMD_TIMEOUT);
+                    assert_eq!(e.get_error_code(), xcp::ERROR_CMD_TIMEOUT);
                 })
                 .or_else(|| {
                     panic!("CC_NOP should return XCP error code ERROR_CMD_TIMEOUT");
@@ -658,13 +659,13 @@ pub async fn test_setup(task_count: usize, load_a2l: bool, upload_a2l: bool) -> 
     //-------------------------------------------------------------------------------------------------------------------------------------
     // Check error responses with CC_SYNC
     debug!("Check error response handling");
-    let res = xcp_client.command(CC_SYNC).await; // Check unknown command
+    let res = xcp_client.command(xcp::CC_SYNC).await; // Check unknown command
     match res {
         Ok(_) => panic!("Should return error"),
         Err(e) => {
-            e.downcast_ref::<XcpClientError>()
+            e.downcast_ref::<xcp::XcpError>()
                 .map(|e| {
-                    assert_eq!(e.get_error_code(), CRC_CMD_SYNCH);
+                    assert_eq!(e.get_error_code(), xcp::CRC_CMD_SYNCH);
                     debug!("XCP error code CRC_CMD_SYNCH from SYNC as expected: {}", e);
                 })
                 .or_else(|| {
@@ -679,13 +680,13 @@ pub async fn test_setup(task_count: usize, load_a2l: bool, upload_a2l: bool) -> 
     if load_a2l {
         // Upload A2L file from XCP server
         if upload_a2l {
-            xcp_client.a2l_loader("test").await.unwrap();
+            xcp_client.a2l_upload("test").await.unwrap();
         }
         // Load the A2L file from file
         else {
             // Send XCP GET_ID GET_ID XCP_IDT_ASAM_NAME to obtain the A2L filename
             info!("XCP GET_ID XCP_IDT_ASAM_NAME");
-            let res = xcp_client.get_id(XCP_IDT_ASAM_NAME).await;
+            let res = xcp_client.get_id(xcp::XCP_IDT_ASAM_NAME).await;
             let a2l_name = match res {
                 Ok((_, Some(id))) => id,
                 Err(e) => {
@@ -708,8 +709,8 @@ pub async fn test_setup(task_count: usize, load_a2l: bool, upload_a2l: bool) -> 
         }
 
         // Check EPK
-        // EPK addr is always 0x80000000 and len is hardcoded to 8
-        let res = xcp_client.short_upload(0x80000000, 0, 8).await;
+        // EPK addr is always in segment 0 which is EPK_SEG_ADDR and len is hardcoded to 8
+        let res = xcp_client.short_upload(EPK_SEG_ADDR, 0, 8).await;
         let resp: Vec<u8> = match res {
             Err(e) => {
                 panic!("Could not upload EPK, Error: {}", e);
@@ -720,7 +721,7 @@ pub async fn test_setup(task_count: usize, load_a2l: bool, upload_a2l: bool) -> 
         let epk_string = String::from_utf8(epk.clone()).unwrap();
         info!("Upload EPK = {} {:?}", epk_string, epk);
         debug!("A2l EPK = {}", xcp_client.a2l_epk().unwrap());
-        //assert_eq!(epk_string.as_str(), xcp_client.a2l_epk().unwrap(), "EPK mismatch");
+        //assert_eq!(epk_string.as_str(), xcp_client.a2l_epk().unwrap(), "EPK mismatch"); // @@@@ TODO
     }
 
     // Check the DAQ clock

@@ -65,24 +65,24 @@ impl Registry {
 
                 // Print all log messages
                 if print_warnings {
+                    log::info!("{} A2L warnings:", log_msgs.len());
                     for log_msg in log_msgs {
-                        log::warn!("A2L warning: {}", log_msg);
+                        log::warn!("Warning: {}", log_msg);
                         warnings += 1;
                     }
                 }
 
                 // Perform additional consistency checks on a2lfile::A2lFile
                 if check {
-                    // let mut log_msgs = Vec::new();
-                    // a2l_file.check(&mut log_msgs);
                     let log_msgs = a2l_file.check();
+                    log::info!("{} A2L checker finding:", log_msgs.len());
                     for log_msg in log_msgs {
-                        log::warn!("A2L check: {}", log_msg);
+                        log::warn!("Check: {}", log_msg);
                         warnings += 1;
                     }
                 }
 
-                // Load (merge) a2lfile::A2lFile data structure into this registry
+                // Load (merge) a2lfile::A2lFile data structure
                 self.load_a2lfile(&a2l_file)?;
 
                 // If requested, flatten nested typedefs to basic type instances with mangled names if required
@@ -105,15 +105,23 @@ impl Registry {
     /// # Arguments
     /// path - path to A2L file on disk
     /// check - check A2L file after writing (by reading it again with a2lfile crate)
-    pub fn write_a2l<P: AsRef<std::path::Path>>(&self, path: &P, check: bool) -> Result<(), std::io::Error> {
+    pub fn write_a2l<P: AsRef<std::path::Path>>(
+        &self,
+        path: &P,
+        title_comment: &str,
+        project_name: &str,
+        project_description: &str,
+        module_name: &str,
+        project_no: &str,
+        check: bool,
+    ) -> Result<(), std::io::Error> {
         // Write to A2L file
         log::info!("Write A2L file {:?}", path.as_ref());
         let a2l_file = std::fs::File::create(path)?;
         let writer: &mut dyn std::io::Write = &mut std::io::LineWriter::new(a2l_file);
         let mut a2l_writer = a2l_writer::A2lWriter::new(writer, self);
-        let a2l_name = self.get_app_name();
-        assert!(!a2l_name.is_empty());
-        a2l_writer.write_a2l(a2l_name, a2l_name)?;
+
+        a2l_writer.write_a2l(title_comment, project_name, project_description, module_name, project_no)?;
 
         // Check A2L file just written
         #[cfg(not(feature = "a2l_reader"))]

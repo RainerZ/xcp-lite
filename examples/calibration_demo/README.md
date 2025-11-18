@@ -9,7 +9,7 @@ CANape and a2lfile do currently not support the THIS keyword. As a workaround, w
 Run:
 
 ```
-cargo run --example calibration_demo
+cargo run -p calibration_demo
 ```
 
 Start the CANape project in the CANape folder or find some screenshots below

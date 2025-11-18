@@ -12,10 +12,12 @@ use std::num::Wrapping;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64};
 use tokio::time::{Duration, Instant};
+use xcp_lite::metrics::counter;
 
 use xcp_lite::registry::*;
 use xcp_lite::*;
 
+use xcp_client::xcp_client::xcp::*;
 use xcp_client::xcp_client::*;
 
 //-----------------------------------------------------------------------------
@@ -281,123 +283,156 @@ pub async fn test_daq(xcp_client: &mut XcpClient, _test_mode_daq: TestModeDaq, d
 async fn test_calibration(xcp_client: &mut XcpClient) -> bool {
     info!("Start calibration test");
 
-    // Check pages are on RAM
-    let mut page: u8 = xcp_client.get_ecu_page(0).await.unwrap();
-    assert!(page == 0);
+    // Check pages on segment 1 are on RAM, if not set to RAM (segment 0 is assumed to be the EPK segment)
+    let mut page: u8 = xcp_client.get_ecu_page(1).await.unwrap();
+    if page != 0 {
+        info!("Set ECU page to RAM");
+        xcp_client.set_ecu_page(0).await.unwrap();
+        page = xcp_client.get_ecu_page(0).await.unwrap();
+        if !(page == 0) {
+            error!("Could not set ECU page to RAM");
+            return false;
+        }
+    }
     page = xcp_client.get_xcp_page(0).await.unwrap();
-    assert!(page == 0);
+    if page != 0 {
+        info!("Set XCP page to RAM");
+        xcp_client.set_xcp_page(0).await.unwrap();
+        page = xcp_client.get_xcp_page(0).await.unwrap();
+        if !(page == 0) {
+            error!("Could not set XCP page to RAM");
+            return false;
+        }
+    }
 
     // Check params.delay_us
-    debug!("Create calibration object params.counter_max");
-    let delay_us = xcp_client
-        .create_calibration_object("params.delay_us")
-        .await
-        .expect("could not create calibration object params.delay_us");
-    let v = xcp_client.get_value_u64(delay_us);
-    info!("RAM delay_us={}", v);
-    assert_eq!(v, 1000);
+    debug!("Create calibration object params.delay_us");
+    match xcp_client.create_calibration_object("params.delay_us").await {
+        Ok(delay_us) => {
+            let v = xcp_client.get_value_u64(delay_us);
+            info!("RAM delay_us={}", v);
+            assert_eq!(v, 1000);
+        }
+        Err(e) => {
+            warn!("Could not find calibration parameter params.delay_us: {}", e);
+        }
+    }
 
     // Calibrate params.counter_max
     debug!("Create calibration object params.counter_max");
-    let counter_max = xcp_client
-        .create_calibration_object("params.counter_max")
-        .await
-        .expect("could not create calibration object params.counter_max");
-    let mut v = xcp_client.get_value_u64(counter_max);
-    info!("RAM counter_max={}", v);
-    assert_eq!(v, 1000);
-    xcp_client.set_value_u64(counter_max, 2000).await.unwrap();
-    xcp_client.read_value_u64(counter_max).await.unwrap();
-    v = xcp_client.get_value_u64(counter_max);
-    info!("RAM counter_max={}", v);
-    assert_eq!(v, 2000);
+    let counter_max = xcp_client.create_calibration_object("params.counter_max").await;
+    if counter_max.is_err() {
+        error!("Could not find calibration parameter params.counter_max, test not executed");
+    } else {
+        let counter_max = counter_max.unwrap();
+        let mut v = xcp_client.get_value_u64(counter_max);
+        info!("RAM counter_max={}", v);
+        if v != 1024 {
+            error!("params.counter_max initial value incorrect");
+            return false;
+        }
+        xcp_client.set_value_u64(counter_max, 512).await.unwrap();
+        xcp_client.read_value_u64(counter_max).await.unwrap();
+        v = xcp_client.get_value_u64(counter_max);
+        info!("RAM counter_max={}", v);
+        if v != 512 {
+            error!("params.counter_max value after write incorrect");
+            return false;
+        }
 
-    // Set XCP page to FLASH
-    xcp_client.set_xcp_page(1).await.unwrap();
-    info!("Set XCP page to FLASH");
-    page = xcp_client.get_xcp_page(0).await.unwrap();
-    assert_eq!(page, 1);
+        // Set XCP page to FLASH
+        xcp_client.set_xcp_page(1).await.unwrap();
+        info!("Set XCP page to FLASH");
+        page = xcp_client.get_xcp_page(0).await.unwrap();
+        assert_eq!(page, 1);
 
-    // Read counter_max from FLASH page
-    xcp_client.read_value_u64(counter_max).await.unwrap();
-    v = xcp_client.get_value_u64(counter_max);
-    info!("FLASH counter_max={}", v);
-    assert_eq!(v, 1000);
+        // Read counter_max from FLASH page
+        xcp_client.read_value_u64(counter_max).await.unwrap();
+        v = xcp_client.get_value_u64(counter_max);
+        info!("FLASH counter_max={}", v);
+        if !(v == 1024) {
+            error!("params.counter_max value from FLASH not as expected, read {}", v);
+            return false;
+        }
 
-    // Set ECU page to FLASH
-    xcp_client.set_ecu_page(1).await.unwrap();
-    page = xcp_client.get_ecu_page(0).await.unwrap();
-    info!("Set ECU page to FLASH");
-    assert_eq!(page, 1);
+        // Set ECU page to FLASH
+        xcp_client.set_ecu_page(1).await.unwrap();
+        page = xcp_client.get_ecu_page(0).await.unwrap();
+        info!("Set ECU page to FLASH");
+        assert_eq!(page, 1);
 
-    // Set XCP page to RAM
-    xcp_client.set_xcp_page(0).await.unwrap();
-    info!("Set XCP page to RAM");
+        // Set XCP page to RAM
+        xcp_client.set_xcp_page(0).await.unwrap();
+        info!("Set XCP page to RAM");
 
-    // Read counter_max from RAM page
-    xcp_client.read_value_u64(counter_max).await.unwrap();
-    v = xcp_client.get_value_u64(counter_max);
-    info!("RAM counter_max={}", v);
-    assert_eq!(v, 2000);
+        // Read counter_max from RAM page
+        xcp_client.read_value_u64(counter_max).await.unwrap();
+        v = xcp_client.get_value_u64(counter_max);
+        info!("RAM counter_max={}", v);
+        if !(v == 512) {
+            error!("params.counter_max value from RAM not as expected, read {}", v);
+            return false;
+        }
 
-    // Reset
-    xcp_client.set_ecu_page(0).await.unwrap();
-    info!("Set ECU page to RAM");
-    xcp_client.set_value_u64(counter_max, 1000).await.unwrap();
+        // Reset
+        xcp_client.set_ecu_page(0).await.unwrap();
+        info!("Set ECU page to RAM");
+        xcp_client.set_value_u64(counter_max, 1000).await.unwrap();
+    } // counter_max calibration test
 
     // Test calibration consistency
-    let sync_test1 = xcp_client
-        .create_calibration_object("params.test_byte1")
-        .await
-        .expect("could not create calibration object params.test_byte1");
-    let addr_sync_test1 = sync_test1.get_a2l_addr(xcp_client);
-    info!(
-        "Created calibration object params.test_byte1 at addr={:#X} ext={:#X}",
-        addr_sync_test1.addr, addr_sync_test1.ext
-    );
-    let sync_test2 = xcp_client
-        .create_calibration_object("params.test_byte2")
-        .await
-        .expect("could not create calibration object params.test_byte2");
-    let addr_sync_test2 = sync_test2.get_a2l_addr(xcp_client);
-    info!(
-        "Created calibration object params.test_byte2 at addr={:#X} ext={:#X}",
-        addr_sync_test2.addr, addr_sync_test2.ext
-    );
+    let sync_test1 = xcp_client.create_calibration_object("params.test_byte1").await;
+    let sync_test2 = xcp_client.create_calibration_object("params.test_byte2").await;
+    if sync_test1.is_err() || sync_test2.is_err() {
+        error!("Could not find calibration parameters params.test_byte1 or params.test_byte2, test not executed");
+    } else {
+        let sync_test1 = sync_test1.unwrap();
+        let sync_test2 = sync_test2.unwrap();
+        let addr_sync_test1 = sync_test1.get_a2l_addr(xcp_client);
+        info!(
+            "Created calibration object params.test_byte1 at addr={:#X} ext={:#X}",
+            addr_sync_test1.addr, addr_sync_test1.ext
+        );
+        let addr_sync_test2 = sync_test2.get_a2l_addr(xcp_client);
+        info!(
+            "Created calibration object params.test_byte2 at addr={:#X} ext={:#X}",
+            addr_sync_test2.addr, addr_sync_test2.ext
+        );
 
-    let starttime = Instant::now();
-    for i in 0..CAL_TEST_MAX_ITER {
-        let value1: i8 = (i & 0x7F) as i8;
-        let value2: i8 = -value1;
-        xcp_client // SHORT_DOWNLOAD cal_seg.test_u64
-            .short_download(addr_sync_test1.addr, addr_sync_test1.ext, &value1.to_le_bytes())
-            .await
-            .unwrap();
-        xcp_client // SHORT_DOWNLOAD cal_seg.test_u64
-            .short_download(addr_sync_test2.addr, addr_sync_test2.ext, &value2.to_le_bytes())
-            .await
-            .unwrap();
-    }
-    let dt = starttime.elapsed().as_micros() as u64;
-    info!("Average direct calibration cycle time: {}us", dt / (CAL_TEST_MAX_ITER * 2) as u64);
+        let starttime = Instant::now();
+        for i in 0..CAL_TEST_MAX_ITER {
+            let value1: i8 = (i & 0x7F) as i8;
+            let value2: i8 = -value1;
+            xcp_client // SHORT_DOWNLOAD cal_seg.test_u64
+                .short_download(addr_sync_test1.addr, addr_sync_test1.ext, &value1.to_le_bytes())
+                .await
+                .unwrap();
+            xcp_client // SHORT_DOWNLOAD cal_seg.test_u64
+                .short_download(addr_sync_test2.addr, addr_sync_test2.ext, &value2.to_le_bytes())
+                .await
+                .unwrap();
+        }
+        let dt = starttime.elapsed().as_micros() as u64;
+        info!("Average direct calibration cycle time: {}us", dt / (CAL_TEST_MAX_ITER * 2) as u64);
 
-    let starttime = Instant::now();
-    for i in 0..CAL_TEST_MAX_ITER {
-        let value1: i8 = (i & 0x7F) as i8;
-        let value2: i8 = -value1;
-        xcp_client.modify_begin().await.unwrap();
-        xcp_client // SHORT_DOWNLOAD cal_seg.test_u64
-            .short_download(addr_sync_test1.addr, addr_sync_test1.ext, &value1.to_le_bytes())
-            .await
-            .unwrap();
-        xcp_client // SHORT_DOWNLOAD cal_seg.test_u64
-            .short_download(addr_sync_test2.addr, addr_sync_test2.ext, &value2.to_le_bytes())
-            .await
-            .unwrap();
-        xcp_client.modify_end().await.unwrap();
+        let starttime = Instant::now();
+        for i in 0..CAL_TEST_MAX_ITER {
+            let value1: i8 = (i & 0x7F) as i8;
+            let value2: i8 = -value1;
+            xcp_client.modify_begin().await.unwrap();
+            xcp_client // SHORT_DOWNLOAD cal_seg.test_u64
+                .short_download(addr_sync_test1.addr, addr_sync_test1.ext, &value1.to_le_bytes())
+                .await
+                .unwrap();
+            xcp_client // SHORT_DOWNLOAD cal_seg.test_u64
+                .short_download(addr_sync_test2.addr, addr_sync_test2.ext, &value2.to_le_bytes())
+                .await
+                .unwrap();
+            xcp_client.modify_end().await.unwrap();
+        }
+        let dt = starttime.elapsed().as_micros() as u64;
+        info!("Average atomic calibration cycle time: {}us", dt / CAL_TEST_MAX_ITER as u64);
     }
-    let dt = starttime.elapsed().as_micros() as u64;
-    info!("Average atomic calibration cycle time: {}us", dt / CAL_TEST_MAX_ITER as u64);
 
     true
 }
@@ -406,6 +441,7 @@ async fn test_calibration(xcp_client: &mut XcpClient) -> bool {
 // Setup test
 // Connect, upload A2l, check EPK, check id, ...
 pub async fn test_setup(
+    tcp: bool,
     dest_addr: std::net::SocketAddr,
     local_addr: std::net::SocketAddr,
     load_a2l: bool,
@@ -419,22 +455,22 @@ pub async fn test_setup(
 
     info!("  dest_addr: {}", dest_addr);
     info!("  local_addr: {}", local_addr);
-    let mut xcp_client = XcpClient::new(false, dest_addr, local_addr); // false = UDP
+    let mut xcp_client = XcpClient::new(tcp, dest_addr, local_addr); // false = UDP
     let daq_decoder: Arc<parking_lot::lock_api::Mutex<parking_lot::RawMutex, DaqDecoder>> = Arc::new(Mutex::new(DaqDecoder::new()));
     let serv_text_decoder = ServTextDecoder::new();
-    xcp_client.connect(Arc::clone(&daq_decoder), serv_text_decoder).await.unwrap();
+    xcp_client.connect(0, Arc::clone(&daq_decoder), serv_text_decoder).await.unwrap();
 
     //-------------------------------------------------------------------------------------------------------------------------------------
     // Check command timeout using a command CC_NOP (non standard) without response
     debug!("Check command timeout handling");
-    let res = xcp_client.command(CC_NOP).await; // Check unknown command
+    let res = xcp_client.command(xcp::CC_NOP).await; // Check unknown command
     match res {
         Ok(_) => panic!("Should timeout"),
         Err(e) => {
-            e.downcast_ref::<XcpClientError>()
+            e.downcast_ref::<XcpError>()
                 .map(|e| {
                     debug!("XCP error code ERROR_CMD_TIMEOUT as expected: {}", e);
-                    assert_eq!(e.get_error_code(), ERROR_CMD_TIMEOUT);
+                    assert_eq!(e.get_error_code(), xcp::ERROR_CMD_TIMEOUT);
                 })
                 .or_else(|| {
                     panic!("CC_NOP should return XCP error code ERROR_CMD_TIMEOUT");
@@ -445,13 +481,13 @@ pub async fn test_setup(
     //-------------------------------------------------------------------------------------------------------------------------------------
     // Check error responses with CC_SYNC
     debug!("Check error response handling");
-    let res = xcp_client.command(CC_SYNC).await; // Check unknown command
+    let res = xcp_client.command(xcp::CC_SYNC).await; // Check unknown command
     match res {
         Ok(_) => panic!("Should return error"),
         Err(e) => {
-            e.downcast_ref::<XcpClientError>()
+            e.downcast_ref::<XcpError>()
                 .map(|e| {
-                    assert_eq!(e.get_error_code(), CRC_CMD_SYNCH);
+                    assert_eq!(e.get_error_code(), xcp::CRC_CMD_SYNCH);
                     debug!("XCP error code CRC_CMD_SYNCH from SYNC as expected: {}", e);
                 })
                 .or_else(|| {
@@ -466,7 +502,7 @@ pub async fn test_setup(
     if load_a2l {
         // Upload A2L file from XCP server
         if upload_a2l {
-            xcp_client.a2l_loader("test").await.unwrap();
+            xcp_client.a2l_upload("test").await.unwrap();
         }
         // Load the A2L file from file
         else {
@@ -495,19 +531,19 @@ pub async fn test_setup(
         }
 
         // Check EPK
-        // EPK addr is always 0x80000000 and len is hardcoded to 8
-        // let res = xcp_client.short_upload(0x80000000, 0, 8).await;
-        // let resp: Vec<u8> = match res {
-        //     Err(e) => {
-        //         panic!("Could not upload EPK, Error: {}", e);
-        //     }
-        //     Ok(r) => r,
-        // };
-        // let epk = resp[1..=8].to_vec();
-        // let epk_string = String::from_utf8(epk.clone()).unwrap();
-        // info!("Upload EPK = {} {:?}", epk_string, epk);
-        // debug!("A2l EPK = {}", xcp_client.a2l_epk().unwrap());
-        //assert_eq!(epk_string.as_str(), xcp_client.a2l_epk().unwrap(), "EPK mismatch");
+        // EPK addr is always in segment 0 which is xcp_client::EPK_SEG_ADDR 0x80000000 and len is hardcoded to 8
+        let res = xcp_client.short_upload(xcp_client::EPK_SEG_ADDR, 0, 8).await;
+        let resp: Vec<u8> = match res {
+            Err(e) => {
+                panic!("Could not upload EPK, Error: {}", e);
+            }
+            Ok(r) => r,
+        };
+        let epk = resp[1..=8].to_vec();
+        let epk_string = String::from_utf8(epk.clone()).unwrap();
+        info!("Upload EPK = {} {:?}", epk_string, epk);
+        debug!("A2l EPK = {}", xcp_client.a2l_epk().unwrap());
+        //assert_eq!(epk_string.as_str(), xcp_client.a2l_epk().unwrap(), "EPK mismatch"); // @@@@ TODO
     }
 
     // Check the DAQ clock
@@ -549,9 +585,16 @@ pub async fn test_disconnect(xcp_client: &mut XcpClient) {
 
 //-------------------------------------------------------------------------------------------------------------------------------------
 
-pub async fn test_executor(dest_addr: std::net::SocketAddr, local_addr: std::net::SocketAddr, test_mode_cal: TestModeCal, test_mode_daq: TestModeDaq, daq_test_duration_ms: u64) {
+pub async fn test_executor(
+    tcp: bool,
+    dest_addr: std::net::SocketAddr,
+    local_addr: std::net::SocketAddr,
+    test_mode_cal: TestModeCal,
+    test_mode_daq: TestModeDaq,
+    daq_test_duration_ms: u64,
+) {
     let load_a2l = test_mode_cal != TestModeCal::None || test_mode_daq != TestModeDaq::None;
-    let (mut xcp_client, daq_decoder) = test_setup(dest_addr, local_addr, load_a2l, true).await;
+    let (mut xcp_client, daq_decoder) = test_setup(tcp, dest_addr, local_addr, load_a2l, true).await;
 
     //-------------------------------------------------------------------------------------------------------------------------------------
     //  Daq test

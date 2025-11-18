@@ -1,14 +1,13 @@
 //-----------------------------------------------------------------------------
 // Module a2l_reader
 // A2L reader for registry based on crate a2lfile
-// Detects Vector A2L if project id is "VECTOR" and then assumes predefined record layouts and typedefs
+// Detects XCPlite specific A2L usage if project id is "XCPLITE__xxxx" and then assumes predefined record layouts and typedefs
 
-// VECTOR mode:
+// XCPlite A2L assumes:
 // - Predefined conversion rule IDENTIY
 // - Predefined conversion rule BOOL
-// - Address format
-// - Segment 'epk' ignored
-// - Predefined record layout names U8, A_U8, M_U8, C_U8
+// - Predefined record layout names U8, A_U8, M_U8, C_U8, ...
+// - Address format and extensions for the different relative addressing modes depending on the project id (C_DR, ACSDD or CASDD)
 
 use super::*;
 
@@ -47,7 +46,7 @@ fn get_value_type_from_datatype(datatype: a2lfile::DataType) -> McValueType {
 // Most people use some predefined record layout names for basic types of CHARACTERISTIC or TYPDEF_CHARACTERISTIC
 // Just add them here
 fn get_value_type_from_record_layout(s: &str) -> McValueType {
-    // Type from record layout name, consider predefined Vector types
+    // Type from record layout name, consider predefined CANape types
     match s {
         // Vector CANape predefined record layout names
         "__UBYTE_Z" => McValueType::Ubyte,
@@ -120,7 +119,8 @@ fn get_value_type_from_record_layout(s: &str) -> McValueType {
     }
 }
 
-fn get_conversion(conversion: &str, module: &a2lfile::Module, vector_xcp_mode: bool) -> (Option<f64>, Option<f64>) {
+fn get_conversion(conversion: &str, module: &a2lfile::Module) -> (Option<f64>, Option<f64>) {
+    // Assume there is a predefined conversion for IDENTITY, just ignore
     if conversion != "NO_COMPU_METHOD" && conversion != "IDENTITY" {
         let opt_compu_method = module.compu_method.get(conversion);
         if let Some(compu_method) = opt_compu_method {
@@ -141,8 +141,8 @@ fn get_conversion(conversion: &str, module: &a2lfile::Module, vector_xcp_mode: b
                     }
                 }
                 a2lfile::ConversionType::TabVerb => {
-                    if vector_xcp_mode && name == "BOOL" {
-                        (None, None) // Predefine conversion for BOOL, just ignore
+                    if name == "BOOL" {
+                        (None, None) // Assume there is a predefined conversion for BOOL, just ignore
                     } else {
                         // @@@@ TODO Implement TabVerb conversion
                         debug!("Compu method COMPU_VTAB not supported: {}", name);
@@ -188,9 +188,9 @@ fn get_event_id_from_ifdata(if_data_vec: &Vec<a2lfile::IfData>) -> Option<u16> {
 }
 
 // Always read to A2L address representation
-fn get_mc_address(registry: &Registry, addr: u32, addr_ext: u8, event_id: Option<u16>, vector_xcp_mode: bool) -> McAddress {
+fn new_mc_address_from_a2l(registry: &Registry, addr: u32, addr_ext: u8, event_id: Option<u16>, convert: bool) -> McAddress {
     debug!("Get address {:08X} ext {} event_id {:?}", addr, addr_ext, event_id);
-    if !vector_xcp_mode {
+    if !convert {
         // Event id can only be stored in address
         if let Some(event_id) = event_id {
             McAddress::new_a2l_with_event(event_id, addr, addr_ext)
@@ -200,7 +200,7 @@ fn get_mc_address(registry: &Registry, addr: u32, addr_ext: u8, event_id: Option
     } else {
         match addr_ext {
             McAddress::XCP_ADDR_EXT_SEG => {
-                if let Some(calseg_name) = registry.cal_seg_list.find_cal_seg_by_address(addr) {
+                if let Some(calseg_name) = registry.cal_seg_list.find_cal_seg_by_a2l_address(addr) {
                     let offset: u16 = (addr & 0xFFFF) as u16;
                     McAddress::new_calseg_rel(calseg_name, offset as i32)
                 } else {
@@ -253,7 +253,7 @@ fn get_matrix_dim(matrix_dim: Option<&a2lfile::MatrixDim>) -> (u16, u16) {
 // Update any TYPEDEF_COMPONENT with a TYPEDEF_MEASUREMENT, TYPEDEF_CHARACTERISTIC or TYPEDEF_AXIS
 // This will result in a leaf node in the registry typedef structure
 #[allow(clippy::too_many_arguments)]
-fn update_typedef_component(
+fn update_typedef_field(
     registry: &mut Registry,
     typedef_name: &str,
     object_type: McObjectType,
@@ -290,7 +290,8 @@ fn update_typedef_component(
 }
 
 fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -> Result<(), String> {
-    let mut vector_xcp_mode: bool = false;
+    let mut relative_segment_addressing: bool = false; // Predefined conversion BOOL, IDENTITY, address format conversion
+    let mut convert_a2l_address: bool = false; // Convert A2L address to calseg_rel or event_rel/dyn/abs if possible
 
     info!("Load A2L file into registry:");
     if let Some(a2l_version) = a2l_file.asap2_version.as_ref() {
@@ -309,18 +310,64 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
         }
         if let Some(project_no) = header.project_no.as_ref() {
             debug!("  Header project number: {}", project_no.project_number);
-            vector_xcp_mode = project_no.project_number == "VECTOR";
+
+            // If this A2L file has been written by XCPlite or xcp-lite, set specific handling
+            if project_no.project_number.starts_with("XCPLITE__") {
+                // @@@@ XCPlite has flexible configuration options for address format, epk handling and calibration segment addressing and numbering
+                // @@@@ Currently harcoded here to ACSDD or CASDD mode, others are not supported yet
+                if project_no.project_number == "XCPLITE__ACSDD" {
+                    relative_segment_addressing = false; // Don't activate this, because it assumes calibration segments are always in SEG addressing mode
+                    convert_a2l_address = false; // Don't convert A2L address, use raw A2L address representation
+                    info!("XCPlite A2L detected, {} addressing mode", project_no.project_number);
+                } else if project_no.project_number == "XCPLITE__CASDD" {
+                    relative_segment_addressing = true; // We assume calibration segments always have segment addressing mode
+                    convert_a2l_address = true; // Convert A2L address
+                    info!("XCPlite A2L detected, {} addressing mode", project_no.project_number);
+                } else if project_no.project_number == "XCPLITE__C_DR" {
+                    relative_segment_addressing = true;
+                    convert_a2l_address = true;
+                    info!("xcp-lite A2L detected, {} addressing mode", project_no.project_number);
+                } else {
+                    error!(
+                        "Unsupported XCPLITE addressing sheme,  project number {}, supported are XCPLITE__ACSDD and XCPLITE__CASDD",
+                        project_no.project_number
+                    );
+                }
+            } else {
+                warn!("A2L file has not been written by xcp-lite, XCPlite (ACSDD or CASDD),or xcp_client, this is not a generic A2L reader, use at your own risk");
+            }
         }
     };
     debug!("  Modulename: {}", a2l_file.project.module[0].get_name());
-    info!("Vector A2L mode = {:?}", vector_xcp_mode);
 
-    // If this A2l has been witten by the xcp-lite registry, assume xcp-lite addressing modes and predefined record layouts and typedef
-
-    registry.set_app_info(a2l_file.project.name.clone(), format!("created from a2lfile project {}", a2l_file.project.name), 0);
-    registry.set_vector_xcp_mode(vector_xcp_mode);
+    registry
+        .application
+        .set_info(a2l_file.project.name.clone(), format!("created from a2lfile project {}", a2l_file.project.name), 0);
 
     let module = &a2l_file.project.module[0];
+
+    //----------------------------------------------------------------------------------------------------------------
+    // Event
+    for if_data in &module.if_data {
+        if !if_data.ifdata_valid {
+            error!("IF_DATA block is not valid");
+
+            //info!("{:#?}", if_data);
+        } else {
+            let decoded_ifdata = aml_ifdata::A2mlVector::load_from_ifdata(if_data).unwrap();
+            if let Some(xcp) = decoded_ifdata.xcp {
+                if let Some(daq) = xcp.daq {
+                    for e in daq.event {
+                        // Process each event
+                        info!("Event found: {} - {}", e.event_channel_name, e.event_channel_number);
+                        registry.event_list.add_event(McEvent::new(e.event_channel_name, 0, e.event_channel_number, 0)).unwrap();
+                    }
+                }
+            } else {
+                warn!("Could not decode XCP IF_DATA");
+            }
+        }
+    }
 
     //----------------------------------------------------------------------------------------------------------------
     // Memory segments
@@ -332,27 +379,28 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
             let version_epk = epk.identifier.clone();
             let version_addr = if !mod_par.addr_epk.is_empty() { mod_par.addr_epk[0].address } else { 0 };
             debug!("Set EPK: {} {:08X}", version_epk, version_addr);
-            registry.set_app_version(version_epk, version_addr);
+            if version_epk == crate::EPK_SEG_NAME && version_addr == crate::EPK_SEG_ADDR {
+                info!("XCPlite EPK '{}' detected with segment relative address", version_epk);
+            }
+            registry.application.set_version(version_epk, version_addr);
         }
 
         // Memory segments
+        // @@@@ TODO: IF_DATA XCP not taken into accounts
+        // We assume here, that calibration segments are implicitly numbered, which is true for XCPlite and xcp-lite, but not general
         let mut index = 0;
-        let mut number: u8 = 0; // Number is part of the memory segment IF_DATA, not used here
+        let mut number: u8 = 0;
         for m in mod_par.memory_segment.iter() {
             let name = m.get_name().to_string();
-            let addr_ext = 0; // @@@@ xcp-lite address extensions hardcoded here, would be in IF_DATA
+            let addr_ext = 0; // @@@@ xcp-lite address extensions hardcoded here, CANape supports only 0, should be be in IF_DATA
             let addr = m.address;
             let size = m.size;
-            if vector_xcp_mode {
-                // Get index from addr, in vector mode the high word of the segment address is the segment number
-                let addr_index = ((addr >> 16) & 0x7FFF) as u16;
-                assert!(number as u16 == addr_index);
 
-                if name == "epk" {
-                    // Predefined memory segment for EPK, just ignore, don't increment index
-                    number += 1;
-                    continue;
-                }
+            // Get index from addr, in relative addressing mode the high word of the segment address is the segment number
+            // @@@@ TODO: Improve checking and maybe automatically set the mode
+            if relative_segment_addressing {
+                let i = ((addr >> 16) & 0x7FFF) as u16; // @@@@ TODO: Abstract address encoding
+                assert!(number as u16 == i);
             }
 
             let res = registry.cal_seg_list.add_a2l_cal_seg(name, index, addr_ext, addr, size);
@@ -376,7 +424,7 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
         let name = characteristic.get_name().to_string();
         let value_type = get_value_type_from_record_layout(&characteristic.deposit);
         let conversion = &characteristic.conversion;
-        let (factor, offset) = get_conversion(conversion, module, vector_xcp_mode);
+        let (factor, offset) = get_conversion(conversion, module);
         let (x_dim, y_dim) = get_matrix_dim(characteristic.matrix_dim.as_ref());
         let object_type: McObjectType = McObjectType::Characteristic;
         match characteristic.characteristic_type {
@@ -427,7 +475,7 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
         }
         let addr_ext = characteristic.ecu_address_extension.as_ref().map(|a| a.extension).unwrap_or(0) as u8;
         let addr = characteristic.address;
-        let address = get_mc_address(registry, addr, addr_ext, event_id, vector_xcp_mode);
+        let address = new_mc_address_from_a2l(registry, addr, addr_ext, event_id, convert_a2l_address);
 
         // Add characteristic instance
         let res = registry.instance_list.add_instance(name, dim_type, mc_support_data, address);
@@ -456,7 +504,7 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
         // Conversion
         let conversion = &measurement.conversion;
         let phys_unit = &measurement.phys_unit;
-        let (factor, offset) = get_conversion(conversion, module, vector_xcp_mode);
+        let (factor, offset) = get_conversion(conversion, module);
 
         // Dimension
         let matrix_dim = &measurement.matrix_dim;
@@ -491,7 +539,7 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
         } else {
             0
         };
-        let address = get_mc_address(registry, addr, addr_ext, event_id, vector_xcp_mode);
+        let address = new_mc_address_from_a2l(registry, addr, addr_ext, event_id, convert_a2l_address);
 
         // Add measurement instance
         let res = registry.instance_list.add_instance(name, dim_type, mc_support_data, address);
@@ -533,7 +581,7 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
             let value_type = McValueType::TypeDef(field.component_type.clone().into());
             let mc_support_data = McSupportData::new(McObjectType::Unspecified);
             let dim_type = McDimType::new(value_type, x_dim, y_dim);
-            let res = registry.add_typedef_component(typedef_name, field_name, dim_type, mc_support_data, offset);
+            let res = registry.add_typedef_field(typedef_name, field_name, dim_type, mc_support_data, offset);
             match res {
                 Ok(_) => {}
                 Err(e) => {
@@ -546,13 +594,13 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
     for typedef in &module.typedef_measurement {
         let name = typedef.get_name();
         let conversion = &typedef.conversion;
-        let (factor, offset) = get_conversion(conversion, module, vector_xcp_mode);
+        let (factor, offset) = get_conversion(conversion, module);
         let comment = &typedef.long_identifier;
         let min = typedef.lower_limit;
         let max = typedef.upper_limit;
         let unit = typedef.phys_unit.as_ref().map(|u| &u.unit);
         let value_type = get_value_type_from_datatype(typedef.datatype);
-        update_typedef_component(
+        update_typedef_field(
             registry,
             name,
             McObjectType::Measurement,
@@ -569,7 +617,7 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
     for typedef in &module.typedef_characteristic {
         let name = typedef.get_name();
         let conversion = &typedef.conversion;
-        let (factor, offset) = get_conversion(conversion, module, vector_xcp_mode);
+        let (factor, offset) = get_conversion(conversion, module);
         let record_layout = &typedef.record_layout;
         let comment = &typedef.long_identifier;
         let min = typedef.lower_limit;
@@ -577,7 +625,7 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
         let unit = typedef.phys_unit.as_ref().map(|u| &u.unit);
         let value_type = get_value_type_from_record_layout(record_layout);
         let _sub_type = typedef.characteristic_type; // ValBlk, Value, Ascii, Curve, Cuboid, Cube4, Cube5
-        update_typedef_component(
+        update_typedef_field(
             registry,
             name,
             McObjectType::Characteristic,
@@ -594,14 +642,14 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
     for typedef in &module.typedef_axis {
         let name = typedef.get_name();
         let conversion = &typedef.conversion;
-        let (factor, offset) = get_conversion(conversion, module, vector_xcp_mode);
+        let (factor, offset) = get_conversion(conversion, module);
         let record_layout = &typedef.record_layout;
         let comment = &typedef.long_identifier;
         let min = typedef.lower_limit;
         let max = typedef.upper_limit;
         let unit = typedef.phys_unit.as_ref().map(|u| &u.unit);
         let value_type = get_value_type_from_record_layout(record_layout);
-        update_typedef_component(registry, name, McObjectType::Axis, value_type, None, comment, min, max, unit, factor, offset);
+        update_typedef_field(registry, name, McObjectType::Axis, value_type, None, comment, min, max, unit, factor, offset);
     }
 
     //----------------------------------------------------------------------------------------------------------------
@@ -647,7 +695,7 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
         } else {
             0
         };
-        let address = get_mc_address(registry, addr, addr_ext, event_id, vector_xcp_mode);
+        let address = new_mc_address_from_a2l(registry, addr, addr_ext, event_id, convert_a2l_address);
 
         // Add instance of a typedef
         let res = registry.instance_list.add_instance(name, dim_type, mc_support_data, address);
