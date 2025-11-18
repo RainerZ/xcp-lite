@@ -139,12 +139,14 @@ fn main() -> anyhow::Result<()> {
 
     loop {
         // XCP: Synchronize calibration parameters in cal_page and lock read access for consistency
-        let params = params.read_lock();
+        {
+            let params = params.read_lock();
 
-        if params.counter_on {
-            counter += 1;
-            if counter > params.counter_max {
-                counter = 0;
+            if params.counter_on {
+                counter += 1;
+                if counter > params.counter_max {
+                    counter = 0;
+                }
             }
         }
 
