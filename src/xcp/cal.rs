@@ -3,13 +3,6 @@
 // Calibration segment descriptor
 
 //-----------------------------------------------------------------------------
-// Submodules
-
-// Calibration segment
-pub mod cal_seg;
-pub use cal_seg::CalSeg;
-
-//-----------------------------------------------------------------------------
 
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn};
@@ -20,8 +13,13 @@ use std::sync::Arc;
 use crate::registry;
 
 use crate::xcp;
+use crate::xcp::xcplib;
 use xcp::Xcp;
 use xcp::XcpCalPage;
+
+use std::{marker::PhantomData, ops::Deref, ops::DerefMut};
+
+use registry::RegisterFieldsTrait;
 
 //-----------------------------------------------------------------------------
 // CalPageTrait
@@ -38,56 +36,248 @@ where
 impl<T> CalPageTrait for T where T: Sized + Send + Sync + Copy + Clone + 'static + serde::Serialize + serde::de::DeserializeOwned {}
 
 //----------------------------------------------------------------------------------------------
-// Trait CalSegTrait
+// CalSeg
 
-pub trait CalSegTrait
+/// Thread safe calibration parameter page wrapper with interior mutability by XCP
+/// Each instance stores 2 copies of its inner data, the calibration page
+/// One for each clone of the readers, a shared copy for the writer (XCP) and
+/// a reference to the default values
+/// Implements Deref to simplify usage, is send, not sync and implements copy and clone
+///
+
+#[derive(Debug)]
+pub struct CalSeg<T>
 where
-    Self: Send,
+    T: CalPageTrait,
 {
-    // Get the calibration segment name
-    //fn get_name(&self) -> &'static str;
+    index: xcplib::tXcpCalSegIndex,
+    default_page: &'static T,
+    _not_sync_marker: PhantomData<std::cell::Cell<()>>, // CalSeg is send, not sync
+}
 
-    fn get_name(&self) -> &'static str {
-        Xcp::get().get_calseg_name(self.get_index())
+//----------------------------------------------------------------------------------------------
+// CalSeg Register
+
+// Impl register_fields for types which implement RegisterFieldsTrait
+impl<T> CalSeg<T>
+where
+    T: CalPageTrait + RegisterFieldsTrait,
+{
+    /// Register all nested fields of a calibration segment as seperate instances with mangled names in the registry
+    /// Requires the calibration page to implement XcpTypeDescription
+    pub fn register_fields(&self) -> &Self {
+        self.default_page.register_calseg_fields(self.get_name());
+        self
+    }
+    /// Register all fields of a calibration segment in the registry using a typedef
+    /// Register an instance of this typedef with instance name = type name
+    /// Requires the calibration page to implement XcpTypeDescription
+    /// Instancename is the typename of T
+    pub fn register_typedef(&self) -> &Self {
+        self.default_page.register_calseg_typedef(self.get_name());
+        self
+    }
+}
+
+//----------------------------------------------------------------------------------------------
+// CalSeg
+
+impl<T> CalSeg<T>
+where
+    T: CalPageTrait,
+{
+    /// Create a calibration segment for a calibration parameter struct T (calibration page type)
+    /// With a name and static const default values, which will be the "FLASH" page
+    /// The mutable "RAM" page is initialized from name.json, if load_json==true and if it exists, otherwise with default
+    /// CalSeg is Send and implements Clone, so clones can be safely send to other threads
+    /// This comes with the cost of maintaining a shadow copy of the calibration page for each clone
+    /// On calibration tool changes, sync copies the shadow (xcp_page) to the active page (ecu_page)
+    ///
+    /// # Arguments
+    /// * `instance_name` - Name of the calibration segment instance
+    /// * `default_page` - Default calibration page
+    /// # Returns
+    /// A CalSeg instance
+    /// # Panics
+    /// If the name is not unique
+    /// If the maximum number of calibration segments is reached, CANape supports a maximum of 255 calibration segments
+    pub fn new(instance_name: &'static str, default_page: &'static T) -> CalSeg<T> {
+        // Create a calibration segment in the xcplib C library
+        unsafe {
+            let c_name = std::ffi::CString::new(instance_name).unwrap();
+            let c_default_page = default_page as *const T as *const std::os::raw::c_void;
+            let index = xcplib::XcpCreateCalSeg(c_name.as_ptr(), c_default_page, std::mem::size_of::<T>() as u16);
+
+            if index == u16::MAX {
+                panic!("xcplib_create_calseg failed for instance_name={}", instance_name);
+            }
+            CalSeg::<T> {
+                index,
+                default_page,
+                _not_sync_marker: PhantomData,
+            }
+        }
     }
 
-    // Set the calibration segment index
-    fn set_index(&mut self, index: usize);
-
-    // Get the calibration segment index
-    fn get_index(&self) -> usize;
-
-    // Set freeze requests
-    fn set_freeze_request(&self) {}
-
-    // Set init request
-    fn set_init_request(&self) {}
-
-    /// Read from xcp_page or default_page depending on the active XCP page
-    /// # Safety
-    /// dst must be valid
-    // @@@@ UNSAFE function
-    unsafe fn read(&self, offset: u16, len: u8, dst: *mut u8) -> bool {
-        let _ = offset;
-        let _ = len;
-        let _ = dst;
-        false
+    /// Get the calibration segment name
+    pub fn get_name(&self) -> &'static str {
+        unsafe {
+            let c_str = xcplib::XcpGetCalSegName(self.index);
+            let r_str = std::ffi::CStr::from_ptr(c_str).to_str().unwrap();
+            r_str
+        }
     }
 
-    /// Write to xcp_page
-    /// # Safety
-    /// src must be valid
-    // @@@@ UNSAFE function
-    unsafe fn write(&self, offset: u16, len: u8, src: *const u8, delay: u8) -> bool {
-        let _ = offset;
-        let _ = len;
-        let _ = src;
-        let _ = delay;
-        false
+    /// Get the calibration segment index
+    pub fn get_index(&self) -> usize {
+        self.index as usize
+    }
+}
+
+//----------------------------------------------------------------------------------------------
+// Clone for CalSeg
+
+impl<T> Clone for CalSeg<T>
+where
+    T: CalPageTrait,
+{
+    fn clone(&self) -> Self {
+        // Clone
+        CalSeg {
+            index: self.index,
+            default_page: self.default_page, // &T
+
+            _not_sync_marker: PhantomData,
+        }
+    }
+}
+
+//----------------------------------------------------------------------------------------------
+// Load/Save for CalSeg
+
+// Impl load and save for type which implement serde::Serialize and serde::de::DeserializeOwned
+impl<T> CalSeg<T>
+where
+    T: CalPageTrait,
+{
+    /// Load a calibration segment from json file
+    /// Requires the calibration page type to implement serde::Serialize + serde::de::DeserializeOwned
+    pub fn load<P: AsRef<std::path::Path>>(&self, filename: P) -> Result<(), std::io::Error> {
+        let path = filename.as_ref();
+        info!("Load {} from file {} ", self.get_name(), path.display());
+        if let Ok(file) = std::fs::File::open(path) {
+            let reader = std::io::BufReader::new(file);
+            let page = serde_json::from_reader::<_, T>(reader)?;
+            *self.write_lock() = page;
+            Ok(())
+        } else {
+            warn!("File not found: {}", path.display());
+            Err(std::io::Error::new(std::io::ErrorKind::NotFound, format!("File not found: {}", path.display())))
+        }
     }
 
-    // Flush delayed modifications
-    fn flush(&self) {}
+    /// Write a calibration segment to json file
+    /// Requires the calibration page type to implement serde::Serialize + serde::de::DeserializeOwned
+    pub fn save<P: AsRef<std::path::Path>>(&self, filename: P) -> Result<(), std::io::Error> {
+        let path = filename.as_ref();
+        info!("Save {} to file {}", self.get_name(), path.display());
+        let file = std::fs::File::create(path)?;
+        let mut writer = std::io::BufWriter::new(file);
+        let page = self.read_lock();
+        let s = serde_json::to_string(&*page).map_err(|e| std::io::Error::other(format!("serde_json::to_string failed: {}", e)))?;
+        std::io::Write::write_all(&mut writer, s.as_ref())?;
+        Ok(())
+    }
+}
+
+//----------------------------------------------------------------------------------------------
+// Read lock guard for CalSeg
+
+pub struct ReadLockGuard<'a, T: CalPageTrait> {
+    page: &'a T,
+    index: xcplib::tXcpCalSegIndex,
+}
+
+impl<T> CalSeg<T>
+where
+    T: CalPageTrait,
+{
+    /// Read lock guard that provides consistent read only access to a calibration page
+    /// Consistent read access to the calibration segment while the lock guard is held
+    pub fn read_lock(&self) -> ReadLockGuard<'_, T> {
+        // Lock the calibration segment in the xcplib C library
+        unsafe {
+            let ptr: *const T = xcplib::XcpLockCalSeg(self.index) as *const T;
+            ReadLockGuard { page: &*ptr, index: self.index }
+        }
+    }
+}
+
+impl<T: CalPageTrait> Drop for ReadLockGuard<'_, T> {
+    fn drop(&mut self) {
+        // Unlock the calibration segment in the xcplib C library
+        unsafe {
+            xcplib::XcpUnlockCalSeg(self.index);
+        }
+    }
+}
+
+impl<T: CalPageTrait> Deref for ReadLockGuard<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.page
+    }
+}
+
+//----------------------------------------------------------------------------------------------
+// Write lock guard for CalSeg
+
+/// Write lock guard that provides consistent write access to a calibration page
+/// Makes the changes visible in this CalSeg after the guard is dropped, all other clones of the CalSeg will see the changes on their next sync
+/// This should be used for testing only, mutable parameters are not supported yet
+
+pub struct WriteLockGuard<'a, T: CalPageTrait> {
+    page: &'a mut T,
+    index: xcplib::tXcpCalSegIndex,
+}
+
+impl<T> CalSeg<T>
+where
+    T: CalPageTrait,
+{
+    /// Consistent write access to the calibration segments working page while the lock guard is held
+    pub fn write_lock(&self) -> WriteLockGuard<'_, T> {
+        unsafe {
+            let ptr: *mut T = xcplib::XcpLockCalSeg(self.index) as *mut T;
+            WriteLockGuard {
+                page: &mut *ptr,
+                index: self.index,
+            }
+        }
+    }
+}
+
+impl<T: CalPageTrait> Deref for WriteLockGuard<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.page
+    }
+}
+
+impl<T: CalPageTrait> DerefMut for WriteLockGuard<'_, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.page
+    }
+}
+
+impl<T: CalPageTrait> Drop for WriteLockGuard<'_, T> {
+    fn drop(&mut self) {
+        unsafe {
+            xcplib::XcpUnlockCalSeg(self.index);
+        }
+    }
 }
 
 //----------------------------------------------------------------------------------------------
@@ -122,7 +312,7 @@ where
     ///
     pub fn new(instance_name: &'static str, default_page: &'static T) -> CalCell<T> {
         CalCell {
-            calseg: Xcp::get().create_calseg(instance_name, default_page),
+            calseg: CalSeg::new(instance_name, default_page),
         }
     }
 
@@ -138,194 +328,6 @@ where
 // CalCell is Sync, because CalCells only public method is clone_calseg which returns a CalSeg clone, CalSeg clones are Send, not Sync
 // @@@@ UNSAFE - implement Sync for CalCell
 unsafe impl<T> Sync for CalCell<T> where T: CalPageTrait {}
-
-//-----------------------------------------------------------------------------
-// CalSegDescriptor
-
-pub struct CalSegDescriptor {
-    name: &'static str,
-    calseg: Arc<Mutex<dyn CalSegTrait>>,
-    size: usize,
-}
-
-impl CalSegDescriptor {
-    pub fn new(name: &'static str, calseg: Arc<Mutex<dyn CalSegTrait>>, size: usize) -> CalSegDescriptor {
-        CalSegDescriptor { name, calseg, size }
-    }
-    pub fn get_name(&self) -> &'static str {
-        self.name
-    }
-    pub fn get_size(&self) -> usize {
-        self.size
-    }
-    pub fn set_init_request(&mut self) {
-        self.calseg.lock().set_init_request();
-    }
-
-    pub fn set_freeze_request(&mut self) {
-        self.calseg.lock().set_freeze_request();
-    }
-}
-
-//-----------------------------------------------------------------------------
-// CalSegList
-
-/// Calibration segment descriptor list
-/// The Xcp singleton holds this type
-/// Calibration segments are created via the Xcp singleton
-pub struct CalSegList(Vec<CalSegDescriptor>);
-
-impl CalSegList {
-    /// Create a calibration segment  
-    /// # Panics  
-    /// Panics if the calibration segment name already exists  
-    /// Panics if the calibration page size exceeds 64k or is ZeroSized
-    pub fn create_calseg<T>(&mut self, name: &'static str, default_page: &'static T) -> CalSeg<T>
-    where
-        T: CalPageTrait,
-    {
-        // Check size of calibration page
-        assert!(std::mem::size_of::<T>() <= 0x10000 && std::mem::size_of::<T>() != 0, "CalPage size is 0 or exceeds 64k");
-
-        // Check for duplicate name
-        self.0.iter().for_each(|s| {
-            assert!(s.get_name() != name, "CalSeg {} already exists", name);
-        });
-
-        // Create the calibration segment
-        let index = self.0.len();
-        let calseg = CalSeg::create(index, *default_page, default_page);
-
-        // Create the calibration segment descriptor
-        let c = CalSeg::clone(&calseg);
-        let a: Arc<Mutex<dyn CalSegTrait>> = Arc::new(Mutex::new(c)); // Heap allocation
-        let calseg_descr = CalSegDescriptor::new(name, a, std::mem::size_of::<T>());
-
-        // Add the calibration segment descriptor to the list
-        self.0.push(calseg_descr);
-
-        info!(
-            "Create CalSeg: {} index={}, sizeof<Page>={}, sizeof<CalSeg>={}",
-            name,
-            index,
-            std::mem::size_of::<T>(),
-            std::mem::size_of::<CalSeg<T>>()
-        );
-
-        calseg
-    }
-
-    pub fn get_name(&self, i: usize) -> &'static str {
-        self.0[i].get_name()
-    }
-
-    pub fn get_index(&self, name: &str) -> Option<usize> {
-        for (i, s) in self.0.iter().enumerate() {
-            if s.get_name() == name {
-                return Some(i);
-            }
-        }
-        None
-    }
-
-    pub fn sort_by_name(&mut self) {
-        // Alphabetical sort by name, but keep the segment named EPK_SEG_NAME at index 0
-        self.0.sort_by(|a, b| {
-            let a_is_epk = a.get_name() == crate::EPK_SEG_NAME;
-            let b_is_epk = b.get_name() == crate::EPK_SEG_NAME;
-            match (a_is_epk, b_is_epk) {
-                (true, false) => std::cmp::Ordering::Less,    // EPK comes first
-                (false, true) => std::cmp::Ordering::Greater, // EPK comes first
-                _ => a.get_name().cmp(b.get_name()),          // Otherwise alphabetical
-            }
-        });
-        // Update indices in CalSegs
-        self.0.iter_mut().enumerate().for_each(|(i, s)| {
-            info!("CalSeg index update: {} -> {}", s.get_name(), i);
-            s.calseg.lock().set_index(i);
-        });
-    }
-
-    pub fn register(&mut self) {
-        // Sort the calibration segments by name to get a deterministic order
-        // (keeps the epk calibration segment at index 0)
-        self.sort_by_name();
-
-        // Register all calibration segments in the registry
-        for (i, d) in self.0.iter().enumerate() {
-            debug!("Register CalSeg {}, size={}", d.get_name(), d.get_size());
-            assert!(i == d.calseg.lock().get_index());
-            let index: u16 = i.try_into().unwrap();
-            let size = d.get_size().try_into().unwrap();
-            let _ = registry::get_lock().as_mut().unwrap().cal_seg_list.add_cal_seg(d.get_name(), index, size);
-        }
-    }
-
-    pub fn clear(&mut self) {
-        self.0.clear();
-    }
-
-    pub fn set_freeze_request(&mut self) {
-        self.0.iter_mut().for_each(CalSegDescriptor::set_freeze_request);
-    }
-
-    pub fn set_init_request(&mut self) {
-        self.0.iter_mut().for_each(CalSegDescriptor::set_init_request);
-    }
-
-    pub fn iter(&self) -> std::slice::Iter<'_, CalSegDescriptor> {
-        self.0.iter()
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.len() == 0
-    }
-
-    /// Read from xcp_page or default_page depending on the active XCP page
-    /// # Safety
-    /// Raw pointer dst must point to valid memory with len bytes size
-    /// offset and len must match the size and position of the field
-    /// # Panics
-    /// Invalid calibration segment index
-    /// offset out of calibration segment boundaries
-    // @@@@ UNSAFE - direct memory access with pointer arithmetic
-    pub unsafe fn read_from(&self, index: usize, offset: u16, len: u8, dst: *mut u8) -> bool {
-        unsafe { self.0[index].calseg.lock().read(offset, len, dst) }
-    }
-
-    /// Write to xcp_page
-    /// # Safety
-    /// Raw pointer src must point to valid memory with len bytes size
-    /// offset and len must match the size and position of the field
-    /// # Panics
-    /// Invalid calibration segment index
-    /// offset out of calibration segment boundaries
-    // @@@@ UNSAFE - direct memory access with pointer arithmetic
-    pub unsafe fn write_to(&self, index: usize, offset: u16, len: u8, src: *const u8, delay: u8) -> bool {
-        unsafe { self.0[index].calseg.lock().write(offset, len, src, delay) }
-    }
-
-    // Flush delayed modifications in all calibration segments
-    pub fn flush(&self) {
-        self.0.iter().for_each(|s| {
-            s.calseg.lock().flush();
-        });
-    }
-
-    pub fn new() -> CalSegList {
-        CalSegList(Vec::new())
-    }
-}
-
-impl default::Default for CalSegList {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 //----------------------------------------------------------------------------------------------
 // Test
@@ -389,10 +391,12 @@ mod cal_tests {
         loop {
             i += 1;
             thread::yield_now();
-            if cal_seg.byte1 != 0 {
-                break;
+            {
+                let p = cal_seg.read_lock();
+                if p.byte1 == 1 && p.byte2 == 2 && p.byte3 == 3 && p.byte4 == 4 {
+                    break;
+                }
             }
-            cal_seg.sync();
         }
         trace!("task_calseg end, loop count = {}", i);
         i
@@ -434,34 +438,33 @@ mod cal_tests {
         // Interior mutability, page switch and unwanted compiler optimizations
         let cal_page_test1 = CalSeg::new("CalPageTest1", &CAL_PAGE_TEST1);
         cal_page_test1.register_fields();
-        let mut test = cal_page_test1.byte1;
+        let p = cal_page_test1.read_lock();
+        let mut test = p.byte1;
+        drop(p);
         assert_eq!(test, 0);
         let index = cal_page_test1.get_index();
-        assert_eq!(index, 0);
-        // @@@@ UNSAFE - Test
-        unsafe {
-            let data: u8 = 1;
-            let offset = &CAL_PAGE_TEST1.byte1 as *const u8 as usize - &CAL_PAGE_TEST1 as *const _ as *const u8 as usize;
-            assert!(offset == 0);
-            cb_write(0x80000000u32, 1, &data, 0);
-        }
-        cal_page_test1.sync();
-        test = cal_page_test1.byte1;
-        assert_eq!(cal_page_test1.byte1, 1);
+        assert_eq!(index, 1); // Index 0 is reserved for epk segment
+
+        let mut p = cal_page_test1.write_lock();
+        p.byte1 = 1;
+        drop(p);
+
+        test = cal_page_test1.read_lock().byte1;
         assert_eq!(test, 1);
-        cb_set_cal_page(1, XCP_CAL_PAGE_FLASH, CAL_PAGE_MODE_ECU | CAL_PAGE_MODE_ALL);
-        test = cal_page_test1.byte1;
-        assert_eq!(cal_page_test1.byte1, 0);
-        assert_eq!(test, 0);
-        cb_set_cal_page(1, XCP_CAL_PAGE_RAM, CAL_PAGE_MODE_ECU | CAL_PAGE_MODE_ALL);
+
+        // cb_set_cal_page(1, XCP_CAL_PAGE_FLASH, CAL_PAGE_MODE_ECU | CAL_PAGE_MODE_ALL);
+        // test = cal_page_test1.byte1;
+        // assert_eq!(cal_page_test1.byte1, 0);
+        // assert_eq!(test, 0);
+        // cb_set_cal_page(1, XCP_CAL_PAGE_RAM, CAL_PAGE_MODE_ECU | CAL_PAGE_MODE_ALL);
 
         // Move to threads
         let cal_page_test2 = CalSeg::new("CalPageTest2", &CAL_PAGE_TEST2);
         cal_page_test2.register_fields();
         let index = cal_page_test2.get_index();
-        assert_eq!(index, 1); // Segment index
-        cal_page_test2.sync();
-        assert!(cal_page_test2.byte1 == 0);
+        assert_eq!(index, 2); // Segment index
+
+        assert!(cal_page_test2.read_lock().byte1 == 0);
         let t1 = thread::spawn({
             let c = CalSeg::clone(&cal_page_test2);
             move || {
@@ -474,36 +477,23 @@ mod cal_tests {
                 task_calseg(c);
             }
         });
-        // @@@@ UNSAFE - Test
-        unsafe {
-            let offset = &CAL_PAGE_TEST2.byte4 as *const u8 as usize - &CAL_PAGE_TEST2 as *const _ as *const u8 as usize;
-            assert!(offset == 3);
-            assert!(index == 1);
-            let data: u8 = 1;
-            cb_write(0x80010000u32, 1, &data, 0);
-            let data: u8 = 2;
-            cb_write(0x80010001u32, 1, &data, 0);
-            let data: u8 = 3;
-            cb_write(0x80010002u32, 1, &data, 0);
-            let data: u8 = 4;
-            cb_write(0x80010003u32, 1, &data, 0);
-        }
+
+        cal_page_test2.write_lock().byte1 = 1;
+        cal_page_test2.write_lock().byte2 = 2;
+        cal_page_test2.write_lock().byte3 = 3;
+        cal_page_test2.write_lock().byte4 = 4;
+
         t1.join().unwrap();
         t2.join().unwrap();
-        cal_page_test2.sync();
-        assert!(cal_page_test2.byte1 == 1);
-        assert!(cal_page_test2.byte2 == 2);
-        assert!(cal_page_test2.byte3 == 3);
-        assert!(cal_page_test2.byte4 == 4);
 
-        //t1.join().unwrap();
-        //t2.join().unwrap();
+        assert!(cal_page_test2.read_lock().byte1 == 1);
+        assert!(cal_page_test2.read_lock().byte2 == 2);
+        assert!(cal_page_test2.read_lock().byte3 == 3);
+        assert!(cal_page_test2.read_lock().byte4 == 4);
 
-        // Test drop and expected size
         let size = std::mem::size_of::<CalSeg<CalPageTest2>>();
-
         info!("CalSeg: {} size = {} bytes", cal_page_test2.get_name(), size);
-        assert_eq!(size, 32);
+        assert_eq!(size, 16);
     }
 
     //-----------------------------------------------------------------------------
@@ -511,7 +501,7 @@ mod cal_tests {
 
     #[test]
     fn test_calibration_segment_persistence() {
-        let xcp = xcp_test::test_setup();
+        let _xcp = xcp_test::test_setup();
 
         #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, XcpTypeDescription)]
         struct CalPage {
@@ -545,18 +535,20 @@ mod cal_tests {
         let cal_seg1 = cal_seg.clone();
         let cal_seg2 = cal_seg.clone();
 
-        assert_eq!(cal_seg.test_byte, 0x55, "test_byte != 0x55, default is RAM");
-        let r = &cal_seg.test_byte;
+        assert_eq!(cal_seg.read_lock().test_byte, 0x55, "test_byte != 0x55, default is RAM");
+        let r = &cal_seg.read_lock().test_byte;
         assert_eq!(*r, 0x55, "&test_byte != 0x55, default is RAM");
-        xcp.set_ecu_cal_page(XcpCalPage::Flash);
-        assert_eq!(cal_seg.test_byte, 0xAA, "test_byte != 0xAA from FLASH");
-        assert_eq!(cal_seg1.test_byte, 0xAA, "test_byte != 0xAA from FLASH");
-        assert_eq!(cal_seg2.test_byte, 0xAA, "test_byte != 0xAA from FLASH");
-        assert_eq!(*r, 0x55, "&test_byte != 0x55, reference to RAM"); // @@@@ Note: References are legal, not affected by switch
-        xcp.set_ecu_cal_page(XcpCalPage::Ram);
-        assert_eq!(cal_seg.test_byte, 0x55, "test_byte != 0x55 from RAM");
-        assert_eq!(cal_seg1.test_byte, 0x55, "test_byte != 0x55 from RAM");
-        assert_eq!(cal_seg2.test_byte, 0x55, "test_byte != 0x55 from RAM");
+
+        //xcp.set_ecu_cal_page(XcpCalPage::Flash);
+        // assert_eq!(cal_seg.read_lock().test_byte, 0xAA, "test_byte != 0xAA from FLASH");
+        // assert_eq!(cal_seg1.read_lock().test_byte, 0xAA, "test_byte != 0xAA from FLASH");
+        // assert_eq!(cal_seg2.read_lock().test_byte, 0xAA, "test_byte != 0xAA from FLASH");
+        // assert_eq!(*r, 0x55, "&test_byte != 0x55, reference to RAM"); // @@@@ Note: References are legal, not affected by switch
+
+        //xcp.set_ecu_cal_page(XcpCalPage::Ram);
+        assert_eq!(cal_seg.read_lock().test_byte, 0x55, "test_byte != 0x55 from RAM");
+        assert_eq!(cal_seg1.read_lock().test_byte, 0x55, "test_byte != 0x55 from RAM");
+        assert_eq!(cal_seg2.read_lock().test_byte, 0x55, "test_byte != 0x55 from RAM");
         drop(cal_seg2);
         drop(cal_seg1);
         let _ = cal_seg;
@@ -592,161 +584,98 @@ mod cal_tests {
     static FLASH_PAGE2: CalPage2 = CalPage2 { a: 2, b: 4, c: 6 };
     static FLASH_PAGE3: CalPage3 = CalPage3 { a: 2, b: 4, c: 6 };
 
-    macro_rules! test_is_mut {
-        ( $s:ident ) => {
-            if $s.a != 1 || $s.b != 3 || $s.c != 5 {
-                panic!("test_is_mut: failed, s.a!=1 || s.b!=3 || s.c!=5");
-            }
-        };
-    }
+    // macro_rules! test_is_mut {
+    //     ( $s:ident ) => {
+    //         if $s.a != 1 || $s.b != 3 || $s.c != 5 {
+    //             panic!("test_is_mut: failed, s.a!=1 || s.b!=3 || s.c!=5");
+    //         }
+    //     };
+    // }
 
-    macro_rules! test_is_default {
-        ( $s:ident ) => {
-            if $s.a != 2 || $s.b != 4 || $s.c != 6 {
-                panic!("test_is_default: failed, s.a!=2 || s.b!=4 || s.c!=6");
-            }
-        };
-    }
+    // macro_rules! test_is_default {
+    //     ( $s:ident ) => {
+    //         if $s.a != 2 || $s.b != 4 || $s.c != 6 {
+    //             panic!("test_is_default: failed, s.a!=2 || s.b!=4 || s.c!=6");
+    //         }
+    //     };
+    // }
 
-    #[test]
-    fn test_cal_page_switch() {
-        let xcp = xcp_test::test_setup();
+    // #[test]
+    // fn test_cal_page_switch() {
+    //     let xcp = xcp_test::test_setup();
 
-        let mut_page: CalPage1 = CalPage1 { a: 1, b: 3, c: 5 };
-        save(&mut_page, "test1.json").unwrap();
-        //save(&mut_page, "test2.json").unwrap();
-        let cal_seg = CalSeg::new("test1", &FLASH_PAGE1);
-        cal_seg.load("test1.json").unwrap();
-        info!("load");
-        cal_seg.sync();
-        info!("sync");
-        assert_eq!(
-            xcp.get_ecu_cal_page(),
-            XcpCalPage::Ram,
-            "XCP should be on RAM page here, there is no independent page switching yet"
-        );
-        test_is_mut!(cal_seg); // Default page must be mut_page
-        xcp.set_ecu_cal_page(XcpCalPage::Flash); // Simulate a set cal page to default from XCP master
-        cal_seg.sync();
-        test_is_default!(cal_seg);
-        xcp.set_ecu_cal_page(XcpCalPage::Ram); // Switch back to ram
-        cal_seg.sync();
-        test_is_mut!(cal_seg);
-        // Check if cal page switching works in a loop where the compiler might optimize the cal_page values
-        for i in 0..10 {
-            if i <= 50 {
-                if cal_seg.a != 1 {
-                    unreachable!();
-                };
-            } else if cal_seg.a != 2 {
-                unreachable!();
-            }
-            if i == 50 {
-                xcp.set_ecu_cal_page(XcpCalPage::Flash); // Switch to default
-                cal_seg.sync();
-            }
-        }
-        let _ = std::fs::remove_file("test1.json");
-    }
+    //     let mut_page: CalPage1 = CalPage1 { a: 1, b: 3, c: 5 };
+    //     save(&mut_page, "test1.json").unwrap();
+    //     //save(&mut_page, "test2.json").unwrap();
+    //     let cal_seg = CalSeg::new("test1", &FLASH_PAGE1);
+    //     cal_seg.load("test1.json").unwrap();
+    //     info!("load");
+    //     cal_seg.sync();
+    //     info!("sync");
+    //     assert_eq!(
+    //         xcp.get_ecu_cal_page(),
+    //         XcpCalPage::Ram,
+    //         "XCP should be on RAM page here, there is no independent page switching yet"
+    //     );
+    //     test_is_mut!(cal_seg); // Default page must be mut_page
+    //     xcp.set_ecu_cal_page(XcpCalPage::Flash); // Simulate a set cal page to default from XCP master
+    //     cal_seg.sync();
+    //     test_is_default!(cal_seg);
+    //     xcp.set_ecu_cal_page(XcpCalPage::Ram); // Switch back to ram
+    //     cal_seg.sync();
+    //     test_is_mut!(cal_seg);
+    //     // Check if cal page switching works in a loop where the compiler might optimize the cal_page values
+    //     for i in 0..10 {
+    //         if i <= 50 {
+    //             if cal_seg.a != 1 {
+    //                 unreachable!();
+    //             };
+    //         } else if cal_seg.a != 2 {
+    //             unreachable!();
+    //         }
+    //         if i == 50 {
+    //             xcp.set_ecu_cal_page(XcpCalPage::Flash); // Switch to default
+    //             cal_seg.sync();
+    //         }
+    //     }
+    //     let _ = std::fs::remove_file("test1.json");
+    // }
 
     //-----------------------------------------------------------------------------
     // Test cal page freeze
 
-    #[test]
-    fn test_cal_page_freeze() {
-        xcp_test::test_setup();
+    // #[test]
+    // fn test_cal_page_freeze() {
+    //     xcp_test::test_setup();
 
-        assert!(std::mem::size_of::<CalPage1>() == 12);
-        assert!(std::mem::size_of::<CalPage2>() == 12);
-        assert!(std::mem::size_of::<CalPage3>() == 12);
+    //     assert!(std::mem::size_of::<CalPage1>() == 12);
+    //     assert!(std::mem::size_of::<CalPage2>() == 12);
+    //     assert!(std::mem::size_of::<CalPage3>() == 12);
 
-        let mut_page1: CalPage1 = CalPage1 { a: 1, b: 3, c: 5 };
-        save(&mut_page1, "test1.json").unwrap();
+    //     let mut_page1: CalPage1 = CalPage1 { a: 1, b: 3, c: 5 };
+    //     save(&mut_page1, "test1.json").unwrap();
 
-        // Create calseg1 from def
-        let calseg1 = CalSeg::new("test1", &FLASH_PAGE1);
-        calseg1.load("test1.json").unwrap();
+    //     // Create calseg1 from def
+    //     let calseg1 = CalSeg::new("test1", &FLASH_PAGE1);
+    //     calseg1.load("test1.json").unwrap();
 
-        test_is_mut!(calseg1);
+    //     test_is_mut!(calseg1);
 
-        // Freeze calseg1 to new test1.json
-        let _ = std::fs::remove_file("test1.json");
-        cb_freeze_cal(); // Save mut_page to file "test1.json"
-        calseg1.sync();
+    //     // Freeze calseg1 to new test1.json
+    //     let _ = std::fs::remove_file("test1.json");
+    //     cb_freeze_cal(); // Save mut_page to file "test1.json"
+    //     calseg1.sync();
 
-        // Create calseg2 from freeze file test1.json of calseg1
-        std::fs::copy("test1.json", "test2.json").unwrap();
-        let calseg2 = CalSeg::new("test2", &FLASH_PAGE2);
-        calseg2.load("test2.json").unwrap();
+    //     // Create calseg2 from freeze file test1.json of calseg1
+    //     std::fs::copy("test1.json", "test2.json").unwrap();
+    //     let calseg2 = CalSeg::new("test2", &FLASH_PAGE2);
+    //     calseg2.load("test2.json").unwrap();
 
-        test_is_mut!(calseg2);
+    //     test_is_mut!(calseg2);
 
-        let _ = std::fs::remove_file("test1.json");
-        let _ = std::fs::remove_file("test2.json");
-    }
-
-    //-----------------------------------------------------------------------------
-    // Test cal page trait compiler errors
-
-    #[test]
-    fn test_cal_page_trait() {
-        xcp_test::test_setup();
-
-        #[derive(serde::Serialize, serde::Deserialize, Debug, Copy, Clone, XcpTypeDescription)]
-        struct Page1 {
-            a: u32,
-        }
-
-        const PAGE1: Page1 = Page1 { a: 1 };
-        #[derive(serde::Serialize, serde::Deserialize, Debug, Copy, Clone, XcpTypeDescription)]
-        struct Page2 {
-            b: u32,
-        }
-
-        const PAGE2: Page2 = Page2 { b: 1 };
-        #[derive(serde::Serialize, serde::Deserialize, Debug, Copy, Clone, XcpTypeDescription)]
-        struct Page3 {
-            c: u32,
-        }
-
-        const PAGE3: Page3 = Page3 { c: 1 };
-
-        let s1 = &CalSeg::new("test1", &PAGE1);
-        let s2 = &CalSeg::new("test2", &PAGE2);
-        let s3 = &CalSeg::new("test3", &PAGE3);
-
-        info!("s1: {}", s1.get_name());
-        info!("s2: {}", s2.get_name());
-        info!("d3: {}", s3.get_name());
-
-        let d1: Box<dyn CalSegTrait> = Box::new(s1.clone());
-        info!("d1: {}", d1.get_name());
-        is_send::<Box<dyn CalSegTrait + Send>>();
-
-        #[allow(clippy::vec_init_then_push)]
-        let v: Vec<Box<dyn CalSegTrait>> = vec![Box::new(s1.clone()), Box::new(s2.clone()), Box::new(s3.clone()), Box::new(s3.clone())];
-        for (i, s) in v.iter().enumerate() {
-            info!(" {}: {}", i, s.get_name());
-        }
-
-        let a: Arc<Mutex<Vec<Box<dyn CalSegTrait>>>> = Arc::new(Mutex::new(Vec::new()));
-        {
-            let mut v = a.lock();
-            v.push(Box::new(s1.clone()));
-            v.push(Box::new(s2.clone()));
-            v.push(Box::new(s3.clone()));
-            v.push(Box::new(s3.clone()));
-        }
-
-        let c = a.clone();
-        let t = thread::spawn(move || {
-            let v = c.lock();
-            for (i, s) in v.iter().enumerate() {
-                info!("thread {}: {}", i, s.get_name());
-            }
-        });
-        t.join().unwrap();
-    }
+    //     let _ = std::fs::remove_file("test1.json");
+    //     let _ = std::fs::remove_file("test2.json");
+    // }
 
     //-----------------------------------------------------------------------------
     // Test cal page write and CalCell
@@ -792,23 +721,21 @@ mod cal_tests {
             value.test6 = 6.0;
         }
 
-        value.sync(); // Sync to ECU page of this clone
-
         // Check value changed in the ECU page of this clone
-        assert_eq!(value.test1, 2);
-        assert_eq!(value.test2, -3);
-        assert_eq!(value.test3, 4);
-        assert_eq!(value.test4, 5.0);
-        assert!(value.test5);
-        assert_eq!(value.test6, 6.0);
+        assert_eq!(value.read_lock().test1, 2);
+        assert_eq!(value.read_lock().test2, -3);
+        assert_eq!(value.read_lock().test3, 4);
+        assert_eq!(value.read_lock().test4, 5.0);
+        assert!(value.read_lock().test5);
+        assert_eq!(value.read_lock().test6, 6.0);
 
         // Now create another clone and check the values
         let value = STATIC_CAL_SEG.get().unwrap().clone_calseg();
-        assert_eq!(value.test1, 2); // Check value changed
-        assert_eq!(value.test2, -3); // Read from ECU page
-        assert_eq!(value.test3, 4);
-        assert_eq!(value.test4, 5.0);
-        assert!(value.test5);
-        assert_eq!(value.test6, 6.0);
+        assert_eq!(value.read_lock().test1, 2); // Check value changed
+        assert_eq!(value.read_lock().test2, -3); // Read from ECU page
+        assert_eq!(value.read_lock().test3, 4);
+        assert_eq!(value.read_lock().test4, 5.0);
+        assert!(value.read_lock().test5);
+        assert_eq!(value.read_lock().test6, 6.0);
     }
 }

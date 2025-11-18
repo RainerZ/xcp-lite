@@ -24,27 +24,10 @@ use crate::registry::{self, McEvent};
 pub mod daq;
 
 // Submodule cal
-#[cfg(not(feature = "c_cal"))]
-mod cal;
-#[cfg(not(feature = "c_cal"))]
-pub use cal::CalCell;
-#[cfg(not(feature = "c_cal"))]
-pub use cal::CalPageTrait;
-#[cfg(not(feature = "c_cal"))]
-pub use cal::CalSeg;
-#[cfg(not(feature = "c_cal"))]
-pub use cal::CalSegList;
-#[cfg(not(feature = "c_cal"))]
-use cal::CalSegTrait;
-
-// Submodule c_cal
 // Calibration segment implementation in C library xcplib
-#[cfg(feature = "c_cal")]
-mod c_cal;
-#[cfg(feature = "c_cal")]
-pub use c_cal::CalCell;
-#[cfg(feature = "c_cal")]
-pub use c_cal::CalSeg;
+mod cal;
+pub use cal::CalCell;
+pub use cal::CalSeg;
 
 pub mod xcplib;
 
@@ -334,15 +317,6 @@ impl XcpTransportLayer {
 pub struct Xcp {
     registry_finalized: AtomicBool,
     event_list: Arc<Mutex<EventList>>,
-
-    #[cfg(not(feature = "c_cal"))]
-    epk: Mutex<&'static str>,
-    #[cfg(not(feature = "c_cal"))]
-    ecu_cal_page: AtomicU8,
-    #[cfg(not(feature = "c_cal"))]
-    xcp_cal_page: AtomicU8,
-    #[cfg(not(feature = "c_cal"))]
-    calseg_list: Arc<Mutex<CalSegList>>,
 }
 
 lazy_static! {
@@ -350,67 +324,7 @@ lazy_static! {
 }
 
 impl Xcp {
-    // new
-    // Lazy static initialization of the Xcp singleton
-    #[cfg(not(feature = "c_cal"))]
-    fn new() -> Xcp {
-        unsafe {
-            // EPK and name not known at this time
-            // @@@@ UNSAFE - C library calls
-            xcplib::XcpInit(null(), null(), true);
-
-            // Register the callbacks from xcplib
-            // @@@@ UNSAFE - C library calls
-            #[cfg(not(feature = "c_cal"))]
-            xcplib::ApplXcpRegisterCallbacks(
-                Some(cb_connect),
-                Some(cb_prepare_daq),
-                Some(cb_start_daq),
-                Some(cb_stop_daq),
-                // @@@@ TODO Implement cb_freeze_daq
-                None,
-                Some(cb_get_cal_page),
-                Some(cb_set_cal_page),
-                Some(cb_freeze_cal),
-                Some(cb_init_cal),
-                Some(cb_read),
-                Some(cb_write),
-                Some(cb_flush),
-            );
-
-            #[cfg(feature = "c_cal")]
-            xcplib::ApplXcpRegisterCallbacks(
-                Some(cb_connect),
-                Some(cb_prepare_daq),
-                Some(cb_start_daq),
-                Some(cb_stop_daq),
-                // @@@@ TODO Implement cb_freeze_daq
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            );
-        }
-
-        // Initialize the registry
-        registry::init();
-
-        // Create the Xcp singleton
-        Xcp {
-            registry_finalized: AtomicBool::new(false),
-            event_list: Arc::new(Mutex::new(EventList::new())),
-            epk: Mutex::new(""),
-            ecu_cal_page: AtomicU8::new(XcpCalPage::Ram as u8), // ECU page defaults on RAM
-            xcp_cal_page: AtomicU8::new(XcpCalPage::Ram as u8), // XCP page defaults on RAM
-            calseg_list: Arc::new(Mutex::new(CalSegList::new())),
-        }
-    }
-
-    #[cfg(feature = "c_cal")]
+    
     fn new() -> Xcp {
         // Create the Xcp singleton
         Xcp {
@@ -434,25 +348,7 @@ impl Xcp {
             // EPK and name not known at this time
             xcplib::XcpInit(name.as_ptr(), epk.as_ptr(), true);
 
-            // Register the callbacks from xcplib
-            #[cfg(not(feature = "c_cal"))]
-            xcplib::ApplXcpRegisterCallbacks(
-                Some(cb_connect),
-                Some(cb_prepare_daq),
-                Some(cb_start_daq),
-                Some(cb_stop_daq),
-                // @@@@ TODO Implement cb_freeze_daq
-                None,
-                Some(cb_get_cal_page),
-                Some(cb_set_cal_page),
-                Some(cb_freeze_cal),
-                Some(cb_init_cal),
-                Some(cb_read),
-                Some(cb_write),
-                Some(cb_flush),
-            );
-
-            #[cfg(feature = "c_cal")]
+       
             xcplib::ApplXcpRegisterCallbacks(
                 Some(cb_connect),
                 Some(cb_prepare_daq),
@@ -489,59 +385,8 @@ impl Xcp {
         &XCP
     }
 
-    /// Set the log level for XCP C library xcplib
-    #[allow(clippy::unused_self)]
-    #[cfg(not(feature = "c_cal"))]
-    pub fn set_log_level(&self, level: u8) -> &'static Xcp {
-        unsafe {
-            // @@@@ UNSAFE - C library call
-            xcplib::XcpSetLogLevel(level);
-        }
 
-        &XCP
-    }
-
-    /// Set the project name (will be used as A2L file name and A2L project name)
-    #[cfg(not(feature = "c_cal"))]
-    pub fn set_app_name(&self, app_name: &str) -> &'static Xcp {
-        registry::get_lock().as_mut().unwrap().application.set_info(app_name.to_string(), "xcp-lite", 0);
-        &XCP
-    }
-
-    /// Set software version (will be used as A2L EPK string and for EPK memory segment)
-    #[cfg(not(feature = "c_cal"))]
-    pub fn set_app_revision(&self, app_revision: &'static str) -> &'static Xcp {
-        assert!(app_revision.len() < crate::EPK_SEG_SIZE);
-
-        // Create EPK segment and initialize it with the given app_revision string
-        #[cfg(not(feature = "c_cal"))]
-        {
-            // Set the EPK in the XCP driver
-            *(self.epk.lock()) = app_revision;
-
-            let epk_seg = CalSeg::new(crate::EPK_SEG_NAME, &crate::EPK);
-            // This segment must have index 0 in the calseg list
-            assert!(epk_seg.get_index() == 0);
-            {
-                let mut epk = epk_seg.write_lock();
-                epk.epk[..app_revision.len()].copy_from_slice(app_revision.as_bytes());
-                epk.epk[app_revision.len()..].fill(0);
-            }
-        }
-
-        // Set EPK in xcplib C library
-        // #[cfg(feature = "c_cal")]
-        // unsafe {
-        //     let epk = std::ffi::CString::new(app_revision).unwrap();
-        //     // @@@@ UNSAFE - C library call
-        //     xcplib::XcpSetEpk(epk.as_ptr());
-        // }
-
-        // Set the EPK in the registry
-        registry::get_lock().as_mut().unwrap().application.set_version(app_revision, crate::EPK_SEG_ADDR);
-
-        &XCP
-    }
+       
 
     /// Set registry mode (flat or with typedefs, prefix names with app name)
     pub fn set_registry_mode(&self, flatten_typedefs: bool, prefix_names: bool) -> &'static Xcp {
@@ -632,24 +477,11 @@ impl Xcp {
     //------------------------------------------------------------------------------------------
     // Calibration segments
 
-    /// Create a calibration segment  
-    /// # Panics  
-    /// If the calibration segment name already exists  
-    /// If the calibration page size exceeds 64k
-    #[cfg(not(feature = "c_cal"))]
-    pub fn create_calseg<T>(&self, name: &'static str, default_page: &'static T) -> CalSeg<T>
-    where
-        T: CalPageTrait,
-    {
-        self.calseg_list.lock().create_calseg(name, default_page)
-    }
+   
 
     /// Get calibration segment index by name
     pub fn get_calseg_index(&self, name: &str) -> Option<usize> {
-        #[cfg(not(feature = "c_cal"))]
-        return self.calseg_list.lock().get_index(name);
-
-        #[cfg(feature = "c_cal")]
+       
         unsafe {
             // @@@@ UNSAFE - C library call
             let c_name = std::ffi::CString::new(name).unwrap();
@@ -663,10 +495,7 @@ impl Xcp {
 
     /// Get calibration segment name by index
     fn get_calseg_name(&self, index: usize) -> &'static str {
-        #[cfg(not(feature = "c_cal"))]
-        return self.calseg_list.lock().get_name(index);
-
-        #[cfg(feature = "c_cal")]
+      
         unsafe {
             // @@@@ UNSAFE - C library call
             let name_ptr = xcplib::XcpGetCalSegName(index as u16);
@@ -719,10 +548,7 @@ impl Xcp {
         assert!(!registry::is_closed());
 
         // Register all calibration segments
-        #[cfg(not(feature = "c_cal"))]
-        self.calseg_list.lock().register();
-        #[cfg(feature = "c_cal")]
-        {
+      
             let calseg_count: u16 = unsafe { xcplib::XcpGetCalSegCount() };
             for i in 0..calseg_count {
                 let name = unsafe { std::ffi::CStr::from_ptr(xcplib::XcpGetCalSegName(i)).to_str().unwrap() };
@@ -730,7 +556,7 @@ impl Xcp {
                 log::info!("Register CalSeg {}, size={}", name, size);
                 let _ = registry::get_lock().as_mut().unwrap().cal_seg_list.add_cal_seg(name, i, size as u32);
             }
-        }
+        
 
         // Register all events
         self.event_list.lock().register();
@@ -773,62 +599,8 @@ impl Xcp {
         Ok(true)
     }
 
-    //------------------------------------------------------------------------------------------
-    // Calibration page switching
+    
 
-    /// Set the active calibration page for the ECU access (used for test only)
-    #[cfg(not(feature = "c_cal"))]
-    fn set_ecu_cal_page(&self, page: XcpCalPage) {
-        self.ecu_cal_page.store(page as u8, Ordering::Relaxed);
-    }
-
-    /// Set the active calibration page for the XCP access (used for test only)
-    #[cfg(not(feature = "c_cal"))]
-    fn set_xcp_cal_page(&self, page: XcpCalPage) {
-        self.xcp_cal_page.store(page as u8, Ordering::Relaxed);
-    }
-
-    /// Get the active calibration page for the ECU access
-    #[cfg(not(feature = "c_cal"))]
-    fn get_ecu_cal_page(&self) -> XcpCalPage {
-        if self.ecu_cal_page.load(Ordering::Relaxed) == XcpCalPage::Ram as u8 {
-            XcpCalPage::Ram
-        } else {
-            XcpCalPage::Flash
-        }
-    }
-
-    /// Get the active calibration page for the XCP access
-    #[cfg(not(feature = "c_cal"))]
-    fn get_xcp_cal_page(&self) -> XcpCalPage {
-        if self.xcp_cal_page.load(Ordering::Relaxed) == XcpCalPage::Ram as u8 {
-            XcpCalPage::Ram
-        } else {
-            XcpCalPage::Flash
-        }
-    }
-
-    //------------------------------------------------------------------------------------------
-    // Freeze and Init
-
-    /// Set calibration segment init request  
-    /// Called on init cal from XCP server  
-    #[cfg(not(feature = "c_cal"))]
-    fn set_init_request(&self) {
-        self.calseg_list.lock().set_init_request();
-    }
-
-    /// Set calibration segment freeze request  
-    /// Called on freeze cal from XCP server  
-    #[cfg(not(feature = "c_cal"))]
-    fn set_freeze_request(&self) {
-        self.calseg_list.lock().set_freeze_request();
-    }
-
-    #[cfg(not(feature = "c_cal"))]
-    pub fn get_epk(&self) -> &Mutex<&'static str> {
-        &self.epk
-    }
 
     //------------------------------------------------------------------------------------------
     // Clock
@@ -894,122 +666,6 @@ extern "C" fn cb_stop_daq() {
     log::trace!("cb_stop_daq");
 }
 
-// Switching individual segments (CANape option CALPAGE_SINGLE_SEGMENT_SWITCHING) not supported, not needed and CANape is buggy
-// Returns 0xFF on invalid mode, segment number is ignored, CAL_PAGE_MODE_ALL is ignored
-
-#[cfg(not(feature = "c_cal"))]
-#[unsafe(no_mangle)]
-extern "C" fn cb_get_cal_page(segment: u8, mode: u8) -> u8 {
-    log::debug!("cb_get_cal_page: get cal page of segment {}, mode {:02X}", segment, mode);
-    let page: u8;
-    if (mode & CAL_PAGE_MODE_ECU) != 0 {
-        page = XCP.get_ecu_cal_page() as u8;
-        log::debug!("cb_get_cal_page: ECU page = {:?}", XcpCalPage::from(page));
-    } else if (mode & CAL_PAGE_MODE_XCP) != 0 {
-        page = XCP.get_xcp_cal_page() as u8;
-        log::debug!("cb_get_cal_page: XCP page = {:?}", XcpCalPage::from(page));
-    } else {
-        return 0xFF; // Invalid page mode
-    }
-    page
-}
-
-#[cfg(not(feature = "c_cal"))]
-#[unsafe(no_mangle)]
-extern "C" fn cb_set_cal_page(segment: u8, page: u8, mode: u8) -> u8 {
-    log::debug!("cb_set_cal_page: set cal page to segment={}, page={:?}, mode={:02X}", segment, XcpCalPage::from(page), mode);
-    if (mode & CAL_PAGE_MODE_ALL) == 0 {
-        return CRC_MODE_NOT_VALID; // Switching individual segments not supported yet
-    }
-
-    // Ignore segment number
-    // if segment > 0 && segment < 0xFF {
-    //     return CRC_SEGMENT_NOT_VALID; // Only one segment supported yet
-    // }
-
-    if (mode & CAL_PAGE_MODE_ECU) != 0 {
-        XCP.set_ecu_cal_page(XcpCalPage::from(page));
-    }
-    if (mode & CAL_PAGE_MODE_XCP) != 0 {
-        XCP.set_xcp_cal_page(XcpCalPage::from(page));
-    }
-
-    CRC_CMD_OK
-}
-
-#[cfg(not(feature = "c_cal"))]
-#[unsafe(no_mangle)]
-extern "C" fn cb_init_cal(_src_page: u8, _dst_page: u8) -> u8 {
-    log::trace!("cb_init_cal");
-    XCP.set_init_request();
-    CRC_CMD_OK
-}
-
-#[cfg(not(feature = "c_cal"))]
-#[unsafe(no_mangle)]
-extern "C" fn cb_freeze_cal() -> u8 {
-    log::trace!("cb_freeze_cal");
-    XCP.set_freeze_request();
-    CRC_CMD_OK
-}
-
-// Direct calibration memory access, read and write memory
-// Here is the fundamental point of unsafety in XCP calibration
-// Read and write are called by XCP on UPLOAD and DNLOAD commands and XCP must assure the correctness of the parameters, which are usually taken from an A2L file
-// Writing with incorrect offset or len might lead to undefined behavior or at least wrong field values in the calibration segment
-// Reading with incorrect offset or len will lead to incorrect data shown in the XCP tool
-// @@@@ UNSAFE - direct memory access with pointer arithmetic
-
-#[cfg(not(feature = "c_cal"))]
-#[unsafe(no_mangle)]
-unsafe extern "C" fn cb_read(addr: u32, len: u8, dst: *mut u8) -> u8 {
-    log::debug!("cb_read: addr=0x{:08X}, len={}, dst={:?}", addr, len, dst);
-    assert!((addr & 0x80000000) != 0, "cb_read: invalid address");
-    assert!(len > 0, "cb_read: zero length");
-
-    // Decode addr
-    let index: u16 = (addr >> 16) as u16 & 0x7FFF; // @@@@ TODO: abstract address encoding
-    let offset: u16 = (addr & 0xFFFF) as u16;
-
-    // Calibration segment read
-    // read_from is Unsafe function
-    if !unsafe { XCP.calseg_list.lock().read_from((index) as usize, offset, len, dst) } {
-        CRC_ACCESS_DENIED
-    } else {
-        CRC_CMD_OK
-    }
-}
-
-// @@@@ UNSAFE - direct memory access with pointer arithmetic
-
-#[cfg(not(feature = "c_cal"))]
-#[unsafe(no_mangle)]
-unsafe extern "C" fn cb_write(addr: u32, len: u8, src: *const u8, delay: u8) -> u8 {
-    log::debug!("cb_write: dst=0x{:08X}, len={}, src={:?}, delay={}", addr, len, src, delay);
-    // @@@@ callbacks should not panic
-    assert!(len > 0, "cb_write: zero length");
-
-    // Decode addr
-    assert!((addr & 0x80000000) != 0, "cb_write: invalid address");
-    let index: u16 = (addr >> 16) as u16 & 0x7FFF; // @@@@ TODO: abstract address encoding
-    let offset: u16 = (addr & 0xFFFF) as u16;
-
-    // Write to calibration segment
-    // read_from is Unsafe function
-    if !unsafe { XCP.calseg_list.lock().write_to((index) as usize, offset, len, src, delay) } {
-        CRC_ACCESS_DENIED
-    } else {
-        CRC_CMD_OK
-    }
-}
-
-#[cfg(not(feature = "c_cal"))]
-#[unsafe(no_mangle)]
-extern "C" fn cb_flush() -> u8 {
-    log::trace!("cb_flush");
-    XCP.calseg_list.lock().flush();
-    CRC_CMD_OK
-}
 
 //-------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------
@@ -1045,22 +701,13 @@ pub mod xcp_test {
         registry::registry_test::test_reinit();
 
         // Reinitialize the XCP singleton
-        #[cfg(feature = "c_cal")]
-        {
-            unsafe {
-                xcplib::XcpReset();
-            }
+        unsafe {
+            xcplib::XcpReset();
         }
         let xcp = Xcp::init("Test", "EPK_V1.0.0", TEST_XCP_LOG_LEVEL);
         xcp.event_list.lock().clear();
 
-        #[cfg(not(feature = "c_cal"))]
-        {
-            xcp.calseg_list.lock().clear();
-            xcp.set_ecu_cal_page(XcpCalPage::Ram);
-            xcp.set_xcp_cal_page(XcpCalPage::Ram);
-        }
-
+       
         xcp
     }
 }
