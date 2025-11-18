@@ -297,9 +297,12 @@ impl GenerateA2l for McEvent {
         // Priority 0
         // @@@@ TODO CANape does not accept CONSISTENCY EVENT for serialized data types !!!!!!!!!!
         if index > 0 {
-            write!(writer, "\t\t\t/begin EVENT \"{:.98}_{}\" \"{:.6}_{}\" ", name, index, name, index)?;
+            let name = format!("{}_{}", name, index);
+            let short_name = if name.len() > 8 { &name[name.len() - 8..] } else { &name };
+            write!(writer, "\t\t\t/begin EVENT \"{:.100}\" \"{}\" ", name, short_name)?;
         } else {
-            write!(writer, "\t\t\t/begin EVENT \"{:.100}\" \"{:.8}\" ", name, name)?;
+            let short_name = if name.len() > 8 { &name[name.len() - 8..] } else { &name };
+            write!(writer, "\t\t\t/begin EVENT \"{:.100}\" \"{}\" ", name, short_name)?;
         }
         writeln!(writer, "{} DAQ 0xFF {} {} {} CONSISTENCY DAQ /end EVENT", id, time_cycle, time_unit, priority)
     }
