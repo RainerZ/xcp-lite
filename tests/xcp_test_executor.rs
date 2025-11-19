@@ -680,7 +680,11 @@ pub async fn test_setup(task_count: usize, load_a2l: bool, upload_a2l: bool) -> 
     if load_a2l {
         // Upload A2L file from XCP server
         if upload_a2l {
-            xcp_client.a2l_upload("test").await.unwrap();
+            let mut reg = Registry::new();
+            let a2l_path = std::path::Path::new("test").with_extension("a2l");
+            xcp_client.upload_a2l_into_registry(&a2l_path, &mut reg).await.unwrap();
+            xcp_client.set_registry(reg);
+            info!("A2L file uploaded from XCP server into registry from {:?}", a2l_path);
         }
         // Load the A2L file from file
         else {
