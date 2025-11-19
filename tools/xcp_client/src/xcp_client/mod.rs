@@ -415,6 +415,10 @@ impl XcpClient {
         }
     }
 
+    pub fn set_registry(&mut self, registry: xcp_lite::registry::Registry) {
+        self.registry = Some(registry);
+    }
+
     //------------------------------------------------------------------------
     // Helper function for socket receive
     async fn socket_receive(socket: &XcpSocket, buf: &mut [u8]) -> Result<(usize, Option<SocketAddr>), std::io::Error> {
@@ -1292,59 +1296,22 @@ impl XcpClient {
     //-------------------------------------------------------------------------------------------------
     // A2L upload
 
-    pub async fn upload_a2l<P: AsRef<std::path::Path>>(&mut self, a2l_path: &P) -> Result<(), Box<dyn Error>> {
+    pub async fn upload_a2l_file<P: AsRef<std::path::Path>>(&mut self, a2l_path: &P) -> Result<(), Box<dyn Error>> {
         // Send XCP GET_ID 4 command to set MTA
         let (file_size, _) = self.get_id(XCP_IDT_ASAM_UPLOAD).await?;
         if file_size == 0 {
             error!("A2L file not available, GET_ID 4 returned size 0");
-            return Err(Box::new(XcpError::new(ERROR_A2L, CC_GET_ID)) as Box<dyn Error>);
+            return Err(Box::new(XcpError::new(ERROR_GENERIC, CC_GET_ID)) as Box<dyn Error>);
         }
 
         // Check if the A2L file already exists and warn about overwriting
         if a2l_path.as_ref().exists() {
             warn!("A2L file {} already exists, overwriting", a2l_path.as_ref().display());
         }
+
         // Upload the A2L file
-        let a2l_name = a2l_path.as_ref().file_name().unwrap().to_string_lossy();
-        info!("Upload A2L to {}", a2l_name);
-        let file = std::fs::File::create(&a2l_path)?;
-        let mut writer = std::io::BufWriter::new(file);
-        let mut size = file_size;
-        while size > 0 {
-            let n = if size >= self.max_cto_size as u32 { self.max_cto_size - 1 } else { size as u8 };
-            size -= n as u32;
-            let data = self.upload(n).await?;
-            trace!("xcp_client.upload: {} bytes = {:?}", data.len(), data);
-            writer.write_all(&data[1..=n as usize])?;
-        }
-        writer.flush()?;
-        debug!("A2L upload to {} completed, {} bytes loaded", a2l_name, file_size);
-
-        Ok(())
-    }
-
-    // Get the A2L via XCP upload and GET_ID4 (XCP_IDT_ASAM_UPLOAD)
-    pub async fn a2l_upload(&mut self, a2l_name: &str) -> Result<(), Box<dyn Error>> {
-        // Use the same filename for the uploaded file as CANape does <name>_autodetect.a2l
-        let a2l_filename = format!("{}_autodetect", a2l_name);
-        let mut a2l_path = std::path::PathBuf::new();
-        a2l_path.set_file_name(a2l_filename);
-        a2l_path.set_extension("a2l");
-
-        // Send XCP GET_ID 4 command to set MTA
-        let (file_size, _) = self.get_id(XCP_IDT_ASAM_UPLOAD).await?;
-        if file_size == 0 {
-            error!("A2L file not available, GET_ID 4 returned size 0");
-            return Err(Box::new(XcpError::new(ERROR_A2L, CC_GET_ID)) as Box<dyn Error>);
-        }
-
-        // Warn if the A2L file already exists
-        if a2l_path.exists() {
-            warn!("A2L file {} already exists, overwriting", a2l_path.display());
-        }
-        // Upload the A2L file
-        info!("Upload A2L to {}.a2l", a2l_path.display());
-        let file = std::fs::File::create(&a2l_path)?;
+        info!("Upload A2L to {}.a2l", a2l_path.as_ref().display());
+        let file = std::fs::File::create(a2l_path)?;
         let mut writer = std::io::BufWriter::new(file);
         let mut size = file_size;
         while size > 0 {
@@ -1357,16 +1324,41 @@ impl XcpClient {
         writer.flush()?;
         debug!("A2L upload completed, {} bytes loaded", file_size);
 
-        // Read the A2L file into a registry
-        let mut registry = xcp_lite::registry::Registry::new();
-        // @@@@ TODO xcp_client does not support arrays, instances and typedefs yet, flatten the registry and mangle the names
-        registry.load_a2l(&a2l_path, true, true, true, true)?;
-        self.registry = Some(registry);
-
         Ok(())
     }
 
-    pub fn a2l_epk(&self) -> Option<&str> {
+    // Get the A2L via XCP upload and GET_ID4 (XCP_IDT_ASAM_UPLOAD) and load it into the registry
+    pub async fn upload_a2l_into_registry<P: AsRef<std::path::Path>>(&mut self, a2l_path: &P, reg: &mut xcp_lite::registry::Registry) -> Result<(), Box<dyn Error>> {
+        // Upload the A2L file
+        self.upload_a2l_file(&a2l_path).await?;
+
+        // Load the A2L file into the registry
+        // @@@@ TODO xcp_client does not support arrays, instances and typedefs yet, flatten the registry and mangle the names
+        reg.load_a2l(&a2l_path, true, true, true, true)?;
+        info!(
+            " A2L file contains {} instances, {} events and {} calibration segments",
+            reg.instance_list.len(),
+            reg.event_list.len(),
+            reg.cal_seg_list.len()
+        );
+        Ok(())
+    }
+
+    // Get the A2L via XCP upload and GET_ID4 (XCP_IDT_ASAM_UPLOAD) and load it into the registry
+    pub fn load_a2l_file_into_registry<P: AsRef<std::path::Path>>(&mut self, a2l_path: &P, reg: &mut xcp_lite::registry::Registry) -> Result<(), Box<dyn Error>> {
+        // Load the A2L file into the registry
+        // @@@@ TODO xcp_client does not support arrays, instances and typedefs yet, flatten the registry and mangle the names
+        reg.load_a2l(&a2l_path, true, true, true, true)?;
+        info!(
+            " A2L file contains {} instances, {} events and {} calibration segments",
+            reg.instance_list.len(),
+            reg.event_list.len(),
+            reg.cal_seg_list.len()
+        );
+        Ok(())
+    }
+
+    pub fn get_epk(&self) -> Option<&str> {
         self.registry.as_ref().map(|r| r.application.get_version())
     }
 
@@ -1433,7 +1425,7 @@ impl XcpClient {
         match registry.instance_list.get_instance(name) {
             None => {
                 error!("Characteristic {} not found", name);
-                Err(Box::new(XcpError::new(ERROR_A2L, 0)) as Box<dyn Error>)
+                Err(Box::new(XcpError::new(ERROR_NOT_FOUND, 0)) as Box<dyn Error>)
             }
             Some(instance) => {
                 let (ext, addr) = instance.get_address().get_a2l_addr(registry);

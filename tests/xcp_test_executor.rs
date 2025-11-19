@@ -720,7 +720,7 @@ pub async fn test_setup(task_count: usize, load_a2l: bool, upload_a2l: bool) -> 
         let epk = resp[1..=8].to_vec();
         let epk_string = String::from_utf8(epk.clone()).unwrap();
         info!("Upload EPK = {} {:?}", epk_string, epk);
-        debug!("A2l EPK = {}", xcp_client.a2l_epk().unwrap());
+        debug!("A2l EPK = {}", xcp_client.get_epk().unwrap());
         //assert_eq!(epk_string.as_str(), xcp_client.a2l_epk().unwrap(), "EPK mismatch"); // @@@@ TODO
     }
 
