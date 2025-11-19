@@ -7,7 +7,8 @@
 // cargo run -p hello_xcp
 //
 // Run the test XCP client in another terminal or start CANape with the project in folder examples/hello_xcp/CANape
-// cargo run -p xcp_client -- -m "counter"
+// xcp_client --udp --mea "counter" --verbose 2
+// xcp_client --udp  --upload-a2l --a2l tmp.a2l --list-cal '.*' --cal my_params.counter_max 10 --list-mea ".*"  --mea 'counter' --time 1 --verbose 2
 
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn};
@@ -137,6 +138,7 @@ fn main() -> anyhow::Result<()> {
     // @@@@ Test
     _xcp.finalize_registry()?;
 
+    let mut sleep_time: u64;
     loop {
         // XCP: Synchronize calibration parameters in cal_page and lock read access for consistency
         {
@@ -148,11 +150,13 @@ fn main() -> anyhow::Result<()> {
                     counter = 0;
                 }
             }
+
+            sleep_time = params.delay as u64;
         }
 
         // XCP: Trigger timestamped measurement data acquisition
         event.trigger();
 
-        std::thread::sleep(std::time::Duration::from_micros(params.delay as u64));
+        std::thread::sleep(std::time::Duration::from_micros(sleep_time));
     }
 }

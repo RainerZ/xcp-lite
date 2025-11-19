@@ -172,12 +172,8 @@ struct Args {
     #[arg(long, value_delimiter = ' ', num_args = 1..)]
     mea: Vec<String>,
 
-    // --time-ms
-    /// Limit measurement duration to n ms.
-    #[arg(long, default_value_t = 0)]
-    time_ms: u64,
     // --time
-    /// Limit measurement duration to n s.
+    /// Time limit measurement duration to n s. 0 means infinite.
     #[arg(long, default_value_t = 0)]
     time: u64,
 
@@ -458,7 +454,7 @@ async fn xcp_client(
     list_cal: String,
     list_mea: String,
     measurement_list: Vec<String>,
-    measurement_time_ms: u64,
+    measurement_duration_ms: u64,
     cal_args: Vec<String>,
 ) -> Result<(), Box<dyn Error>> {
     // Create xcp_client
@@ -956,11 +952,20 @@ async fn xcp_client(
                 }
             }
 
-            // Measure for n seconds
+            // Measure
             // 32 bit DAQ timestamp will overflow after 4.2s
             let start_time = tokio::time::Instant::now();
             xcp_client.start_measurement().await?;
-            tokio::time::sleep(std::time::Duration::from_millis(measurement_time_ms)).await;
+
+            if measurement_duration_ms > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(measurement_duration_ms)).await;
+            } else {
+                println!("Press Ctrl-C to stop measurement...");
+                // Wait for Ctrl-C signal
+                let _ = tokio::signal::ctrl_c().await;
+                println!("\nStopping measurement...");
+            }
+
             xcp_client.stop_measurement().await?;
             let elapsed_time = start_time.elapsed().as_micros();
 
@@ -1071,7 +1076,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             args.list_cal,
             args.list_mea,
             args.mea,
-            if args.time_ms > 0 { args.time_ms } else { args.time * 1000 },
+            args.time * 1000,
             args.cal,
         )
         .await;
