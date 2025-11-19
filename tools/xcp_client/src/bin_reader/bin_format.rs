@@ -9,8 +9,8 @@ use super::Bin2HexError;
 // Compatibility with C code in persistence.h
 // The BIN_VERSION check at runtime is the actual protection against format mismatches.
 // If the C code changes the format, it should bump BIN_VERSION, and this tool will reject the file.
-const BIN_SIGNATURE: &str = "XCPLITE__BINARY";
-const BIN_VERSION: u16 = 0x0204;
+pub const BIN_SIGNATURE: &str = "XCPLITE__BINARY";
+pub const BIN_VERSION: u16 = 0x0204;
 
 /// BIN file header - corresponds to tHeader in C
 #[repr(C, packed)]
@@ -75,6 +75,37 @@ impl BinHeader {
             epk,
         })
     }
+
+    pub fn write_to(&self, file: &mut File) -> Result<(), Bin2HexError> {
+        use std::io::Write;
+
+        // Create raw struct
+        let mut raw: BinHeaderRaw = unsafe { mem::zeroed() };
+
+        // Copy signature
+        let signature_bytes = self.signature.as_bytes();
+        let len = signature_bytes.len().min(raw.signature.len() - 1);
+        raw.signature[..len].copy_from_slice(&signature_bytes[..len]);
+
+        // Set version and counts
+        raw.version = self.version;
+        raw.event_count = self.event_count;
+        raw.calseg_count = self.calseg_count;
+
+        // Copy EPK
+        let epk_bytes = self.epk.as_bytes();
+        let epk_len = epk_bytes.len().min(raw.epk.len() - 1);
+        raw.epk[..epk_len].copy_from_slice(&epk_bytes[..epk_len]);
+
+        // Write raw struct to file
+        unsafe {
+            let raw_ptr = &raw as *const BinHeaderRaw as *const u8;
+            let raw_slice = std::slice::from_raw_parts(raw_ptr, mem::size_of::<BinHeaderRaw>());
+            file.write_all(raw_slice)?;
+        }
+
+        Ok(())
+    }
 }
 
 /// Event descriptor - corresponds to tEventDescriptor in C
@@ -126,6 +157,33 @@ impl EventDescriptor {
             name,
         })
     }
+
+    pub fn write_to(&self, file: &mut File) -> Result<(), Bin2HexError> {
+        use std::io::Write;
+
+        // Create raw struct
+        let mut raw: EventDescriptorRaw = unsafe { mem::zeroed() };
+
+        // Set values
+        raw.id = self.id;
+        raw.index = self.index;
+        raw.cycle_time_ns = self.cycle_time_ns;
+        raw.priority = self.priority;
+
+        // Copy name
+        let name_bytes = self.name.as_bytes();
+        let name_len = name_bytes.len().min(raw.name.len() - 1);
+        raw.name[..name_len].copy_from_slice(&name_bytes[..name_len]);
+
+        // Write raw struct to file
+        unsafe {
+            let raw_ptr = &raw as *const EventDescriptorRaw as *const u8;
+            let raw_slice = std::slice::from_raw_parts(raw_ptr, mem::size_of::<EventDescriptorRaw>());
+            file.write_all(raw_slice)?;
+        }
+
+        Ok(())
+    }
 }
 
 /// Calibration segment descriptor - corresponds to tCalSegDescriptor in C
@@ -167,6 +225,32 @@ impl CalSegDescriptor {
         let addr = raw.addr;
 
         Ok(CalSegDescriptor { index, size, addr, name })
+    }
+
+    pub fn write_to(&self, file: &mut File) -> Result<(), Bin2HexError> {
+        use std::io::Write;
+
+        // Create raw struct
+        let mut raw: CalSegDescriptorRaw = unsafe { mem::zeroed() };
+
+        // Set values
+        raw.index = self.index;
+        raw.size = self.size;
+        raw.addr = self.addr;
+
+        // Copy name
+        let name_bytes = self.name.as_bytes();
+        let name_len = name_bytes.len().min(raw.name.len() - 1);
+        raw.name[..name_len].copy_from_slice(&name_bytes[..name_len]);
+
+        // Write raw struct to file
+        unsafe {
+            let raw_ptr = &raw as *const CalSegDescriptorRaw as *const u8;
+            let raw_slice = std::slice::from_raw_parts(raw_ptr, mem::size_of::<CalSegDescriptorRaw>());
+            file.write_all(raw_slice)?;
+        }
+
+        Ok(())
     }
 }
 

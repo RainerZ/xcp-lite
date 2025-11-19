@@ -26,6 +26,11 @@ pub mod xcp;
 use xcp::*;
 use xcp_lite::registry::*;
 
+use crate::bin_reader::bin_format::CalSegDescriptor;
+use crate::bin_reader::bin_format::EventDescriptor;
+use crate::bin_reader::write_bin_file;
+use crate::bin_reader::write_hex_file;
+
 //--------------------------------------------------------------------------------------------------------------------------------------------------
 // XCP Parameters
 
@@ -1859,58 +1864,110 @@ impl XcpClient {
     pub async fn save_calibration_segments_to_file<P: AsRef<std::path::Path>>(&mut self, bin_path: &P) -> Result<(), Box<dyn Error>> {
         info!("Save calibration segments to file {}", bin_path.as_ref().display());
 
-        // Extract all segment information we need from registry before any mutable borrows
-        let cal_seg_data: Vec<_> = (&self.registry.as_ref().unwrap().cal_seg_list)
+        assert!(bin_path.as_ref().extension().is_some());
+
+        // First, collect all segment information from registry (immutable borrow)
+        let cal_seg_info: Vec<_> = self
+            .registry
+            .as_ref()
+            .unwrap()
+            .cal_seg_list
             .into_iter()
-            .map(|cal_seg| (cal_seg.get_index(), cal_seg.get_name(), cal_seg.size, cal_seg.addr_ext, cal_seg.addr))
+            .map(|cal_seg| (cal_seg.get_index(), cal_seg.size, cal_seg.addr, cal_seg.addr_ext, cal_seg.get_name().to_string()))
             .collect();
 
-        let num_segments = cal_seg_data.len();
-
-        // Vector to store all IHEX records
-        let mut ihex_records: Vec<ihex::Record> = Vec::new();
-
-        // Track the current extended linear address to avoid redundant records
-        let mut current_extended_addr: Option<u16> = None;
-
-        // Upload each segment from the XCP server and create IHEX records
-        // Each segment is < 64KB, but segments are at different 32-bit addresses
-        for (seg_index, seg_name, seg_length, addr_ext, addr) in cal_seg_data {
-            info!(" Upload segment {} (index={} addr={}:0x{:08X} length={})", seg_name, seg_index, addr_ext, addr, seg_length);
-
+        // Now upload data for each segment (mutable borrows of self)
+        let mut cal_seg_desc: Vec<(CalSegDescriptor, Vec<u8>)> = Vec::new();
+        for (index, size, addr, addr_ext, name) in cal_seg_info {
             // Upload the data from the XCP server
-            self.set_mta(addr_ext, addr).await?;
-            let data: Vec<u8> = self.upload_memory_block(seg_length).await?;
-            debug!("  Uploaded {} bytes from segment {}", data.len(), seg_name);
-
-            // Split the 32-bit address into upper 16 bits and lower 16 bits
-            let upper_addr = (addr >> 16) as u16; // Upper 16 bits for ExtendedLinearAddress
-            let lower_addr = (addr & 0xFFFF) as u16; // Lower 16 bits for Data offset
-
-            // Add ExtendedLinearAddress record if the upper address changed
-            if current_extended_addr != Some(upper_addr) {
-                ihex_records.push(ihex::Record::ExtendedLinearAddress(upper_addr));
-                current_extended_addr = Some(upper_addr);
-                debug!("  Added ExtendedLinearAddress record: 0x{:04X} (base=0x{:08X})", upper_addr, (upper_addr as u32) << 16);
-            }
-
-            // Create an IHEX data record for this segment (segments are always < 64KB)
-            ihex_records.push(ihex::Record::Data { offset: lower_addr, value: data });
-            debug!("  Added Data record: offset=0x{:04X}, length={}", lower_addr, seg_length);
+            self.set_mta(addr_ext, addr).await.unwrap();
+            let data: Vec<u8> = self.upload_memory_block(size).await.unwrap();
+            debug!("  Uploaded {} bytes from segment {}", data.len(), name);
+            cal_seg_desc.push((
+                CalSegDescriptor {
+                    index,
+                    size: size as u16,
+                    addr,
+                    name,
+                },
+                data,
+            ));
         }
 
-        // Add End-Of-File record
-        ihex_records.push(ihex::Record::EndOfFile);
+        // If file extensio is .hex
+        if bin_path.as_ref().extension().unwrap() == "hex" {
+            write_hex_file(&bin_path.as_ref().to_path_buf(), &cal_seg_desc)?;
+        } else {
+            let event_desc = self
+                .registry
+                .as_ref()
+                .unwrap()
+                .event_list
+                .into_iter()
+                .map(|event| EventDescriptor {
+                    index: event.index,
+                    id: event.id,
+                    cycle_time_ns: event.target_cycle_time_ns,
+                    priority: 0,
+                    name: event.get_name().to_string(),
+                })
+                .collect::<Vec<_>>();
+            write_bin_file(&bin_path.as_ref().to_path_buf(), self.get_epk().unwrap(), &event_desc, &cal_seg_desc)?;
+        }
+        /*
+                // -------------------------------------------------------------------------------------------------------------
 
-        // Create the Intel-Hex file content
-        let ihex_object = ihex::create_object_file_representation(&ihex_records)?;
-        debug!("Generated IHEX file content ({} bytes)", ihex_object.len());
+                // Extract all segment information we need from registry before any mutable borrows
+                let cal_seg_data: Vec<_> = (&self.registry.as_ref().unwrap().cal_seg_list)
+                    .into_iter()
+                    .map(|cal_seg| (cal_seg.get_index(), cal_seg.get_name(), cal_seg.size, cal_seg.addr_ext, cal_seg.addr))
+                    .collect();
 
-        // Write the Intel-Hex file
-        let mut file = std::fs::File::create(bin_path)?;
-        file.write_all(ihex_object.as_bytes())?;
+                let num_segments = cal_seg_data.len();
 
-        info!("Successfully saved {} segment(s) to {}", num_segments, bin_path.as_ref().display());
+                // Vector to store all IHEX records
+                let mut ihex_records: Vec<ihex::Record> = Vec::new();
+
+                // Track the current extended linear address to avoid redundant records
+                let mut current_extended_addr: Option<u16> = None;
+
+                // Upload each segment from the XCP server and create IHEX records
+                // Each segment is < 64KB, but segments are at different 32-bit addresses
+                for (seg_index, seg_name, seg_length, addr_ext, addr) in cal_seg_data {
+                    info!(" Upload segment {} (index={} addr={}:0x{:08X} length={})", seg_name, seg_index, addr_ext, addr, seg_length);
+
+                    // Upload the data from the XCP server
+                    self.set_mta(addr_ext, addr).await?;
+                    let data: Vec<u8> = self.upload_memory_block(seg_length).await?;
+                    debug!("  Uploaded {} bytes from segment {}", data.len(), seg_name);
+
+                    // Split the 32-bit address into upper 16 bits and lower 16 bits
+                    let upper_addr = (addr >> 16) as u16; // Upper 16 bits for ExtendedLinearAddress
+                    let lower_addr = (addr & 0xFFFF) as u16; // Lower 16 bits for Data offset
+
+                    // Add ExtendedLinearAddress record if the upper address changed
+                    if current_extended_addr != Some(upper_addr) {
+                        ihex_records.push(ihex::Record::ExtendedLinearAddress(upper_addr));
+                        current_extended_addr = Some(upper_addr);
+                        debug!("  Added ExtendedLinearAddress record: 0x{:04X} (base=0x{:08X})", upper_addr, (upper_addr as u32) << 16);
+                    }
+
+                    // Create an IHEX data record for this segment (segments are always < 64KB)
+                    ihex_records.push(ihex::Record::Data { offset: lower_addr, value: data });
+                    debug!("  Added Data record: offset=0x{:04X}, length={}", lower_addr, seg_length);
+                }
+
+                // Add End-Of-File record
+                ihex_records.push(ihex::Record::EndOfFile);
+
+                // Create the Intel-Hex file content
+                let ihex_object = ihex::create_object_file_representation(&ihex_records)?;
+
+                // Write the Intel-Hex file
+                let mut file = std::fs::File::create(bin_path)?;
+                file.write_all(ihex_object.as_bytes())?;
+        */
+        info!("Successfully saved {} segment(s) to {}", cal_seg_desc.len(), bin_path.as_ref().display());
 
         Ok(())
     }

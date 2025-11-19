@@ -2,26 +2,18 @@
 // Module bin_reader
 // Load and save XCPlite binary files (.BIN)
 
-// bintool - XCPlite BIN File Tool
-//
-// Inspect BIN file:
-//  bintool cpp_demo.bin --dump --verbose
-//
-// Convert BIN to HEX:
-//  bintool cpp_demo.bin
-//
-// Apply HEX to BIN:
-//  bintool cpp_demo.bin --apply-hex cpp_demo.hex
-
 #![allow(clippy::type_complexity)]
 
-//use clap::Parser;
+use std::collections::HashMap;
 use std::fs::File;
+
 use std::io::{self, Read};
+use std::io::{Seek, SeekFrom, Write};
 use std::path::PathBuf;
 use thiserror::Error;
 
-mod bin_format;
+pub mod bin_format;
+use bin_format::{BIN_SIGNATURE, BIN_VERSION};
 use bin_format::{BinHeader, CalSegDescriptor, EventDescriptor};
 
 #[derive(Error, Debug)]
@@ -42,40 +34,36 @@ pub enum Bin2HexError {
     SegmentMismatch(String),
 }
 
-// #[derive(Parser, Debug)]
-// #[command(name = "bintool")]
-// #[command(author = "RainerZ")]
-// #[command(version)] // Automatically uses version from Cargo.toml
-// #[command(about = "XCPlite BIN file tool - inspect, convert, and update calibration data", long_about = None)]
-// struct Args {
-//     /// Input .BIN file path (can be specified as positional argument or with --bin)
-//     #[arg(value_name = "BIN_FILE")]
-//     bin_file: Option<PathBuf>,
+pub fn write_bin_file(_path: &PathBuf, epk: &str, events: &[EventDescriptor], calseg_data: &[(CalSegDescriptor, Vec<u8>)]) -> Result<(), Bin2HexError> {
+    let mut file = File::create(_path)?;
 
-//     /// Input .BIN file path (alternative to positional argument)
-//     #[arg(short, long, value_name = "FILE")]
-//     bin: Option<PathBuf>,
+    // Create header
+    let header = BinHeader {
+        signature: BIN_SIGNATURE.to_string(),
+        version: BIN_VERSION,
+        event_count: events.len() as u16,
+        calseg_count: calseg_data.len() as u16,
+        epk: epk.to_string(),
+    };
 
-//     /// Output .HEX file path (optional, defaults to input with .hex extension)
-//     #[arg(short = 'o', long, value_name = "FILE", conflicts_with = "apply_hex")]
-//     hex: Option<PathBuf>,
+    // Write header
+    header.write_to(&mut file)?;
 
-//     /// Apply Intel-Hex file data to update the BIN file (HEX to BIN mode)
-//     /// Can be specified as just the HEX filename - BIN file will be derived from it
-//     #[arg(long, value_name = "FILE", conflicts_with = "hex")]
-//     apply_hex: Option<PathBuf>,
+    // Write events
+    for event in events {
+        event.write_to(&mut file)?;
+    }
 
-//     /// Dump BIN file header and segment information (does not convert)
-//     /// With --verbose, also shows hex dump of calibration data
-//     #[arg(short, long, conflicts_with_all = ["hex", "apply_hex"])]
-//     dump: bool,
+    // Write calibration segments
+    for (desc, data) in calseg_data {
+        desc.write_to(&mut file)?;
+        file.write_all(data)?;
+    }
 
-//     /// Verbose output
-//     #[arg(short, long)]
-//     verbose: bool,
-// }
+    Ok(())
+}
 
-fn read_bin_file(path: &PathBuf, verbose: bool) -> Result<(BinHeader, Vec<EventDescriptor>, Vec<(CalSegDescriptor, Vec<u8>)>), Bin2HexError> {
+pub fn read_bin_file(path: &PathBuf, verbose: bool) -> Result<(BinHeader, Vec<EventDescriptor>, Vec<(CalSegDescriptor, Vec<u8>)>), Bin2HexError> {
     let mut file = File::open(path)?;
 
     // Read header
@@ -249,16 +237,14 @@ fn dump_hex_data(data: &[u8], base_address: u32) {
     }
 }
 
-fn write_hex_file(path: &PathBuf, calseg_data: &[(CalSegDescriptor, Vec<u8>)], verbose: bool) -> Result<(), Bin2HexError> {
+pub fn write_hex_file(path: &PathBuf, calseg_data: &[(CalSegDescriptor, Vec<u8>)]) -> Result<(), Bin2HexError> {
     let mut records = Vec::new();
 
     for (desc, data) in calseg_data {
         // Use the address from the descriptor
         let segment_address = desc.addr;
 
-        if verbose {
-            println!("Writing segment '{}' (index {}) at address 0x{:08X}", desc.name, desc.index, segment_address);
-        }
+        log::debug!("Writing segment '{}' (index {}) at address 0x{:08X}", desc.name, desc.index, segment_address);
 
         // Create data records for this segment
         // Split into chunks (typically 16 or 32 bytes per record)
@@ -290,24 +276,18 @@ fn write_hex_file(path: &PathBuf, calseg_data: &[(CalSegDescriptor, Vec<u8>)], v
     let hex_content = ihex::create_object_file_representation(&records)?;
     std::fs::write(path, hex_content)?;
 
-    if verbose {
-        println!("\nIntel-Hex file written successfully to: {}", path.display());
-        println!("Total records: {}", records.len());
-    }
+    log::debug!("\nIntel-Hex file written successfully to: {}", path.display());
+    log::debug!("Total records: {}", records.len());
 
     Ok(())
 }
 
-fn read_hex_file(path: &PathBuf, verbose: bool) -> Result<std::collections::HashMap<u32, Vec<u8>>, Bin2HexError> {
-    use std::collections::HashMap;
-
+fn read_hex_file(path: &PathBuf) -> Result<std::collections::HashMap<u32, Vec<u8>>, Bin2HexError> {
     let hex_string = std::fs::read_to_string(path)?;
     let records = ihex::Reader::new(&hex_string).collect::<Result<Vec<_>, _>>()?;
 
-    if verbose {
-        println!("Reading Intel-Hex file: {}", path.display());
-        println!("  Total records: {}", records.len());
-    }
+    log::debug!("Reading Intel-Hex file: {}", path.display());
+    log::debug!("  Total records: {}", records.len());
 
     let mut segments: HashMap<u32, Vec<u8>> = HashMap::new();
     let mut current_extended_addr: u32 = 0;
@@ -333,9 +313,9 @@ fn read_hex_file(path: &PathBuf, verbose: bool) -> Result<std::collections::Hash
                     base
                 } else {
                     // New segment starts at this address
-                    if verbose {
-                        println!("  Found segment at 0x{:08X}", full_address);
-                    }
+
+                    log::debug!("  Found segment at 0x{:08X}", full_address);
+
                     full_address
                 };
 
@@ -354,14 +334,11 @@ fn read_hex_file(path: &PathBuf, verbose: bool) -> Result<std::collections::Hash
             }
             ihex::Record::ExtendedLinearAddress(addr) => {
                 current_extended_addr = (addr as u32) << 16;
-                if verbose {
-                    println!("  Extended address: 0x{:08X}", current_extended_addr);
-                }
+
+                log::debug!("  Extended address: 0x{:08X}", current_extended_addr);
             }
             ihex::Record::EndOfFile => {
-                if verbose {
-                    println!("  End of file");
-                }
+                log::debug!("  End of file");
             }
             _ => {
                 // Ignore other record types
@@ -369,16 +346,12 @@ fn read_hex_file(path: &PathBuf, verbose: bool) -> Result<std::collections::Hash
         }
     }
 
-    if verbose {
-        println!("  Found {} segment(s)", segments.len());
-    }
+    log::debug!("  Found {} segment(s)", segments.len());
 
     Ok(segments)
 }
 
 fn apply_hex_to_bin(bin_path: &PathBuf, hex_path: &PathBuf, verbose: bool) -> Result<(), Bin2HexError> {
-    use std::io::{Seek, SeekFrom, Write};
-
     if verbose {
         println!("Applying Intel-Hex data to BIN file");
         println!("  BIN file: {}", bin_path.display());
@@ -387,7 +360,7 @@ fn apply_hex_to_bin(bin_path: &PathBuf, hex_path: &PathBuf, verbose: bool) -> Re
     }
 
     // Read the hex file
-    let hex_segments = read_hex_file(hex_path, verbose)?;
+    let hex_segments = read_hex_file(hex_path)?;
 
     if hex_segments.is_empty() {
         println!("Warning: No data found in HEX file");
@@ -507,58 +480,3 @@ fn apply_hex_to_bin(bin_path: &PathBuf, hex_path: &PathBuf, verbose: bool) -> Re
 
     Ok(())
 }
-
-/*
-fn main() -> Result<(), Bin2HexError> {
-    let args = Args::parse();
-
-    // Determine the BIN file path from positional arg or --bin flag
-    let bin_path = args
-        .bin_file
-        .or(args.bin)
-        .ok_or_else(|| Bin2HexError::InvalidFormat("BIN file must be specified (either as argument or with --bin)".to_string()))?;
-
-    // Helper function to derive HEX filename from BIN filename
-    let derive_hex_path = |bin_path: &PathBuf| -> PathBuf {
-        let mut hex_path = bin_path.clone();
-        hex_path.set_extension("hex");
-        hex_path
-    };
-
-    // Determine mode based on arguments
-    if args.dump {
-        // Dump mode: Show BIN file contents
-        dump_bin_file(&bin_path, args.verbose)?;
-    } else if let Some(hex_path) = args.apply_hex {
-        // HEX to BIN mode: Apply hex data to update BIN file
-        apply_hex_to_bin(&bin_path, &hex_path, args.verbose)?;
-    } else {
-        // BIN to HEX mode: Convert BIN to HEX
-        let hex_path = args.hex.unwrap_or_else(|| derive_hex_path(&bin_path));
-
-        if args.verbose {
-            println!("bintool - XCPlite BIN File Tool");
-            println!("Input file:  {}", bin_path.display());
-            println!("Output file: {}", hex_path.display());
-            println!();
-        }
-
-        // Read BIN file
-        let (_header, _events, calseg_data) = read_bin_file(&bin_path, args.verbose)?;
-
-        if calseg_data.is_empty() {
-            println!("Warning: No calibration segments found in BIN file");
-            return Ok(());
-        }
-
-        // Write Intel-Hex file
-        write_hex_file(&hex_path, &calseg_data, args.verbose)?;
-
-        println!("Conversion complete!");
-        println!("  Converted {} calibration segment(s) from '{}'", calseg_data.len(), bin_path.display());
-        println!("  Output written to '{}'", hex_path.display());
-    }
-
-    Ok(())
-}
-*/
