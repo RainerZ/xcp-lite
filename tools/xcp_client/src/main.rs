@@ -568,14 +568,26 @@ async fn xcp_client(
 
         // Set A2L file path to given command line argument 'a2l' or to GET_ID XCP_IDT_ASAM_NAME or XCP_IDT_ASCII
         let (mut a2l_path, a2l_asam_name) = if !a2l_filename.is_empty() {
-            (std::path::Path::new(&a2l_filename).with_extension("a2l"), false) // from command line argument
+            log::info!("Using A2L file name from command line argument: {}", a2l_filename);
+            let a2l_filename = if !a2l_filename.ends_with(".a2l") {
+                // Add .a2l extension
+                format!("{}.a2l", a2l_filename)
+            } else {
+                a2l_filename
+            };
+            (std::path::Path::new(&a2l_filename).to_path_buf(), false)
         } else if !a2l_name.is_empty() {
-            (std::path::Path::new(&a2l_name).with_extension("a2l"), true) // from GET_ID ASAM_NAME
+            log::info!("Using A2L file name from XCP server GET_ID ASAM_NAME: {}", a2l_name);
+            let a2l_filename = format!("{}.a2l", a2l_name);
+            (std::path::Path::new(&a2l_filename).to_path_buf(), true) // from GET_ID ASAM_NAME
         } else if !ecu_name.is_empty() {
-            (std::path::Path::new(&ecu_name).with_extension("a2l"), false) // from GET_ID ASCII
+            log::info!("Using A2L file name from XCP server GET_ID ASCII: {}", ecu_name);
+            let a2l_filename = format!("{}.a2l", ecu_name);
+            (std::path::Path::new(&a2l_filename).to_path_buf(), false) // from GET_ID ASCII
         } else {
-            return Err("No A2L file name specified, use --a2l commandline parameter".into());
+            return Err("^No A2L file name specified, use --a2l commandline parameter".into());
         };
+        warn!("A2L path: {}", a2l_path.display());
 
         //----------------------------------------------------------------
         // Upload A2L
@@ -704,7 +716,7 @@ async fn xcp_client(
         // If fix-a2l option is specified, check and correct the A2L file with the XCP server information otherwise just warn about differences
         // Consider command line option --epk-segment
         else {
-            info!("Load A2L file: {} ({})", a2l_filename, a2l_path.display());
+            info!("Load A2L file: {}", a2l_path.display());
             xcp_client
                 .load_a2l_file_into_registry(&a2l_path, &mut reg)
                 .map_err(|e| format!("Could not load A2L file '{}'", a2l_path.display()))?;

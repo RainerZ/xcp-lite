@@ -222,16 +222,16 @@ impl McAddress {
     }
 
     // Get name of the calibration segment of a calibration object
-    pub fn calseg_name(&self) -> Option<McIdentifier> {
+    pub fn get_calseg_name(&self) -> Option<McIdentifier> {
         self.calseg_name
     }
 
     // Get event id of the event associated with a measurement signal
-    pub fn event_id(&self) -> Option<u16> {
+    pub fn get_event_id(&self) -> Option<u16> {
         self.event_id
     }
     pub fn get_event_id_unchecked(&self) -> u16 {
-        self.event_id().unwrap_or(
+        self.get_event_id().unwrap_or(
             0xFFFF, // Invalid event id, used in sorting by event id
         )
     }
@@ -398,24 +398,24 @@ mod mc_address_tests {
         reg.cal_seg_list.add_a2l_cal_seg("calseg", 0, 0, 0x80000000, 0x1000).unwrap();
 
         let addr = McAddress::new_calseg_rel("calseg", 11);
-        assert_eq!(addr.calseg_name(), Some(McIdentifier::new("calseg")));
-        assert_eq!(addr.event_id(), None);
+        assert_eq!(addr.get_calseg_name(), Some(McIdentifier::new("calseg")));
+        assert_eq!(addr.get_event_id(), None);
         assert_eq!(addr.get_addr_offset(), 11);
         let a = addr.get_a2l_addr(&reg);
         assert!(a.0 == McAddress::XCP_ADDR_EXT_SEG);
         assert_eq!(a.1, 0x80000000 + 11);
 
         let addr = McAddress::new_event_rel(1, -1);
-        assert_eq!(addr.calseg_name(), None);
-        assert_eq!(addr.event_id(), Some(1));
+        assert_eq!(addr.get_calseg_name(), None);
+        assert_eq!(addr.get_event_id(), Some(1));
         assert_eq!(addr.get_addr_offset(), -1);
         let a = addr.get_a2l_addr(&reg);
         assert!(a.0 == McAddress::XCP_ADDR_EXT_REL);
         assert_eq!(a.1, 0xFFFFFFFF);
 
         let addr = McAddress::new_event_rel(1, 0x7FFF_FFFF);
-        assert_eq!(addr.calseg_name(), None);
-        assert_eq!(addr.event_id(), Some(1));
+        assert_eq!(addr.get_calseg_name(), None);
+        assert_eq!(addr.get_event_id(), Some(1));
         assert_eq!(addr.get_addr_offset(), 0x7FFF_FFFF);
         let a = addr.get_a2l_addr(&reg);
         assert!(a.0 == McAddress::XCP_ADDR_EXT_REL);
@@ -423,16 +423,16 @@ mod mc_address_tests {
 
         {
             let addr = McAddress::new_event_dyn(2, -1);
-            assert_eq!(addr.calseg_name(), None);
-            assert_eq!(addr.event_id(), Some(2));
+            assert_eq!(addr.get_calseg_name(), None);
+            assert_eq!(addr.get_event_id(), Some(2));
             assert_eq!(addr.get_addr_offset(), -1);
             let a = addr.get_a2l_addr(&reg);
             assert!(a.0 == McAddress::XCP_ADDR_EXT_DYN);
             assert_eq!(a.1, 0x0002FFFF);
 
             let addr = McAddress::new_event_dyn(2, 0x7FFF);
-            assert_eq!(addr.calseg_name(), None);
-            assert_eq!(addr.event_id(), Some(2));
+            assert_eq!(addr.get_calseg_name(), None);
+            assert_eq!(addr.get_event_id(), Some(2));
             assert_eq!(addr.get_addr_offset(), 0x7FFF);
             let a = addr.get_a2l_addr(&reg);
             assert!(a.0 == McAddress::XCP_ADDR_EXT_DYN);

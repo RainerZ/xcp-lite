@@ -1423,11 +1423,11 @@ impl XcpClient {
         &self.calibration_object_list[handle.0]
     }
 
+    /// Create a calibration object by name from the registry and upload its current value from the XCP server
+    /// name may be a regular expression matching exactly one characteristic
     pub async fn create_calibration_object(&mut self, name: &str) -> Result<XcpCalibrationObjectHandle, Box<dyn Error>> {
-        //let res = a2l_find_characteristic(self.a2l_file.as_ref().unwrap(), name);
-        //let (a2l_addr, a2l_type, a2l_limits) = res.unwrap();
         let registry = self.registry.as_ref().unwrap();
-        match registry.instance_list.get_instance(name) {
+        match registry.instance_list.find_instance(name, xcp_lite::registry::McObjectType::Characteristic, None) {
             None => {
                 error!("Characteristic {} not found", name);
                 Err(Box::new(XcpError::new(ERROR_NOT_FOUND, 0)) as Box<dyn Error>)
@@ -1567,9 +1567,11 @@ impl XcpClient {
     // XcpMeasurementObject, XcpMeasurementObjectHandle (index pointer to XcpCMeasurementObject),
     //
 
+    /// Create a measurement object by name from the registry
+    /// name may be a regular expression matching exactly one measurement
     pub fn create_measurement_object(&mut self, name: &str) -> Option<XcpMeasurementObjectHandle> {
         let registry = self.registry.as_ref().unwrap();
-        match registry.instance_list.get_instance(name) {
+        match registry.instance_list.find_instance(name, xcp_lite::registry::McObjectType::Measurement, None) {
             None => {
                 debug!("Measurement {} not found", name);
                 None

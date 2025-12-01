@@ -775,7 +775,7 @@ pub mod registry_test {
         xcp.finalize_registry().unwrap();
 
         let reg = registry::get();
-        let c = reg.instance_list.find_instance("calseg.a", McObjectType::Characteristic, None).unwrap();
+        let c = reg.instance_list.get_instance("calseg.a", McObjectType::Characteristic, None).unwrap();
         assert_eq!(c.get_mc_support_data().get_comment(), "Comment");
         assert_eq!(c.get_mc_support_data().get_unit(), "Unit");
         assert_eq!(c.get_mc_support_data().get_min(c.dim_type.value_type), Some(0.0));
@@ -785,19 +785,19 @@ pub mod registry_test {
         assert_eq!(c.address.get_addr_offset(), 328);
         assert_eq!(c.dim_type.value_type, McValueType::Ulong);
 
-        let c = reg.instance_list.find_instance("calseg.b", McObjectType::Characteristic, None).unwrap();
+        let c = reg.instance_list.get_instance("calseg.b", McObjectType::Characteristic, None).unwrap();
         assert_eq!(c.address.get_addr_offset(), 332);
 
-        let c = reg.instance_list.find_instance("calseg.axis", McObjectType::Axis, None).unwrap();
+        let c = reg.instance_list.get_instance("calseg.axis", McObjectType::Axis, None).unwrap();
         assert_eq!(c.address.get_addr_offset(), 0);
         assert_eq!(c.dim_type.get_dim()[0], 16);
 
-        let c = reg.instance_list.find_instance("calseg.curve", McObjectType::Characteristic, None).unwrap();
+        let c = reg.instance_list.get_instance("calseg.curve", McObjectType::Characteristic, None).unwrap();
         assert_eq!(c.address.get_addr_offset(), 128);
         assert_eq!(c.dim_type.get_dim()[0], 16);
         assert!(c.dim_type.get_dim()[1] <= 1);
 
-        let c = reg.instance_list.find_instance("calseg.map", McObjectType::Characteristic, None).unwrap();
+        let c = reg.instance_list.get_instance("calseg.map", McObjectType::Characteristic, None).unwrap();
         assert_eq!(c.address.get_addr_offset(), 256);
         assert_eq!(c.dim_type.get_dim()[0], 9);
         assert_eq!(c.dim_type.get_dim()[1], 8);

@@ -347,7 +347,7 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
     let module = &a2l_file.project.module[0];
 
     //----------------------------------------------------------------------------------------------------------------
-    // Event
+    // Events
     for if_data in &module.if_data {
         if !if_data.ifdata_valid {
             error!("IF_DATA block is not valid");
@@ -477,7 +477,6 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
         let addr = characteristic.address;
         let address = new_mc_address_from_a2l(registry, addr, addr_ext, event_id, convert_a2l_address);
 
-        // Add characteristic instance
         let res = registry.instance_list.add_instance(name, dim_type, mc_support_data, address);
         match res {
             Ok(_) => {}
@@ -541,8 +540,31 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
         };
         let address = new_mc_address_from_a2l(registry, addr, addr_ext, event_id, convert_a2l_address);
 
+        // This loader does not reconstruct event indexes, it creates all events with index 0
+        // If we add an instance with duplicate name and different event id, this would be ambigous
+        // We can not reconstruct event indexes here, because the event names already have the index appended
+        // So we make the instance name unique by using the event name as prefix
+        let unique_name =
+         // Check if there is already an instance with the same name
+        if registry.instance_list.get_instance(&name,object_type,None).is_some() {
+            if event_id.is_some() {
+                if let Some(event) = registry.event_list.find_event_id(event_id.unwrap()) {
+                    warn!("Measurement instance name '{}' is not unique, using event name '{}' as prefix", name, event.name);
+                    format!("{}.{}", event.name, name)
+                } else {
+                    name
+                }
+            } else {
+                name      
+            } 
+                    
+        } else {
+            name
+        } ;
+
+
         // Add measurement instance
-        let res = registry.instance_list.add_instance(name, dim_type, mc_support_data, address);
+        let res = registry.instance_list.add_instance(unique_name, dim_type, mc_support_data, address);
         match res {
             Ok(_) => {}
             Err(e) => {
@@ -553,6 +575,8 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
 
     //----------------------------------------------------------------------------------------------------------------
     // Axis
+
+    // @@@@@ TODO Implement axis
 
     //----------------------------------------------------------------------------------------------------------------
     // Typedefs
