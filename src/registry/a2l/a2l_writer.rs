@@ -618,7 +618,8 @@ impl McInstance {
                 }
                 // XCP_ADDR_EXT_DYN makes it possible to write a measurement object
                 // @@@@ EXPERIMENTAL - not thread safe
-                if ext == McAddress::XCP_ADDR_EXT_DYN {
+                // @@@@ TODO XCP_ADDR_EXT_REL ????
+                if self.address.is_event_relative() {
                     write!(writer, " READ_WRITE")?;
                 }
                 if !unit.is_empty() {

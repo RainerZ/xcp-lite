@@ -1407,12 +1407,12 @@ impl XcpClient {
 
     pub fn find_characteristics(&self, expr: &str) -> Vec<String> {
         let registry = self.registry.as_ref().unwrap();
-        registry.instance_list.find_instances(expr, xcp_lite::registry::McObjectType::Characteristic, None)
+        registry.instance_list.find_instances_regex(expr, xcp_lite::registry::McObjectType::Characteristic, None)
     }
 
     pub fn find_measurements(&self, expr: &str) -> Vec<String> {
         let registry = self.registry.as_ref().unwrap();
-        registry.instance_list.find_instances(expr, xcp_lite::registry::McObjectType::Measurement, None)
+        registry.instance_list.find_instances_regex(expr, xcp_lite::registry::McObjectType::Measurement, None)
     }
 
     //------------------------------------------------------------------------
@@ -1427,7 +1427,7 @@ impl XcpClient {
     /// name may be a regular expression matching exactly one characteristic
     pub async fn create_calibration_object(&mut self, name: &str) -> Result<XcpCalibrationObjectHandle, Box<dyn Error>> {
         let registry = self.registry.as_ref().unwrap();
-        match registry.instance_list.find_instance(name, xcp_lite::registry::McObjectType::Characteristic, None) {
+        match registry.instance_list.get_instance(name, xcp_lite::registry::McObjectType::Characteristic, None) {
             None => {
                 error!("Characteristic {} not found", name);
                 Err(Box::new(XcpError::new(ERROR_NOT_FOUND, 0)) as Box<dyn Error>)
@@ -1571,7 +1571,7 @@ impl XcpClient {
     /// name may be a regular expression matching exactly one measurement
     pub fn create_measurement_object(&mut self, name: &str) -> Option<XcpMeasurementObjectHandle> {
         let registry = self.registry.as_ref().unwrap();
-        match registry.instance_list.find_instance(name, xcp_lite::registry::McObjectType::Measurement, None) {
+        match registry.instance_list.get_instance(name, xcp_lite::registry::McObjectType::Measurement, None) {
             None => {
                 debug!("Measurement {} not found", name);
                 None

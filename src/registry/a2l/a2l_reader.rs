@@ -208,6 +208,13 @@ fn new_mc_address_from_a2l(registry: &Registry, addr: u32, addr_ext: u8, event_i
                     McAddress::new_a2l(addr, addr_ext)
                 }
             }
+            McAddress::XCP_ADDR_EXT_ABS => {
+                let event_id = event_id.unwrap();
+                let addr_offset: i32 = addr as i32;
+                McAddress::new_event_abs(event_id, addr_offset)
+            }
+            // @@@@ TODO: Remove temporary workaround for Vector mode with multiple DYN address extensions
+/* 
             McAddress::XCP_ADDR_EXT_DYN => {
                 let event_id = event_id.unwrap();
                 let addr_offset: i16 = (addr & 0xFFFF) as i16;
@@ -219,14 +226,17 @@ fn new_mc_address_from_a2l(registry: &Registry, addr: u32, addr_ext: u8, event_i
                 let addr_offset: i32 = addr as i32;
                 McAddress::new_event_rel(event_id, addr_offset)
             }
-            McAddress::XCP_ADDR_EXT_ABS => {
-                let event_id = event_id.unwrap();
-                let addr_offset: i32 = addr as i32;
-                McAddress::new_event_abs(event_id, addr_offset)
-            }
             _ => {
                 warn!("Address extension {} not supported in Vector mode", addr_ext);
                 McAddress::new_a2l(addr, addr_ext)
+            }
+            */
+            _ => {
+                let event_id = event_id.unwrap();
+                let addr_offset: i16 = (addr & 0xFFFF) as i16;
+                assert_eq!(event_id, (addr >> 16) as u16);
+                // @@@@ TODO: Fix this temporary hack
+                McAddress::new_event_dyn(addr_ext-McAddress::XCP_ADDR_EXT_DYN, event_id, addr_offset)
             }
         }
     }

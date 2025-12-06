@@ -267,7 +267,7 @@ impl McInstanceList {
 
     /// Find an instance by regular expression, optional by object type (set to Unspecified if any) or by event_id (set to None if any)
     /// Returns the first instance that matches the criteria or None
-    pub fn find_instance(&self, regex: &str, object_type: McObjectType, event_id: Option<u16>) -> Option<&McInstance> {
+    pub fn find_instance_regex(&self, regex: &str, object_type: McObjectType, event_id: Option<u16>) -> Option<&McInstance> {
         if let Ok(regex) = Regex::new(regex) {
             self.into_iter().find(|i| {
                 (i.get_address().get_event_id() == event_id || event_id.is_none())
@@ -280,7 +280,7 @@ impl McInstanceList {
 
     /// Find all instances by regular expression, optional by object type (set to Unspecified if any) or by event_id (set to None if any)
     /// Return all instances that match the criteria
-    pub fn find_instances(&self, regex: &str, object_type: McObjectType, event_id: Option<u16>) -> Vec<String> {
+    pub fn find_instances_regex(&self, regex: &str, object_type: McObjectType, event_id: Option<u16>) -> Vec<String> {
         if let Ok(regex) = Regex::new(regex) {
             self.into_iter()
                 .filter(|i| {
