@@ -499,7 +499,7 @@ impl Xcp {
         let check = true;
         #[cfg(not(test))]
         let check = false;
-        registry::get().write_a2l(&path, "xcp-lite", app_name, "", app_name, "XCPLITE__C_DR", check)?;
+        registry::get().write_a2l(&path, "xcp-lite", app_name, "", app_name, "XCPLITE__CASDD", check)?;
 
         // Notify xcplib of the A2L file
         unsafe {

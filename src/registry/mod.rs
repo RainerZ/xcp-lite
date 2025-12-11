@@ -629,7 +629,7 @@ pub mod registry_test {
             .unwrap();
 
         // Write A2L file and check syntax
-        reg.write_a2l(&"test_registry_1.a2l", "xcp-lite test", "project_name", "", "module_name", "XCPLITE__C_DR", true)
+        reg.write_a2l(&"test_registry_1.a2l", "xcp-lite test", "project_name", "", "module_name", "XCPLITE__CASDD", true)
             .unwrap();
     }
 
@@ -918,7 +918,7 @@ pub mod registry_test {
 
         // Write A2L file and check syntax
         {
-            reg.write_a2l(&"test_registry_api.a2l", "xcp-lite test", "project_name", "", "module_name", "XCPLITE__C_DR", false)
+            reg.write_a2l(&"test_registry_api.a2l", "xcp-lite test", "project_name", "", "module_name", "XCPLITE__CASDD", false)
                 .unwrap();
 
             // Load the A2L file into another registry
@@ -967,7 +967,7 @@ pub mod registry_test {
 
         // Write A2L file and check syntax
         log::info!("Write A2L file test_registry_load_a2l.a2l");
-        reg.write_a2l(&"test_registry_load_a2l.a2l", "xcp-lite test", "project_name", "", "module_name", "XCPLITE__C_DR", true)
+        reg.write_a2l(&"test_registry_load_a2l.a2l", "xcp-lite test", "project_name", "", "module_name", "XCPLITE__CASDD", true)
             .unwrap();
 
         // Compare xcp_lite.a2l and xcp_lite2.a2l

@@ -7,7 +7,7 @@
 // - Predefined conversion rule IDENTIY
 // - Predefined conversion rule BOOL
 // - Predefined record layout names U8, A_U8, M_U8, C_U8, ...
-// - Address format and extensions for the different relative addressing modes depending on the project id (C_DR, ACSDD or CASDD)
+// - Address format and extensions for the different relative addressing modes depending on the project id (ACSDD or CASDD)
 
 use super::*;
 
@@ -315,10 +315,6 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
                     relative_segment_addressing = true; // We assume calibration segments always have segment addressing mode
                     convert_a2l_address = true; // Convert A2L address
                     info!("XCPlite A2L detected, {} addressing mode", project_no.project_number);
-                } else if project_no.project_number == "XCPLITE__C_DR" {
-                    relative_segment_addressing = true;
-                    convert_a2l_address = true;
-                    info!("xcp-lite A2L detected, {} addressing mode", project_no.project_number);
                 } else {
                     error!(
                         "Unsupported XCPLITE addressing sheme,  project number {}, supported are XCPLITE__ACSDD and XCPLITE__CASDD",
