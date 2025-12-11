@@ -15,10 +15,8 @@ pub enum McAddrMode {
     Cal = 0,
     /// Absolute addressing (not implemented for Rust)
     Abs = 1,
-    /// Dynamic addressing (async access via shared memory)
+    /// Dynamic addressing (event relative addressing, async access)
     Dyn = 2,
-    /// Event relative addressing
-    Rel = 3,
     /// Generic A2L address
     A2l = 0xA0,
     /// A2L address with event association
@@ -41,7 +39,7 @@ impl McAddrMode {
 
     /// Check if this addressing mode is event relative
     pub fn is_event_relative(&self) -> bool {
-        matches!(self, McAddrMode::Rel | McAddrMode::Dyn)
+        matches!(self, McAddrMode::Dyn)
     }
 
     /// Check if this is an A2L addressing mode
@@ -69,7 +67,7 @@ pub struct McAddress {
 
     #[serde(default = "default_addr_offset")]
     #[serde(skip_serializing_if = "skip_addr_offset")]
-    addr_offset: i32, // Offset relative to calibration segment (XCP_ADDR_EXT_SEG,calseg_name.is_some) or relative to event base address (XCP_ADDR_EXT_REL,event_id.is_some)
+    addr_offset: i32, // Offset relative to calibration segment (XCP_ADDR_EXT_SEG,calseg_name.is_some) or relative to event base address (XCP_ADDR_EXT_DYN..,event_id.is_some)
 
     addr_mode: McAddrMode, // Addressing mode
 
@@ -122,7 +120,6 @@ impl McAddress {
     pub const XCP_ADDR_EXT_SEG: u8 = 0; // For CAL objects ( index | 0x8000 in high word (CANape does not support addr_ext in memory segments))
     pub const XCP_ADDR_EXT_ABS: u8 = 1; // Not implemented for rust
     pub const XCP_ADDR_EXT_DYN: u8 = 2; // For DAQ objects ( event in addr high word, low word relative to base given to XcpEventExt, async access possible )
-    pub const XCP_ADDR_EXT_REL: u8 = 3; // For DAQ objects ( event in addr high word, low word relative to base given to XcpEventExt, no async access )
 
     /// Undefined
     pub const XCP_ADDR_EXT_UNDEF: u8 = 0xFF;
@@ -150,17 +147,13 @@ impl McAddress {
         }
     }
 
-    pub fn new_event_rel(event_id: u16, addr_offset: i32) -> Self {
-        McAddress {
-            calseg_name: None,
-            event_id: Some(event_id),
-            addr_offset,
-            addr_mode: McAddrMode::Rel,
-            a2l_addr: 0,
-            a2l_addr_ext: McAddress::XCP_ADDR_EXT_REL,
-        }
-    }
-
+    /// Dynamic event relative addressing
+    /// # Arguments
+    /// * `index` - Index of the dynamic address space (XCP_ADDR_EXT_DYN+index)
+    /// * `event_id` - Event id of the measurement signal
+    /// * `addr_offset` - Address offset relative to the event base address
+    /// # Returns
+    /// McAddress instance
     pub fn new_event_dyn(index: u8, event_id: u16, addr_offset: i16) -> Self {
         McAddress {
             calseg_name: None,
@@ -246,7 +239,7 @@ impl McAddress {
     /// If the address is not segment or event relative
     pub fn get_addr_offset(&self) -> i32 {
         match self.addr_mode {
-            McAddrMode::Rel | McAddrMode::Cal | McAddrMode::Dyn => self.addr_offset,
+            McAddrMode::Cal | McAddrMode::Dyn => self.addr_offset,
             McAddrMode::A2l | McAddrMode::A2lEvent => panic!("A2L address does not have an offset"),
             McAddrMode::Abs | McAddrMode::Undef => panic!("Address mode not supported"),
         }
@@ -255,7 +248,7 @@ impl McAddress {
     /// Add an offset to an address
     pub fn add_addr_offset(&mut self, offset: i32) {
         match self.addr_mode {
-            McAddrMode::Rel | McAddrMode::Cal | McAddrMode::Dyn => {
+            McAddrMode::Cal | McAddrMode::Dyn => {
                 self.addr_offset += offset;
             }
             McAddrMode::A2l | McAddrMode::A2lEvent => {
@@ -287,13 +280,6 @@ impl McAddress {
         (addr_ext, a2l_addr)
     }
 
-    fn get_rel_ext_addr(offset: i32) -> (u8, u32) {
-        let a2l_ext = McAddress::XCP_ADDR_EXT_REL;
-        #[allow(clippy::cast_sign_loss)]
-        let a2l_addr: u32 = offset as u32;
-        (a2l_ext, a2l_addr)
-    }
-
     // Get A2L addr (ext,addr) of a CalSeg
     pub fn get_calseg_ext_addr_base(calseg_index: u16) -> (u8, u32) {
         // McAddress format for calibration segment field is index | 0x8000 in high word, addr_ext is 0 (CANape does not support addr_ext in memory segments)
@@ -315,8 +301,6 @@ impl McAddress {
     /// Get address extension and address for A2L generation and the XCP protocol
     pub fn get_a2l_addr(&self, registry: &Registry) -> (u8, u32) {
         match self.addr_mode {
-            // Event relative addressing
-            McAddrMode::Rel => McAddress::get_rel_ext_addr(self.addr_offset),
             // Event relative addressing with async access
             McAddrMode::Dyn => McAddress::get_dyn_ext_addr(self.a2l_addr_ext, self.event_id.unwrap(), self.addr_offset.try_into().expect("offset too large")),
             // Absolute addressing with default event
@@ -414,22 +398,6 @@ mod mc_address_tests {
         let a = addr.get_a2l_addr(&reg);
         assert!(a.0 == McAddress::XCP_ADDR_EXT_SEG);
         assert_eq!(a.1, 0x80000000 + 11);
-
-        let addr = McAddress::new_event_rel(1, -1);
-        assert_eq!(addr.get_calseg_name(), None);
-        assert_eq!(addr.get_event_id(), Some(1));
-        assert_eq!(addr.get_addr_offset(), -1);
-        let a = addr.get_a2l_addr(&reg);
-        assert!(a.0 == McAddress::XCP_ADDR_EXT_REL);
-        assert_eq!(a.1, 0xFFFFFFFF);
-
-        let addr = McAddress::new_event_rel(1, 0x7FFF_FFFF);
-        assert_eq!(addr.get_calseg_name(), None);
-        assert_eq!(addr.get_event_id(), Some(1));
-        assert_eq!(addr.get_addr_offset(), 0x7FFF_FFFF);
-        let a = addr.get_a2l_addr(&reg);
-        assert!(a.0 == McAddress::XCP_ADDR_EXT_REL);
-        assert_eq!(a.1, 0x7FFFFFFF);
 
         {
             let addr = McAddress::new_event_dyn(0, 2, -1);

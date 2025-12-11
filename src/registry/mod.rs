@@ -177,10 +177,10 @@ where
             }
 
             // Register the instance only if an instance name is provided
-            // McAddress offset is 0 in this case, other wise the caller is responsible to create the instance with desired offset,
+            // McAddress offset is 0 in this case, otherwise the caller is responsible to create the instance with desired offset,
             // McSupportData must contain a valid object type
             let base_addr = if let Some(event_id) = event_id {
-                McAddress::new_event_rel(event_id, 0)
+                McAddress::new_event_dyn(0, event_id, 0)
             } else {
                 McAddress::new_calseg_rel(calseg_name.unwrap(), 0)
             };
@@ -235,7 +235,7 @@ where
                         field_name,
                         McDimType::new(value_type, field.x_dim(), field.y_dim()),
                         mc_support_data,
-                        McAddress::new_event_rel(event_id, field.addr_offset() as i32),
+                        McAddress::new_event_dyn(0, event_id, field.addr_offset() as i16),
                     );
                 }
                 // Calibration segment relative addressing
@@ -624,7 +624,7 @@ pub mod registry_test {
                 "test_measurement",
                 McDimType::new(McValueType::Ubyte, 1, 1),
                 mc_support_data,
-                McAddress::new_event_rel(event1.get_id(), 8),
+                McAddress::new_event_dyn(0, event1.get_id(), 8),
             )
             .unwrap();
 
@@ -685,7 +685,7 @@ pub mod registry_test {
                 "test_measurement_1",
                 McDimType::new(McValueType::Ubyte, 1, 1),
                 mc_support_data,
-                McAddress::new_event_rel(event1_1.get_id(), 0),
+                McAddress::new_event_dyn(0, event1_1.get_id(), 0),
             )
             .unwrap();
 
@@ -698,7 +698,7 @@ pub mod registry_test {
                 "test_measurement_1",
                 McDimType::new(McValueType::Ubyte, 1, 1),
                 mc_support_data,
-                McAddress::new_event_rel(event1_2.get_id(), 0), // Event instance 2
+                McAddress::new_event_dyn(0, event1_2.get_id(), 0), // Event instance 2
             )
             .unwrap();
 
@@ -711,7 +711,7 @@ pub mod registry_test {
                 "test_measurement_2",
                 McDimType::new(McValueType::Ubyte, 1, 1),
                 mc_support_data,
-                McAddress::new_event_rel(event2.get_id(), 0),
+                McAddress::new_event_dyn(0, event2.get_id(), 0),
             )
             .unwrap();
 
@@ -836,7 +836,7 @@ pub mod registry_test {
                 "mea_u8",
                 McDimType::new(McValueType::Ubyte, 1, 1),
                 mc_support_data,
-                McAddress::new_event_rel(xcp_event_1.get_id(), 0),
+                McAddress::new_event_dyn(0, xcp_event_1.get_id(), 0),
             )
             .unwrap();
         let mc_support_data = McSupportData::new(McObjectType::Measurement).set_comment("Measurement value f64");
@@ -845,7 +845,7 @@ pub mod registry_test {
                 "mea_f64",
                 McDimType::new(McValueType::Float32Ieee, 1, 1),
                 mc_support_data,
-                McAddress::new_event_rel(xcp_event_2.get_id(), 0),
+                McAddress::new_event_dyn(0, xcp_event_2.get_id(), 0),
             )
             .unwrap();
 

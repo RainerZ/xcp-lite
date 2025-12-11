@@ -47,7 +47,8 @@ unsafe extern "C" {
 #[doc = " DAQ event id as handle"]
 pub type tXcpEventId = u16;
 unsafe extern "C" {
-    pub fn XcpEventExt2(event: tXcpEventId, base2: *const u8, base3: *const u8);
+    #[doc = " Trigger the XCP event 'event' for absolute or dyn addressing mode with explicitly given base address (address extension = 2)\n @param event\n @param base address pointer"]
+    pub fn XcpEventExt(event: tXcpEventId, base2: *const u8);
 }
 unsafe extern "C" {
     #[doc = " Set log level\n Log level 4 provides a trace of all XCP commands and responses.\n @param level (0 = no logging, 1 = error, 2 = warning, 3 = info, 4 = debug, 5 = trace)"]
