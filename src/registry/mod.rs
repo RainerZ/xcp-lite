@@ -530,7 +530,7 @@ pub mod registry_test {
             let mut l = registry::get_lock();
             l.replace(Registry::new());
             l.as_mut().unwrap().application.set_info("test", "created by test", 0);
-            l.as_mut().unwrap().application.set_version("EPK_V1.0.0", crate::EPK_SEG_ADDR);
+            l.as_mut().unwrap().application.set_version("EPK_V1.1.0", crate::EPK_SEG_ADDR);
         }
         // Drop the closed registry singleton (unsafe)
         #[allow(invalid_reference_casting)]
@@ -582,7 +582,7 @@ pub mod registry_test {
         // Registry
         let mut reg = Registry::new();
         reg.application.set_info("test_registry_1", "created by test_registry_1", 0);
-        reg.application.set_version("EPK_V1.0.0", crate::EPK_SEG_ADDR);
+        reg.application.set_version("EPK_V1.1.0", crate::EPK_SEG_ADDR);
         reg.set_xcp_params("UDP", Ipv4Addr::new(127, 0, 0, 1), 5555);
 
         reg.cal_seg_list.add_cal_seg("test_cal_seg_1", 0, 4).unwrap();
@@ -813,7 +813,7 @@ pub mod registry_test {
 
         // Application name and version
         reg.application.set_info("test_registry_api", "created by test_registry_api", 0);
-        reg.application.set_version("V1.0.0", 0);
+        reg.application.set_version("V1.1.0", 0);
 
         // Calibration segment
         reg.cal_seg_list.add_cal_seg("calseg_1", 0, 4).unwrap();

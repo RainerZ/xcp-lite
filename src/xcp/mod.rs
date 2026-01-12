@@ -582,7 +582,7 @@ pub mod xcp_test {
         unsafe {
             xcplib::XcpReset();
         }
-        let xcp = Xcp::init("Test", "EPK_V1.0.0", TEST_XCP_LOG_LEVEL);
+        let xcp = Xcp::init("Test", "EPK_V1.1.0", TEST_XCP_LOG_LEVEL);
         xcp.event_list.lock().clear();
 
         xcp

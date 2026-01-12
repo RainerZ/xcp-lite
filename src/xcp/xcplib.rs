@@ -36,7 +36,7 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     #[doc = " Unlock a calibration segment"]
-    pub fn XcpUnlockCalSeg(calseg: tXcpCalSegIndex);
+    pub fn XcpUnlockCalSeg(calseg: tXcpCalSegIndex) -> u8;
 }
 unsafe extern "C" {
     pub fn XcpGetCalSegCount() -> u16;
@@ -51,7 +51,7 @@ unsafe extern "C" {
     pub fn XcpEventExt(event: tXcpEventId, base2: *const u8);
 }
 unsafe extern "C" {
-    #[doc = " Set log level\n Log level 4 provides a trace of all XCP commands and responses.\n @param level (0 = no logging, 1 = error, 2 = warning, 3 = info, 4 = debug, 5 = trace)"]
+    #[doc = " Set log level\n Does not require XCP to be initialized yet\n Log level 4 provides a trace of all XCP commands and responses.\n @param level (0 = no logging, 1 = error, 2 = warning, 3 = info, 4 = debug, 5 = trace)"]
     pub fn XcpSetLogLevel(level: u8);
 }
 unsafe extern "C" {
