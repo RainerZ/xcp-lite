@@ -15,7 +15,7 @@ use std::{
 };
 use xcp_type_description::XcpTypeDescription;
 
-use crate::registry::{self, McEvent};
+use crate::registry::{self, McAddress, McEvent};
 
 //-----------------------------------------------------------------------------
 // Submodules
@@ -126,7 +126,7 @@ impl XcpEvent {
     /// The buffer must match its registry description, to avoid corrupt data given to the XCP tool
     pub unsafe fn trigger_ext(self, base: *const u8) {
         // @@@@ UNSAFE - C library call and transferring a pointer and its valid memory range to XCPlite FFI
-        unsafe { xcplib::XcpEventExt(self.get_id(), base) }
+        unsafe { xcplib::XcpEventExt(self.get_id(), base.wrapping_sub(McAddress::XCP_ADDR_EXT_DYN_OFFSET_OFFSET as usize)) }
     }
 }
 

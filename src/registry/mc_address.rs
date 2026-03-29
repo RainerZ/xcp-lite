@@ -118,11 +118,13 @@ fn skip_addr_offset(value: &i32) -> bool {
 impl McAddress {
     /// Address extension values for the XCP
     pub const XCP_ADDR_EXT_SEG: u8 = 0; // For CAL objects ( index | 0x8000 in high word (CANape does not support addr_ext in memory segments))
-    pub const XCP_ADDR_EXT_ABS: u8 = 1; // Not implemented for rust
-    pub const XCP_ADDR_EXT_DYN: u8 = 2; // For DAQ objects ( event in addr high word, low word relative to base given to XcpEventExt, async access possible )
 
+    pub const XCP_ADDR_EXT_ABS: u8 = 1; // Not implemented for rust
+
+    pub const XCP_ADDR_EXT_DYN: u8 = 2; // For DAQ objects ( event in addr high bits, lower bits relative to base given to XcpEventExt, async access possible )
+    pub const XCP_ADDR_EXT_DYN_OFFSET_OFFSET: i32 = 0x10000; // @@@@
     pub const XCP_ADDR_EXT_DYN_OFFSET_BITS: u8 = 22; // @@@@
-    pub const XCP_ADDR_EXT_DYN_MASK: u32 = 0x003FFFFF; // @@@@
+    pub const XCP_ADDR_EXT_DYN_OFFSET_MASK: u32 = 0x003FFFFF; // @@@@
 
     /// Undefined
     pub const XCP_ADDR_EXT_UNDEF: u8 = 0xFF;
@@ -279,7 +281,8 @@ impl McAddress {
         );
 
         #[allow(clippy::cast_sign_loss)]
-        let a2l_addr: u32 = ((event_id as u32) << McAddress::XCP_ADDR_EXT_DYN_OFFSET_BITS) | ((offset as u32) & McAddress::XCP_ADDR_EXT_DYN_MASK);
+        let a2l_addr: u32 = ((event_id as u32) << McAddress::XCP_ADDR_EXT_DYN_OFFSET_BITS)
+            | ((offset + McAddress::XCP_ADDR_EXT_DYN_OFFSET_OFFSET) as u32 & McAddress::XCP_ADDR_EXT_DYN_OFFSET_MASK);
         (addr_ext, a2l_addr)
     }
 

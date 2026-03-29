@@ -19,6 +19,10 @@ unsafe extern "C" {
     pub fn XcpCreateCalSeg(name: *const ::std::os::raw::c_char, default_page: *const ::std::os::raw::c_void, size: u16) -> tXcpCalSegIndex;
 }
 unsafe extern "C" {
+    #[doc = " Get the number of calibration segments\n @return the number of calibration segments"]
+    pub fn XcpGetCalSegCount() -> u16;
+}
+unsafe extern "C" {
     #[doc = " Find a calibration segment by name\n @param name Name of the calibration segment\n @return the Handle of the calibration segment or XCP_UNDEFINED_CALSEG if not found"]
     pub fn XcpFindCalSeg(name: *const ::std::os::raw::c_char) -> tXcpCalSegIndex;
 }
@@ -27,9 +31,7 @@ unsafe extern "C" {
     pub fn XcpGetCalSegName(index: tXcpCalSegIndex) -> *const ::std::os::raw::c_char;
 }
 unsafe extern "C" {
-    pub fn XcpGetCalSegCount() -> u16;
-}
-unsafe extern "C" {
+    #[doc = " Get the size of the calibration segment\n @param calseg Handle of the calibration segment\n @return the size of the calibration segment in bytes"]
     pub fn XcpGetCalSegSize(calseg: tXcpCalSegIndex) -> u16;
 }
 unsafe extern "C" {
