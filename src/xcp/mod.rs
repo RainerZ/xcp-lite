@@ -289,7 +289,7 @@ impl Xcp {
             let epk = std::ffi::CString::new(app_revision).unwrap();
             assert!(app_revision.len() < crate::EPK_SEG_SIZE);
             let name = std::ffi::CString::new(app_name).unwrap();
-            xcplib::XcpInit(name.as_ptr(), epk.as_ptr(), true);
+            xcplib::XcpInit(name.as_ptr(), epk.as_ptr(), 1); // @@@@ TODO XCP_MODE_LOCAL
             xcplib::ApplXcpRegisterConnectCallback(Some(cb_connect));
         }
 
@@ -351,13 +351,14 @@ impl Xcp {
 
             // Register transport layer parameters and actual ip addr of the server to create XCP IF_DATA make the A2L plug&play
             // If bound to any, get the actual ip address
-            let mut addr: [u8; 4] = ipv4_addr.octets();
-            if addr == [0, 0, 0, 0] {
-                unsafe {
-                    // @@@@ UNSAFE - C library call
-                    xcplib::XcpEthServerGetInfo(std::ptr::null_mut(), std::ptr::null_mut(), &mut addr[0] as *mut u8, std::ptr::null_mut());
-                }
-            }
+            let addr: [u8; 4] = ipv4_addr.octets();
+            // @@@@ TODO: This is a workaround to get the actual ip address for A2L generation, when bound to ANY
+            // if addr == [0, 0, 0, 0] {
+            //     unsafe {
+            //         // @@@@ UNSAFE - C library call
+            //         xcplib::XcpEthServerGetInfo(std::ptr::null_mut(), std::ptr::null_mut(), &mut addr[0] as *mut u8, std::ptr::null_mut());
+            //     }
+            // }
             let mut reg = registry::get_lock();
             if let Some(reg) = reg.as_mut() {
                 reg.set_xcp_params(tl.protocol_name(), addr.into(), port); // Transport layer parameters
@@ -580,7 +581,7 @@ pub mod xcp_test {
 
         // Reinitialize the XCP singleton
         unsafe {
-            xcplib::XcpReset();
+            xcplib::XcpDeinit();
         }
         let xcp = Xcp::init("Test", "EPK_V1.1.0", TEST_XCP_LOG_LEVEL);
         xcp.event_list.lock().clear();

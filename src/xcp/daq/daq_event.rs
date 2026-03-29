@@ -109,7 +109,7 @@ impl<const N: usize> DaqEvent<N> {
                 name,
                 McDimType::new(value_type, x_dim, y_dim),
                 mc_support_data,
-                McAddress::new_event_dyn(0, event.get_id(), event_offset),
+                McAddress::new_event_dyn(0, event.get_id(), event_offset as i32),
             ) {
                 error!("add_instance failed: {}", e);
             }
@@ -132,7 +132,7 @@ impl<const N: usize> DaqEvent<N> {
                 name,
                 McDimType::new(value_type, x_dim, y_dim),
                 mc_support_data,
-                McAddress::new_event_dyn(0, self.event.get_id(), event_offset),
+                McAddress::new_event_dyn(0, self.event.get_id(), event_offset as i32),
             ) {
                 error!("add_instance failed: {}", e);
             }

@@ -1,4 +1,4 @@
-use syn::{Attribute, Lit, Meta, NestedMeta, Type, TypeArray};
+use syn::{Attribute, Lit, Meta, NestedMeta, Type};
 
 #[derive(PartialEq)]
 pub enum FieldAttribute {

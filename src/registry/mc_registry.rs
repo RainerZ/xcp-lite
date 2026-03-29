@@ -10,6 +10,7 @@ use std::net::Ipv4Addr;
 
 use super::is_closed;
 
+//use super::McAddress;
 use super::McCalibrationSegmentList;
 use super::McDimType;
 use super::McEventList;
@@ -284,22 +285,23 @@ impl Registry {
                 unimplemented!();
             }
             if instance.address.get_addr_mode().is_a2l() {
-                // @@@@ XCPlite specific handling of address extensions
+                // @@@@ TODO: Hardcoded XCPlite specific address encoding
                 let addr = instance.address.get_raw_a2l_addr();
                 if addr.0 >= 2 {
-                    let event_id: u16 = (addr.1 >> 16) as u16;
-                    info!("Checking address update for {}: {}:0x{:08X} event_id={}", instance.get_name(), addr.0, addr.1, event_id);
-                    if let Some(new_id) = mapping.get(&event_id) {
-                        let new_addr: u32 = ((*new_id as u32) << 16) | (addr.1 & 0xFFFF);
-                        instance.address.set_raw_a2l_addr(addr.0, new_addr);
-                        log::info!(
-                            "XCPlite specific event id update in address of ‘{}‘: {}:0x{:08X} -> 0x{:08X}",
-                            instance.get_name(),
-                            addr.0,
-                            addr.1,
-                            new_addr
-                        );
-                    }
+                    unimplemented!();
+                    // let event_id: u16 = (addr.1 >> McAddress::XCP_ADDR_EXT_DYN_OFFSET_BITS) as u16;
+                    // info!("Checking address update for {}: {}:0x{:08X} event_id={}", instance.get_name(), addr.0, addr.1, event_id);
+                    // if let Some(new_id) = mapping.get(&event_id) {
+                    //     let new_addr: u32 = ((*new_id as u32) << 16) | (addr.1 & 0xFFFF);
+                    //     instance.address.set_raw_a2l_addr(addr.0, new_addr);
+                    //     log::info!(
+                    //         "XCPlite specific event id update in address of ‘{}‘: {}:0x{:08X} -> 0x{:08X}",
+                    //         instance.get_name(),
+                    //         addr.0,
+                    //         addr.1,
+                    //         new_addr
+                    //     );
+                    // }
                 }
             }
         }

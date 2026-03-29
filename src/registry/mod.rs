@@ -239,7 +239,7 @@ where
                         field_name,
                         McDimType::new(value_type, field.x_dim(), field.y_dim()),
                         mc_support_data,
-                        McAddress::new_event_dyn(0, event_id, field.addr_offset() as i16),
+                        McAddress::new_event_dyn(0, event_id, field.addr_offset() as i32), // @@@@ TODO: offset as i32
                     );
                 }
                 // Calibration segment relative addressing
@@ -734,7 +734,7 @@ pub mod registry_test {
 
     //-----------------------------------------------------------------------------
     // Test attribute macros
-    #[ignore = "can not reopen registry singleton for other tests"]
+
     #[test]
     fn test_attribute_macros() {
         let xcp = xcp_test::test_setup();

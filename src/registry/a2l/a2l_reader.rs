@@ -188,39 +188,46 @@ fn get_event_id_from_ifdata(if_data_vec: &Vec<a2lfile::IfData>) -> Option<u16> {
 }
 
 // Always read to A2L address representation
-fn new_mc_address_from_a2l(registry: &Registry, addr: u32, addr_ext: u8, event_id: Option<u16>, convert: bool) -> McAddress {
+fn new_mc_address_from_a2l(_registry: &Registry, addr: u32, addr_ext: u8, event_id: Option<u16>, convert: bool) -> McAddress {
     debug!("Get address {:08X} ext {} event_id {:?}", addr, addr_ext, event_id);
     if !convert {
-        // Event id can only be stored in address
+        // Event id is stored in McAddress, not encoded
         if let Some(event_id) = event_id {
             McAddress::new_a2l_with_event(event_id, addr, addr_ext)
         } else {
             McAddress::new_a2l(addr, addr_ext)
         }
     } else {
-        match addr_ext {
-            McAddress::XCP_ADDR_EXT_SEG => {
-                if let Some(calseg_name) = registry.cal_seg_list.find_cal_seg_by_a2l_address(addr) {
-                    let offset: u16 = (addr & 0xFFFF) as u16;
-                    McAddress::new_calseg_rel(calseg_name, offset as i32)
-                } else {
-                    error!("Calibration segment not found for address: {:08X}", addr);
-                    McAddress::new_a2l(addr, addr_ext)
-                }
-            }
-            McAddress::XCP_ADDR_EXT_ABS => {
-                let event_id = event_id.unwrap();
-                let addr_offset: i32 = addr as i32;
-                McAddress::new_event_abs(event_id, addr_offset)
-            }
-            _ => {
-                let event_id = event_id.unwrap();
-                let addr_offset: i16 = (addr & 0xFFFF) as i16;
-                assert_eq!(event_id, (addr >> 16) as u16);
-                assert!(addr_ext >= McAddress::XCP_ADDR_EXT_DYN && addr_ext < McAddress::XCP_ADDR_EXT_DYN + 14, "Address extension {} not supported in xcp-lite mode", addr_ext);  
-                McAddress::new_event_dyn(addr_ext-McAddress::XCP_ADDR_EXT_DYN, event_id, addr_offset)
-            }
-        }
+
+        unimplemented!("Address conversion from A2L to calseg_rel, event_rel/dyn/abs not implemented yet, this is highly dependent on the specific address encoding scheme used in the A2L file, currently only raw A2L address representation is supported");
+       
+       
+        // Assume address has XCPlite address encoding for segment and relative addressing modes
+        // match addr_ext {
+        //     McAddress::XCP_ADDR_EXT_SEG => {
+        //         if let Some(calseg_name) = registry.cal_seg_list.find_cal_seg_by_a2l_address(addr) {
+        //             let offset: u16 = (addr & 0xFFFF) as u16;
+        //             McAddress::new_calseg_rel(calseg_name, offset as i32)
+        //         } else {
+        //             error!("Calibration segment not found for address: {:08X}", addr);
+        //             McAddress::new_a2l(addr, addr_ext)
+        //         }
+        //     }
+        //     McAddress::XCP_ADDR_EXT_ABS => {
+        //         let event_id = event_id.expect("Event id is required for absolute addressing mode");
+        //         let addr_offset: i32 = addr as i32;
+        //         McAddress::new_event_abs(event_id, addr_offset)
+        //     }
+        //     _ => {
+        //         let event_id = event_id.expect("Event id is required for absolute addressing mode");
+        //         // @@@@ TODO: Hardcoded XCPlite specific address encoding
+        //         // Sign extend to i32
+        //         let addr_offset: i32 = ((addr << (32 - McAddress::XCP_ADDR_EXT_DYN_OFFSET_BITS)) as i32) >> (32 - McAddress::XCP_ADDR_EXT_DYN_OFFSET_BITS);
+        //         assert_eq!(event_id, (addr >> McAddress::XCP_ADDR_EXT_DYN_OFFSET_BITS) as u16);
+        //         assert!(addr_ext >= McAddress::XCP_ADDR_EXT_DYN && addr_ext < McAddress::XCP_ADDR_EXT_DYN + 14, "Address extension {} not supported in xcp-lite mode", addr_ext);  
+        //         McAddress::new_event_dyn(addr_ext-McAddress::XCP_ADDR_EXT_DYN, event_id, addr_offset)
+        //     }
+        // }
     }
 }
 
@@ -313,7 +320,9 @@ fn registry_load_a2lfile(registry: &mut Registry, a2l_file: &a2lfile::A2lFile) -
                     info!("XCPlite A2L detected, {} addressing mode", project_no.project_number);
                 } else if project_no.project_number == "XCPLITE__CASDD" {
                     relative_segment_addressing = true; // We assume calibration segments always have segment addressing mode
-                    convert_a2l_address = true; // Convert A2L address
+                    // @@@@ Removed: Newer versions of XCPlite may use different address encoding schemes, leave the A2L address as 
+                    // convert_a2l_address = true; // Convert A2L address
+                    convert_a2l_address = false; // Don't convert A2L address, use raw A2L address representation
                     info!("XCPlite A2L detected, {} addressing mode", project_no.project_number);
                 } else {
                     error!(

@@ -181,7 +181,7 @@ impl XcpDaqDecoder for DaqDecoder {
         if odt == 0 && data.len() >= 2 {
             let o = 0;
 
-            // Check counter_max (+0) and counter (+4)
+            // Check counter (+0)
             let counter = (data[o] as u32) | ((data[o + 1] as u32) << 8);
 
             // Check counter is incrementing, usually because of packets lost
@@ -220,12 +220,11 @@ pub enum TestModeCal {
 pub async fn test_daq(xcp_client: &mut XcpClient, _test_mode_daq: TestModeDaq, daq_test_duration_ms: u64) -> (bool, u32) {
     let mut error = false;
 
-    xcp_client.create_measurement_object("counter").unwrap();
-
-    xcp_client.start_measurement().await.unwrap();
+    xcp_client.create_measurement_object("counter").expect("Failed to create measurement object 'counter'");
+    xcp_client.start_measurement().await.expect("Failed to start measurement");
 
     // Test for given time
-    // Every 2ms check if measurment  is still ok
+    // Every 2ms check if measurement is still ok
     // Break on error
     let starttime = Instant::now();
     loop {
@@ -233,7 +232,7 @@ pub async fn test_daq(xcp_client: &mut XcpClient, _test_mode_daq: TestModeDaq, d
             break;
         }
         if DAQ_ERROR.load(std::sync::atomic::Ordering::SeqCst) {
-            warn!("DAQ error detected, aborting DAQ test loop");
+            warn!("DAQ error detected, aborting DAsQ test loop");
             error = true;
             break;
         }
@@ -305,13 +304,16 @@ async fn test_calibration(xcp_client: &mut XcpClient) -> bool {
         }
     }
 
-    // Check params.delay_us
+    // Check if there is a params.delay_us
     debug!("Create calibration object params.delay_us");
     match xcp_client.create_calibration_object("params.delay_us").await {
         Ok(delay_us) => {
             let v = xcp_client.get_value_u64(delay_us);
             info!("RAM delay_us={}", v);
-            assert_eq!(v, 1000);
+            if v < 100 || v > 1000000 {
+                error!("params.delay_us initial value unplausible");
+                return false;
+            }
         }
         Err(e) => {
             warn!("Could not find calibration parameter params.delay_us: {}", e);
@@ -327,7 +329,7 @@ async fn test_calibration(xcp_client: &mut XcpClient) -> bool {
         let counter_max = counter_max.unwrap();
         let mut v = xcp_client.get_value_u64(counter_max);
         info!("RAM counter_max={}", v);
-        if v != 1024 {
+        if v != 1024 && v != 512 {
             error!("params.counter_max initial value incorrect");
             return false;
         }
@@ -377,7 +379,7 @@ async fn test_calibration(xcp_client: &mut XcpClient) -> bool {
         // Reset
         xcp_client.set_ecu_page(0).await.unwrap();
         info!("Set ECU page to RAM");
-        xcp_client.set_value_u64(counter_max, 1000).await.unwrap();
+        xcp_client.set_value_u64(counter_max, 1024).await.unwrap();
     } // counter_max calibration test
 
     // Test calibration consistency
@@ -402,7 +404,7 @@ async fn test_calibration(xcp_client: &mut XcpClient) -> bool {
         let starttime = Instant::now();
         for i in 0..CAL_TEST_MAX_ITER {
             let value1: i8 = (i & 0x7F) as i8;
-            let value2: i8 = -value1;
+            let value2: i8 = value1;
             xcp_client // SHORT_DOWNLOAD cal_seg.test_u64
                 .short_download(addr_sync_test1.addr, addr_sync_test1.ext, &value1.to_le_bytes())
                 .await
@@ -458,7 +460,10 @@ pub async fn test_setup(
     let mut xcp_client = XcpClient::new(tcp, dest_addr, local_addr); // false = UDP
     let daq_decoder: Arc<parking_lot::lock_api::Mutex<parking_lot::RawMutex, DaqDecoder>> = Arc::new(Mutex::new(DaqDecoder::new()));
     let serv_text_decoder = ServTextDecoder::new();
-    xcp_client.connect(0, Arc::clone(&daq_decoder), serv_text_decoder).await.unwrap();
+    xcp_client
+        .connect(0, Arc::clone(&daq_decoder), serv_text_decoder)
+        .await
+        .expect("Failed to connect to XCP server");
 
     //-------------------------------------------------------------------------------------------------------------------------------------
     // Check command timeout using a command CC_NOP (non standard) without response

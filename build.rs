@@ -30,10 +30,10 @@ fn main() {
             .blocklist_type("T_CLOCK_INFO")
             // Protocol layer
             .allowlist_function("XcpInit")
-            .allowlist_function("XcpReset")
+            .allowlist_function("XcpDeinit")
             .allowlist_function("XcpDisconnect")
             // Server
-            .allowlist_function("XcpEthServerGetInfo")
+            // .allowlist_function("XcpEthServerGetInfo")
             .allowlist_function("XcpEthServerInit")
             .allowlist_function("XcpEthServerShutdown")
             .allowlist_function("XcpEthServerStatus")
@@ -66,14 +66,15 @@ fn main() {
         .include("xcplib_cfg/")
         .include("xcplib/inc/")
         .include("xcplib/src/")
-        .file("xcplib/src/xcpAppl.c")
+        .file("xcplib/src/xcpappl.c")
         .file("xcplib/src/persistence.c")
         .file("xcplib/src/platform.c")
-        .file("xcplib/src/xcpLite.c")
-        .file("xcplib/src/xcpQueue64.c")
-        .file("xcplib/src/xcpQueue32.c")
-        .file("xcplib/src/xcpEthTl.c")
-        .file("xcplib/src/xcpEthServer.c");
+        .file("xcplib/src/xcplite.c")
+        .file("xcplib/src/cal.c")
+        .file("xcplib/src/queue64v.c")
+        .file("xcplib/src/queue32.c")
+        .file("xcplib/src/xcpethtl.c")
+        .file("xcplib/src/xcpethserver.c");
 
     builder.define("XCPLIB_FOR_RUST", None);
 

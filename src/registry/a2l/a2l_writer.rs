@@ -270,7 +270,7 @@ impl GenerateA2l for McXcpTransportLayer {
 
         log::debug!("A2L writer: transport layer: {protocol} {addr}:{port}");
 
-        writeln!(writer, "\n\t\t/begin XCP_ON_{protocol}_IP 0x104 {port} ADDRESS \"{addr}\" /end XCP_ON_{protocol}_IP")
+        writeln!(writer, "\n\t\t/begin XCP_ON_{protocol}_IP 0x0104 {port} ADDRESS \"{addr}\" /end XCP_ON_{protocol}_IP")
     }
 }
 
@@ -916,7 +916,7 @@ ASAP2_VERSION 1 71
             self,
             r#"/begin IF_DATA XCP
         /begin PROTOCOL_LAYER
-        0x104 1000 2000 0 0 0 0 0 252 1468 BYTE_ORDER_MSB_LAST ADDRESS_GRANULARITY_BYTE
+        0x0104 1000 2000 0 0 0 0 0 252 1468 BYTE_ORDER_MSB_LAST ADDRESS_GRANULARITY_BYTE
         OPTIONAL_CMD GET_COMM_MODE_INFO
         OPTIONAL_CMD GET_ID
         OPTIONAL_CMD SET_REQUEST

@@ -581,7 +581,7 @@ impl ElfReader {
                         );
                         // Encode dyn addressing mode from signed offset and event id
                         let offset: i16 = (var_info.address.1 as i64 - 0x80000000 + cfa).try_into().unwrap();
-                        ((offset as u64) & 0xFFFF) | ((event.id as u64) << 16)
+                        ((offset as u64) & 0xFFFF) | ((event.id as u64) << 16) // @@@@ TODO: Hardcoded XCPlite dyn addressing mode
                     } else {
                         debug!("Variable '{}' skipped, could not find event for dyn addressing mode", var_name);
                         continue; // skip this variable
