@@ -17,8 +17,8 @@ use xcp_lite::metrics::counter;
 use xcp_lite::registry::*;
 use xcp_lite::*;
 
-use xcp_client::xcp_client::xcp::*;
-use xcp_client::xcp_client::*;
+use xcpclient::xcp_client::xcp::*;
+use xcpclient::xcp_client::*;
 
 //-----------------------------------------------------------------------------
 
@@ -514,9 +514,9 @@ pub async fn test_setup(
         }
         // Load the A2L file from file
         else {
-            // Send XCP GET_ID GET_ID XCP_IDT_ASAM_NAME to obtain the A2L filename
-            info!("XCP GET_ID XCP_IDT_ASAM_NAME");
-            let res = xcp_client.get_id(XCP_IDT_ASAM_NAME).await;
+            // Send XCP GET_ID GET_ID IDT_ASAM_NAME to obtain the A2L filename
+            info!("XCP GET_ID IDT_ASAM_NAME");
+            let res = xcp_client.get_id(IDT_ASAM_NAME).await;
             let a2l_name = match res {
                 Ok((_, Some(id))) => id,
                 Err(e) => {
@@ -539,8 +539,8 @@ pub async fn test_setup(
         }
 
         // Check EPK
-        // EPK addr is always in segment 0 which is xcp_client::EPK_SEG_ADDR 0x80000000 and len is hardcoded to 8
-        let res = xcp_client.short_upload(xcp_client::EPK_SEG_ADDR, 0, 8).await;
+        // EPK addr is always in segment 0 which is  0x80000000 and len is hardcoded to 8 ???   // @@@@ TODO
+        let res = xcp_client.short_upload(0x80000000, 0, 8).await;
         let resp: Vec<u8> = match res {
             Err(e) => {
                 panic!("Could not upload EPK, Error: {}", e);

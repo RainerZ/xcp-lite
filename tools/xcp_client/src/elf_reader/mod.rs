@@ -525,7 +525,7 @@ impl ElfReader {
             // Count variables with this name in compilation unit 0
             let count = var_infos.iter().filter(|v| v.unit_idx <= unit_idx_limit).count();
 
-            // Process all variable with this name in different scopes and namesspaces
+            // Process all variable with this name in different scopes and namespaces
             for var_info in var_infos {
                 // @@@@ TODO: Create only variables from specified compilation unit
                 if var_info.unit_idx > unit_idx_limit {
@@ -579,9 +579,22 @@ impl ElfReader {
                             (var_info.address.1 as i64 - 0x80000000) as i64,
                             cfa
                         );
-                        // Encode dyn addressing mode from signed offset and event id
-                        let offset: i16 = (var_info.address.1 as i64 - 0x80000000 + cfa).try_into().unwrap();
-                        ((offset as u64) & 0xFFFF) | ((event.id as u64) << 16) // @@@@ TODO: Hardcoded XCPlite dyn addressing mode
+
+                        // @@@@ TODO: Create functions instead of constants for relative address encoding
+                        // Encode dyn addressing mode A2L/XCP address from offset and event id
+                        let offset: i64 = var_info.address.1 as i64 - 0x80000000 + cfa;
+                        if offset < -(McAddress::XCP_ADDR_EXT_DYN_OFFSET_OFFSET as i64)
+                            || offset > (McAddress::XCP_ADDR_EXT_DYN_OFFSET_MASK as i64 - McAddress::XCP_ADDR_EXT_DYN_OFFSET_OFFSET as i64)
+                        {
+                            warn!(
+                                "Variable '{}' skipped, has offset {} which does not fit the XCP dynamic addressing mode range",
+                                var_name, offset
+                            );
+                            continue; // skip this variable
+                        }
+
+                        (((offset + McAddress::XCP_ADDR_EXT_DYN_OFFSET_OFFSET as i64) as u64) & McAddress::XCP_ADDR_EXT_DYN_OFFSET_MASK as u64)
+                            | ((event.id as u64) << McAddress::XCP_ADDR_EXT_DYN_OFFSET_BITS)
                     } else {
                         debug!("Variable '{}' skipped, could not find event for dyn addressing mode", var_name);
                         continue; // skip this variable

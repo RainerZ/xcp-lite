@@ -14,7 +14,6 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64};
 use tokio::time::{Duration, Instant};
 
 use xcp_client::xcp_client::*;
-use xcp_client::{EPK_SEG_ADDR, EPK_SEG_NAME};
 use xcp_lite::registry::*;
 use xcp_lite::*;
 
@@ -690,7 +689,7 @@ pub async fn test_setup(task_count: usize, load_a2l: bool, upload_a2l: bool) -> 
         else {
             // Send XCP GET_ID GET_ID XCP_IDT_ASAM_NAME to obtain the A2L filename
             info!("XCP GET_ID XCP_IDT_ASAM_NAME");
-            let res = xcp_client.get_id(xcp::XCP_IDT_ASAM_NAME).await;
+            let res = xcp_client.get_id(xcp::IDT_ASAM_NAME).await;
             let a2l_name = match res {
                 Ok((_, Some(id))) => id,
                 Err(e) => {
@@ -714,7 +713,7 @@ pub async fn test_setup(task_count: usize, load_a2l: bool, upload_a2l: bool) -> 
 
         // Check EPK
         // EPK addr is always in segment 0 which is EPK_SEG_ADDR and len is hardcoded to 8
-        let res = xcp_client.short_upload(EPK_SEG_ADDR, 0, 8).await;
+        let res = xcp_client.short_upload(0x80000000, 0, 8).await;
         let resp: Vec<u8> = match res {
             Err(e) => {
                 panic!("Could not upload EPK, Error: {}", e);

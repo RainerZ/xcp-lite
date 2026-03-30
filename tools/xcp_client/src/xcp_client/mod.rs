@@ -835,9 +835,9 @@ impl XcpClient {
 
     //------------------------------------------------------------------------
     // Get server identification
-    // @@@@ TODO other types, only XCP_IDT_ASAM_UPLOAD supported
+    // Returns (size, name) where name is only set if the server returned the name in the response, otherwise the caller must do an upload to get the data
     pub async fn get_id(&mut self, id_type: u8) -> Result<(u32, Option<String>), Box<dyn Error>> {
-        assert!(id_type == XCP_IDT_ASAM_UPLOAD || id_type == XCP_IDT_ASAM_NAME || id_type == XCP_IDT_ASCII || id_type == XCP_IDT_ASAM_EPK); // others not supported yet
+        assert!( id_type == IDT_VECTOR_ELF_UPLOAD || id_type == IDT_ASAM_UPLOAD || id_type == IDT_ASAM_NAME || id_type == IDT_ASCII || id_type == IDT_ASAM_EPK); // others not supported yet
 
         let data = self.send_command(XcpCommandBuilder::new(CC_GET_ID).add_u8(id_type).build()).await?;
         assert_eq!(data[0], 0xFF);
@@ -1298,12 +1298,49 @@ impl XcpClient {
         Ok(timestamp_ns)
     }
 
+
+    //-------------------------------------------------------------------------------------------------
+    // ELF upload
+
+    pub async fn upload_elf_file<P: AsRef<std::path::Path>>(&mut self, elf_path: &P) -> Result<(), Box<dyn Error>> {
+        // Send XCP GET_ID IDT_VECTOR_ELF_UPLOAD command to set MTA
+        let (file_size, _) = self.get_id(IDT_VECTOR_ELF_UPLOAD).await?;
+        if file_size == 0 {
+            error!("ELF file not available, GET_ID returned size 0");
+            return Err(Box::new(XcpError::new(ERROR_GENERIC, CC_GET_ID)) as Box<dyn Error>);
+        }
+
+        // Check if the ELF file already exists and warn about overwriting
+        if elf_path.as_ref().exists() {
+            warn!("ELF file {} already exists, overwriting", elf_path.as_ref().display());
+        }
+
+        // Upload the ELF file
+        info!("Upload ELF to {}", elf_path.as_ref().display());
+        let file = std::fs::File::create(elf_path)?;
+        let mut writer = std::io::BufWriter::new(file);
+        let mut size = file_size;
+        while size > 0 {
+            let n = if size >= self.max_cto_size as u32 { self.max_cto_size - 1 } else { size as u8 };
+            size -= n as u32;
+            let data = self.upload(n).await?;
+            trace!("xcp_client.upload: {} bytes = {:?}", data.len(), data);
+            writer.write_all(&data[1..=n as usize])?;
+        }
+        writer.flush()?;
+        debug!("ELF upload completed, {} bytes loaded", file_size);
+
+        Ok(())
+    }
+
+
+
     //-------------------------------------------------------------------------------------------------
     // A2L upload
 
     pub async fn upload_a2l_file<P: AsRef<std::path::Path>>(&mut self, a2l_path: &P) -> Result<(), Box<dyn Error>> {
         // Send XCP GET_ID 4 command to set MTA
-        let (file_size, _) = self.get_id(XCP_IDT_ASAM_UPLOAD).await?;
+        let (file_size, _) = self.get_id(IDT_ASAM_UPLOAD).await?;
         if file_size == 0 {
             error!("A2L file not available, GET_ID 4 returned size 0");
             return Err(Box::new(XcpError::new(ERROR_GENERIC, CC_GET_ID)) as Box<dyn Error>);
@@ -1332,7 +1369,7 @@ impl XcpClient {
         Ok(())
     }
 
-    // Get the A2L via XCP upload and GET_ID4 (XCP_IDT_ASAM_UPLOAD) and load it into the registry
+    // Get the A2L via XCP upload and GET_ID4 (IDT_ASAM_UPLOAD) and load it into the registry
     pub async fn upload_a2l_into_registry<P: AsRef<std::path::Path>>(&mut self, a2l_path: &P, reg: &mut xcp_lite::registry::Registry) -> Result<(), Box<dyn Error>> {
         // Upload the A2L file
         self.upload_a2l_file(&a2l_path).await?;
@@ -1349,7 +1386,7 @@ impl XcpClient {
         Ok(())
     }
 
-    // Get the A2L via XCP upload and GET_ID4 (XCP_IDT_ASAM_UPLOAD) and load it into the registry
+    // Get the A2L via XCP upload and GET_ID4 (IDT_ASAM_UPLOAD) and load it into the registry
     pub fn load_a2l_file_into_registry<P: AsRef<std::path::Path>>(&mut self, a2l_path: &P, reg: &mut xcp_lite::registry::Registry) -> Result<(), Box<dyn Error>> {
         // Load the A2L file into the registry
         // @@@@ TODO xcp_client does not support arrays, instances and typedefs yet, flatten the registry and mangle the names
@@ -1589,7 +1626,8 @@ impl XcpClient {
                     encoding: instance.value_type().into(),
                 };
                 let o = XcpClientMeasurementObject::new(name, a2l_addr, a2l_type);
-                debug!("Create measurement object {}: addr = {:?} type = {:?}", name, a2l_addr, a2l_type,);
+                debug!("Create measurement object {}: addr = {:08X} type = {:?}", name, a2l_addr.addr, a2l_type);
+                debug!("-> {:?} ", o);
                 self.measurement_object_list.push(o);
                 Some(XcpMeasurementObjectHandle(self.measurement_object_list.len() - 1))
             }
@@ -1890,6 +1928,7 @@ impl XcpClient {
                     index,
                     size: size as u16,
                     addr,
+                    app_id: 0, // Multi application mode not implemented
                     name,
                 },
                 data,
@@ -1911,6 +1950,7 @@ impl XcpClient {
                     id: event.id,
                     cycle_time_ns: event.target_cycle_time_ns,
                     priority: 0,
+                    app_id: 0, // Multi application mode not implemented
                     name: event.get_name().to_string(),
                 })
                 .collect::<Vec<_>>();

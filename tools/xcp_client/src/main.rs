@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-// xcp_client - XCP test tool
+// xcpclient - XCP test tool
 //
 // - Connect to XCP on Ethernet servers via TCP or UDP
 // - Upload A2L files from XCP servers (GET_ID command)
@@ -10,7 +10,7 @@
 // - List available variables and parameters with regex patterns
 // - Execute test sequences
 //
-// xcp_client --help
+// xcpclient --help
 //-----------------------------------------------------------------------------
 
 use std::net::Ipv4Addr;
@@ -37,7 +37,7 @@ pub mod bin_reader;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
-#[command(name = "xcp_client")]
+#[command(name = "xcpclient")]
 #[command(about = concat!("XCP client v", env!("CARGO_PKG_VERSION"), " for testing XCP servers and managing A2L and HEX files"))]
 #[command(long_about = concat!("XCP client v", env!("CARGO_PKG_VERSION"), " for testing XCP servers and managing A2L and HEX files.
 
@@ -54,15 +54,15 @@ This tool can:
 - Execute test sequences
 
 Examples:
-  xcp_client --tcp --dest-addr 192.168.1.100 --port 5555 --upload-a2l
-  xcp_client --list-mea \"sensor.*\" --list-cal \"param.*\"
-  xcp_client --cal variable_name 42.5
-  xcp_client --mea \".*temperature.*\" --time 10
-  xcp_client --elf myprogram.elf --create-a2l
-  xcp_client --download-bin --bin test.hex
-  xcp_client --upload-bin --bin target_data.hex
-  xcp_client --elf myprogram.elf --create-a2l --offline --a2l my_a2l_file.a2l
-  xcp_client --test"))]
+  xcpclient --tcp --dest-addr 192.168.1.100 --port 5555 --upload-a2l
+  xcpclient --list-mea \"sensor.*\" --list-cal \"param.*\"
+  xcpclient --cal variable_name 42.5
+  xcpclient --mea \".*temperature.*\" --time 10
+  xcpclient --elf myprogram.elf --create-a2l
+  xcpclient --download-bin --bin test.hex
+  xcpclient --upload-bin --bin target_data.hex
+  xcpclient --elf myprogram.elf --create-a2l --offline --a2l my_a2l_file.a2l
+  xcpclient --test"))]
 #[command(version)]
 struct Args {
     // -l --log-level
@@ -135,8 +135,14 @@ struct Args {
     #[arg(long, default_value_t = false)]
     fix_a2l: bool,
 
+        // --upload-elf
+    /// Upload ELF file from XCP server.
+    /// Requires that the XCP server supports proprietary GET_ID ELF upload command.
+    #[arg(long, default_value_t = false)]
+    upload_elf: bool,
+
     // ---elf
-    /// Specifiy the name of an ELF file, create an A2L file from ELF debug information.
+    /// Specify the name of an ELF file, create an A2L file from ELF debug information.
     /// If connected to a XCP server, events and memory segments will be extracted from the XCP server.
     #[arg(long, default_value = "")]
     elf: String,
@@ -447,6 +453,7 @@ async fn xcp_client(
     create_a2l: bool,
     fix_a2l: bool,
     elf_filename: String,
+    upload_elf: bool,
     elf_idx_unit_limit: usize,
     bin_filename: String,
     upload_bin: bool,
@@ -473,7 +480,7 @@ async fn xcp_client(
     let result = async {
         //----------------------------------------------------------------
         // Connect the XCP server if required
-        let go_online = !offline && (tcp || udp || upload_a2l || !measurement_list.is_empty() || !cal_args.is_empty());
+        let go_online = !offline && (tcp || udp || upload_a2l || upload_elf || !measurement_list.is_empty() || !cal_args.is_empty());
         if go_online {
             // Connect to the XCP server
             // Print protocol information
@@ -511,14 +518,14 @@ async fn xcp_client(
             info!("Reading target ECU information via XCP GET_ID commands:");
 
             // Get target ECU name
-            let res = xcp_client.get_id(xcp::XCP_IDT_ASCII).await;
+            let res = xcp_client.get_id(xcp::IDT_ASCII).await;
             match res {
                 Ok((_, Some(id))) => {
                     ecu_name = id;
-                    info!("  GET_ID XCP_IDT_ASCII = {}", ecu_name);
+                    info!("  GET_ID IDT_ASCII = {}", ecu_name);
                 }
                 Err(e) => {
-                    error!("GET_ID XCP_IDT_ASCII failed, Error: {}", e);
+                    error!("GET_ID IDT_ASCII failed, Error: {}", e);
                 }
                 _ => {
                     panic!("Empty string");
@@ -526,14 +533,14 @@ async fn xcp_client(
             };
 
             // Get A2L name
-            let res = xcp_client.get_id(xcp::XCP_IDT_ASAM_NAME).await;
+            let res = xcp_client.get_id(xcp::IDT_ASAM_NAME).await;
             match res {
                 Ok((_, Some(id))) => {
                     a2l_name = id;
-                    info!("  GET_ID XCP_IDT_ASAM_NAME = {}", a2l_name);
+                    info!("  GET_ID IDT_ASAM_NAME = {}", a2l_name);
                 }
                 Err(e) => {
-                    error!("GET_ID XCP_IDT_ASAM_NAME failed, Error: {}", e);
+                    error!("GET_ID IDT_ASAM_NAME failed, Error: {}", e);
                 }
                 _ => {
                     panic!("Empty string");
@@ -541,14 +548,14 @@ async fn xcp_client(
             };
 
             // Get EPK
-            let res = xcp_client.get_id(xcp::XCP_IDT_ASAM_EPK).await;
+            let res = xcp_client.get_id(xcp::IDT_ASAM_EPK).await;
             let _ecu_epk = match res {
                 Ok((_, Some(id))) => {
                     info!("  GET_ID IDT_EPK = {}", id);
                     id
                 }
                 Err(e) => {
-                    warn!("GET_ID XCP_IDT_ASAM_EPK failed, Error: {}", e);
+                    warn!("GET_ID IDT_ASAM_EPK failed, Error: {}", e);
                     "".into()
                 }
                 _ => {
@@ -566,7 +573,7 @@ async fn xcp_client(
         reg.set_flatten_typedefs_mode(false);
         reg.set_prefix_names_mode(false);
 
-        // Set A2L file path to given command line argument 'a2l' or to GET_ID XCP_IDT_ASAM_NAME or XCP_IDT_ASCII
+        // Set A2L file path to given command line argument 'a2l' or to GET_ID IDT_ASAM_NAME or IDT_ASCII
         let (mut a2l_path, a2l_asam_name) = if !a2l_filename.is_empty() {
             log::info!("Using A2L file name from command line argument: {}", a2l_filename);
             let a2l_filename = if !a2l_filename.ends_with(".a2l") {
@@ -588,6 +595,7 @@ async fn xcp_client(
             return Err("^No A2L file name specified, use --a2l commandline parameter".into());
         };
         warn!("A2L path: {}", a2l_path.display());
+
 
         //----------------------------------------------------------------
         // Upload A2L
@@ -653,6 +661,15 @@ async fn xcp_client(
             // If not, they are created, but with dummy event id and segment number, which has to be fixed later !!!
             if !elf_filename.is_empty() {
                 info!("Reading ELF file: {}", elf_filename);
+
+                // Upload ELF file
+                if upload_elf {
+                    let res = xcp_client.upload_elf_file(&elf_filename).await;
+                    if let Err(e) = res {
+                        error!("ELF upload failed, Error: {}", e);
+                        return Err("ELF upload failed".into());
+                    }
+                }
 
                 // Read ELF file and DWARF debug information, compilation unit number may be limited to reduce processing time and memory needed
                 let elf_reader = ElfReader::new(&elf_filename, verbose, elf_idx_unit_limit).ok_or(format!("Failed to read ELF file '{}'", elf_filename))?;
@@ -1084,6 +1101,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             args.create_a2l,
             args.fix_a2l,
             args.elf,
+            args.upload_elf,
             args.elf_unit_limit,
             args.bin,
             args.upload_bin,

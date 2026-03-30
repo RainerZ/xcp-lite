@@ -79,12 +79,15 @@ pub const CC_GET_VERSION: u8 = 0xC0;
 // XCP protocol definitions
 
 // XCP id types
-pub const XCP_IDT_ASCII: u8 = 0;
-pub const XCP_IDT_ASAM_NAME: u8 = 1;
-pub const XCP_IDT_ASAM_PATH: u8 = 2;
-pub const XCP_IDT_ASAM_URL: u8 = 3;
-pub const XCP_IDT_ASAM_UPLOAD: u8 = 4;
-pub const XCP_IDT_ASAM_EPK: u8 = 5;
+pub const IDT_ASCII: u8 = 0;
+pub const IDT_ASAM_NAME: u8 = 1;
+pub const IDT_ASAM_PATH: u8 = 2;
+pub const IDT_ASAM_URL: u8 = 3;
+pub const IDT_ASAM_UPLOAD: u8 = 4;
+pub const IDT_ASAM_EPK: u8 = 5;
+pub const IDT_VECTOR_MAPNAMES: u8 = 0xDB;
+pub const IDT_VECTOR_GET_A2LOBJECTS_FROM_ECU: u8 = 0xA2;
+pub const IDT_VECTOR_ELF_UPLOAD: u8 = 0xA3;
 
 // XCP get/set calibration page mode
 pub const CAL_PAGE_MODE_ECU: u8 = 0x01;
