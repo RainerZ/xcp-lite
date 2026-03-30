@@ -3,7 +3,7 @@
 
 /*----------------------------------------------------------------------------
 | File:
-|   xcplib_cfg.h
+|   xcplib_rust_cfg.h
 |
 | Description:
 |   General configuration and build options for XCPlite / libxcplite

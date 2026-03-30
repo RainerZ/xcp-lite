@@ -116,15 +116,21 @@ fn skip_addr_offset(value: &i32) -> bool {
 }
 
 impl McAddress {
-    /// Address extension values for the XCP
-    pub const XCP_ADDR_EXT_SEG: u8 = 0; // For CAL objects ( index | 0x8000 in high word (CANape does not support addr_ext in memory segments))
+    // XCPlite addressing modes (for default addressing scheme XCPLITE__CASDD in XCPlite):
 
-    pub const XCP_ADDR_EXT_ABS: u8 = 1; // Not implemented for rust
+    // Segment relative addressing (for CAL objects) ((index|0x8000)<<16+offset)  (CANape does not support addr_ext != 0 in memory segments))
+    pub const XCP_ADDR_EXT_SEG: u8 = 0;
 
-    pub const XCP_ADDR_EXT_DYN: u8 = 2; // For DAQ objects ( event in addr high bits, lower bits relative to base given to XcpEventExt, async access possible )
-    pub const XCP_ADDR_EXT_DYN_OFFSET_OFFSET: i32 = 0x10000; // @@@@
-    pub const XCP_ADDR_EXT_DYN_OFFSET_BITS: u8 = 22; // @@@@
-    pub const XCP_ADDR_EXT_DYN_OFFSET_MASK: u32 = 0x003FFFFF; // @@@@
+    // Absolute addressing (not used for rust, but registry can handle it)
+    pub const XCP_ADDR_EXT_ABS: u8 = 1;
+
+    // Base pointer relative addressing (for DAQ objects and asychronous read/write access)
+    // xcp-lite for Rust uses only one base pointer for event relative addressing (in xcplib, the base pointer index is encoded in the address extension (XCP_ADDR_EXT_DYN+index)
+    // We call XcpEventExt(baseptr-XCP_ADDR_EXT_DYN_OFFSET_OFFSET) to allow offsets in the range [-XCP_ADDR_EXT_DYN_OFFSET_OFFSET, XCP_ADDR_EXT_DYN_OFFSET_MASK-XCP_ADDR_EXT_DYN_OFFSET_OFFSET]
+    pub const XCP_ADDR_EXT_DYN: u8 = 2;
+    pub const XCP_ADDR_EXT_DYN_OFFSET_OFFSET: i32 = 0x10000;
+    pub const XCP_ADDR_EXT_DYN_OFFSET_BITS: u8 = 22;
+    pub const XCP_ADDR_EXT_DYN_OFFSET_MASK: u32 = 0x003FFFFF;
 
     /// Undefined
     pub const XCP_ADDR_EXT_UNDEF: u8 = 0xFF;
@@ -274,13 +280,14 @@ impl McAddress {
     }
 
     fn get_dyn_ext_addr(addr_ext: u8, event_id: u16, offset: i32) -> (u8, u32) {
-        // @@@@ TODO: Improve range check for DYN addr_ext ????
         assert!(
             addr_ext >= McAddress::XCP_ADDR_EXT_DYN && addr_ext < McAddress::XCP_ADDR_EXT_DYN + 16,
-            "Invalid addr_ext for DYN addressing"
+            "Invalid address extension for DYN addressing"
         );
-
-        #[allow(clippy::cast_sign_loss)]
+        assert!(
+            offset >= -McAddress::XCP_ADDR_EXT_DYN_OFFSET_OFFSET && offset <= McAddress::XCP_ADDR_EXT_DYN_OFFSET_MASK as i32 - McAddress::XCP_ADDR_EXT_DYN_OFFSET_OFFSET,
+            "Offset out of range for DYN addressing"
+        );
         let a2l_addr: u32 = ((event_id as u32) << McAddress::XCP_ADDR_EXT_DYN_OFFSET_BITS)
             | ((offset + McAddress::XCP_ADDR_EXT_DYN_OFFSET_OFFSET) as u32 & McAddress::XCP_ADDR_EXT_DYN_OFFSET_MASK);
         (addr_ext, a2l_addr)
