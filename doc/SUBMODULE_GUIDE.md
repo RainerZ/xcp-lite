@@ -7,7 +7,7 @@ This document provides instructions for managing the XCPlite git submodule in th
 This repository uses the XCPlite library as a git submodule located in the `xcplib/` directory.
 
 - **Submodule URL**: https://github.com/RainerZ/XCPlite.git
-- **Current Branch**: V2.0.0
+- **Current Branch**: V2.1.0
 - **Local Directory**: `xcplib/`
 
 ## Table of Contents
@@ -29,15 +29,15 @@ The submodule has already been created in this repository. Here's how it was don
 
 ```bash
 # Add the submodule with a specific branch
-git submodule add -b V2.0.0 https://github.com/RainerZ/XCPlite.git xcplib
+git submodule add -b V2.1.0 https://github.com/RainerZ/XCPlite.git xcplib
 
 # Commit the changes
-git commit -m "Add XCPlite submodule at V2.0.0"
+git commit -m "Add XCPlite submodule at V2.1.0"
 ```
 
 This command:
 - Adds the XCPlite repository as a submodule
-- Tracks the `V2.0.0` branch
+- Tracks the `V2.1.0` branch
 - Places it in the `xcplib/` directory
 - Creates/updates `.gitmodules` file
 - Creates a reference to the specific commit in the parent repository
@@ -77,14 +77,14 @@ git submodule update --init --recursive
 
 ### Update to Latest Commit on Tracked Branch
 
-To update the submodule to the latest commit on its tracked branch (V2.0.0):
+To update the submodule to the latest commit on its tracked branch (V2.1.0):
 
 ```bash
 # Navigate to the submodule directory
 cd xcplib
 
 # Fetch and merge the latest changes from the tracked branch
-git pull origin V2.0.0
+git pull origin V2.1.0
 
 # Go back to the parent repository
 cd ..
@@ -93,7 +93,7 @@ cd ..
 git add xcplib
 
 # Commit the update
-git commit -m "Update xcplib submodule to latest V2.0.0"
+git commit -m "Update xcplib submodule to latest V2.1.0"
 ```
 
 ### Update All Submodules at Once
@@ -132,33 +132,33 @@ git fetch
 
 
 # Checkout the desired branch
-git checkout V2.0.0
+git checkout V2.1.0
 
 # Pull the latest changes on that branch
-git pull origin V2.0.0
+git pull origin V2.1.0
 
 # Go back to the parent repository
 cd ..
 
 # Update .gitmodules to track the new branch (optional but recommended)
-git config -f .gitmodules submodule.xcplib.branch V2.0.0
+git config -f .gitmodules submodule.xcplib.branch V2.1.0
 
 # Stage the changes
 git add xcplib .gitmodules
 
 # Commit the branch switch
-git commit -m "Switch xcplib submodule to V2.0.0 branch"
+git commit -m "Switch xcplib submodule to V2.1.0 branch"
 ```
 
 ### Configure Submodule to Always Track a Branch
 
 ```bash
 # Set the branch in .gitmodules
-git config -f .gitmodules submodule.xcplib.branch V2.0.0
+git config -f .gitmodules submodule.xcplib.branch V2.1.0
 
 # Commit the configuration change
 git add .gitmodules
-git commit -m "Configure xcplib to track V2.0.0 branch"
+git commit -m "Configure xcplib to track V2.1.0 branch"
 ```
 
 ---
@@ -175,14 +175,14 @@ cd xcplib
 git fetch --tags
 
 # Checkout the specific tag
-git checkout tags/V2.0.0
+git checkout tags/V2.1.0
 
 # Go back to the parent repository
 cd ..
 
 # Stage and commit
 git add xcplib
-git commit -m "Pin xcplib submodule to tag V2.0.0"
+git commit -m "Pin xcplib submodule to tag V2.1.0"
 ```
 
 ### Checkout a Specific Commit Hash
