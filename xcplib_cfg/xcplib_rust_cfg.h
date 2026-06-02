@@ -108,7 +108,11 @@
 
 // Transport layer queue, vectored IO lockless with variable queue entry size
 // Default for maximum memory efficiency
+#if defined(_WIN32) || defined(_WIN64)
+#define OPTION_QUEUE_32
+#else
 #define OPTION_QUEUE_64_VAR_SIZE
+#endif
 
 // Transport layer queue, vectored IO lockless with fixed queue entry size
 // For maximum performance with large DTO size, but less efficient memory usage with partially filled queue entries
