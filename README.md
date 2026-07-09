@@ -53,10 +53,19 @@ build, run and command line instructions common to all of them.
 ### Build
 
 ```
+git clone --recurse-submodules https://github.com/vectorgrp/xcp-lite
+cd xcp-lite
 cargo build
 cargo build --release
-cargo build --features a2l_reader
-cargo build --no-default-features   # disable the linkme calibration segment registry
+cargo b --workspace             # build all example targets
+cargo b --features a2l_reader   # enable A2L generator syntax check
+cargo b --no-default-features   # disable the linkme calibration segment registry
+```
+
+### Run
+
+```
+cargo r -p hello_xcp
 ```
 
 ### Test

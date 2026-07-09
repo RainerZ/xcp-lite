@@ -171,7 +171,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     // @@@@ Test: Create the A2L file now, otherwise it will be created on first client connection
-    //_xcp.finalize_registry()?;
+    _xcp.finalize_registry()?;
 
     let mut sleep_time: u64;
     loop {
