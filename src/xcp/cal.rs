@@ -6,9 +6,6 @@
 
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn};
-use parking_lot::Mutex;
-use std::default;
-use std::sync::Arc;
 
 #[cfg(feature = "linkme")]
 use linkme::distributed_slice;
@@ -18,14 +15,9 @@ use std::sync::Once;
 use std::sync::atomic::{AtomicU16, Ordering};
 
 use crate::registry;
-
-use crate::xcp;
 use crate::xcp::xcplib;
-use xcp::Xcp;
-
-use std::{marker::PhantomData, ops::Deref, ops::DerefMut};
-
 use registry::{McRegisterTarget, McRegisterType};
+use std::{marker::PhantomData, ops::Deref, ops::DerefMut};
 
 //-----------------------------------------------------------------------------
 // CalPageTrait
@@ -478,8 +470,6 @@ unsafe impl<T> Sync for CalCell<T> where T: CalPageTrait {}
 #[cfg(test)]
 mod cal_tests {
 
-    #![allow(dead_code)]
-    use std::sync::Arc;
     use std::thread;
 
     use super::*;
@@ -493,8 +483,8 @@ mod cal_tests {
     fn is_send<T: Sized + Send>() {}
     fn is_sync<T: Sized + Sync>() {}
     fn is_clone<T: Sized + Clone>() {}
-    fn is_send_clone<T: Sized + Send + Clone>() {}
-    fn is_send_sync<T: Sized + Send + Sync>() {}
+    // fn is_send_clone<T: Sized + Send + Clone>() {}
+    // fn is_send_sync<T: Sized + Send + Sync>() {}
 
     /// Write to json file
     pub fn save<T, P: AsRef<std::path::Path>>(page: &T, filename: P) -> Result<(), std::io::Error>
@@ -707,6 +697,7 @@ mod cal_tests {
         c: u32,
     }
 
+    #[allow(dead_code)]
     #[derive(serde::Serialize, serde::Deserialize, Debug, Copy, Clone, McRegisterType)]
     struct CalPage2 {
         a: u32,
@@ -714,16 +705,16 @@ mod cal_tests {
         c: u32,
     }
 
-    #[derive(serde::Serialize, serde::Deserialize, Debug, Copy, Clone, McRegisterType)]
-    struct CalPage3 {
-        a: u32,
-        b: u32,
-        c: u32,
-    }
+    // #[derive(serde::Serialize, serde::Deserialize, Debug, Copy, Clone, McRegisterType)]
+    // struct CalPage3 {
+    //     a: u32,
+    //     b: u32,
+    //     c: u32,
+    // }
 
-    static FLASH_PAGE1: CalPage1 = CalPage1 { a: 2, b: 4, c: 6 };
-    static FLASH_PAGE2: CalPage2 = CalPage2 { a: 2, b: 4, c: 6 };
-    static FLASH_PAGE3: CalPage3 = CalPage3 { a: 2, b: 4, c: 6 };
+    // static FLASH_PAGE1: CalPage1 = CalPage1 { a: 2, b: 4, c: 6 };
+    // static FLASH_PAGE2: CalPage2 = CalPage2 { a: 2, b: 4, c: 6 };
+    // static FLASH_PAGE3: CalPage3 = CalPage3 { a: 2, b: 4, c: 6 };
 
     // macro_rules! test_is_mut {
     //     ( $s:ident ) => {

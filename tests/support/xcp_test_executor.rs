@@ -2,13 +2,8 @@
 // Module xcp_test_executor
 // Runs various tests against a XCP server on local host UDP port 5555
 
-#![allow(dead_code)]
-#![allow(unused_imports)]
-
 use log::{debug, error, info, trace, warn};
 use parking_lot::Mutex;
-use std::net::SocketAddr;
-use std::num::Wrapping;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64};
 use tokio::time::{Duration, Instant};
@@ -276,6 +271,7 @@ impl XcpDaqDecoder for DaqDecoder {
 //-----------------------------------------------------------------------
 // Execute tests
 
+#[allow(unused)]
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TestModeDaq {
     None,
@@ -392,6 +388,7 @@ pub async fn test_daq(
 // Consistent calibration test loop
 // Do MAX_ITER consistent calibrations on cal_seg.sync_test1/2 cal_test
 // Thread task will panic if inconsistent
+#[allow(dead_code)]
 async fn test_consistent_calibration(xcp_client: &mut XcpClient) -> bool {
     let mut error_state = false;
 

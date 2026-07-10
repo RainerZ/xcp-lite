@@ -2,7 +2,7 @@
 // Module xcp_client
 // Simplified, quick and dirty implementation of an UDP XCP client for integration testing
 
-#![allow(dead_code)] // because of all the unused XCP definitions
+ // because of all the unused XCP definitions
 
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn};

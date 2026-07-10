@@ -1,17 +1,14 @@
 //----------------------------------------------------------------------------------------------
 // Module xcp
 
-#![allow(unused_imports)]
+// Disabled clippy lints
+#![allow(non_camel_case_types)] // Allow non-camel case types (xcplib.rs)
 
-use bitflags::bitflags;
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
-use std::{
-    ptr::null,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, AtomicU8, Ordering},
-    },
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
 };
 
 use crate::registry::{self, McAddress, McEvent};
@@ -21,6 +18,7 @@ use crate::registry::{self, McAddress, McEvent};
 
 // Submodule daq
 pub mod daq;
+pub use daq::DaqEvent;
 
 // Submodule cal
 mod cal;
@@ -31,6 +29,7 @@ pub use cal::CalSeg;
 pub use cal::{CAL_SEG_REGISTRY, CalSegDescriptor};
 
 // Submodule xcplib ffi c bindings
+#[allow(unused)]
 pub mod xcplib;
 
 //-----------------------------------------------------------------------------
@@ -160,6 +159,7 @@ impl EventList {
         EventList(Vec::new())
     }
 
+    #[allow(dead_code)]
     fn clear(&mut self) {
         self.0.clear();
     }
@@ -406,20 +406,20 @@ impl Xcp {
         }
     }
 
-    /// Get calibration segment name by index
-    #[allow(clippy::cast_possible_truncation)] // @@@@ TODO: Improve index as u16
-    fn get_calseg_name(&self, index: usize) -> &'static str {
-        unsafe {
-            // @@@@ UNSAFE - C library call
-            let name_ptr = xcplib::XcpGetCalSegName(index as u16);
-            if !name_ptr.is_null() {
-                let c_str = std::ffi::CStr::from_ptr(name_ptr);
-                c_str.to_str().unwrap_or("")
-            } else {
-                panic!("Calibration segment {} does not exist", index);
-            }
-        }
-    }
+    // Get calibration segment name by index
+    // #[allow(clippy::cast_possible_truncation)] // @@@@ TODO: Improve index as u16
+    // fn get_calseg_name(&self, index: usize) -> &'static str {
+    //     unsafe {
+    //         // @@@@ UNSAFE - C library call
+    //         let name_ptr = xcplib::XcpGetCalSegName(index as u16);
+    //         if !name_ptr.is_null() {
+    //             let c_str = std::ffi::CStr::from_ptr(name_ptr);
+    //             c_str.to_str().unwrap_or("")
+    //         } else {
+    //             panic!("Calibration segment {} does not exist", index);
+    //         }
+    //     }
+    // }
 
     //------------------------------------------------------------------------------------------
     // XCP events

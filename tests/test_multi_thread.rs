@@ -10,13 +10,11 @@
 // Has a global calibration segment shared between the threads, which is modified by the test executor XCP client
 // The parameters below may be tuned to produce large data volumes and heavy thread event contention
 
-#![allow(unused_assignments)]
-#![allow(unused_imports)]
-
+#[allow(unused_imports)]
 use log::{debug, error, info, trace, warn};
+
 use std::{fmt::Debug, thread};
 use tokio::time::Duration;
-
 use xcp_lite::registry::*;
 use xcp_lite::*;
 
@@ -120,7 +118,7 @@ fn task(index: usize) {
     let mut loop_counter: u64 = 0;
     let mut changes: u64 = 0;
     let mut counter_max: u32 = 0;
-    let mut time: u64 = 0;
+    let mut time: u64;
     let mut test0: u64 = 0;
     let mut test1: u64 = 0;
     let mut test2: u64 = 0;
@@ -340,7 +338,7 @@ async fn test_multi_thread() {
 
     // Create an event (just to disturb the event creating order of the tasks starting)
     let event = daq_create_event!("join_order");
-    let mut task_index = 0;
+    let task_index = 0;
     daq_register!(task_index, event, "task terminated event", "");
 
     // In shm_mode, registry has to be finalized manually
@@ -360,9 +358,9 @@ async fn test_multi_thread() {
     .await; // Start the test executor XCP client
 
     debug!("Test done. Waiting for tasks to terminate");
-    for (i, t) in v {
+    for (_i, t) in v {
         t.join().unwrap();
-        task_index = i;
+        //task_index = i;
         event.trigger();
     }
 

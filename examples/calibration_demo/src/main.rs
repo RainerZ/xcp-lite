@@ -4,14 +4,11 @@
 // Run the demo
 // cargo run  -p calibration_demo
 
-#![allow(unused_imports)]
+#[allow(unused_imports)]
+use log::{debug, error, info, trace, warn};
 
 use anyhow::Result;
-use log::{debug, error, info, trace, warn};
-use std::mem::offset_of;
-use std::net::Ipv4Addr;
 use std::{fmt::Debug, thread, time::Duration};
-
 use xcp_lite::registry::*;
 use xcp_lite::*;
 
