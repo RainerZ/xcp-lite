@@ -6,16 +6,15 @@
 // Creates madelbrot.a2l and mandelbrot.png in current directory
 
 #![allow(unused_assignments)]
-#![allow(unused_imports)]
+
+#[allow(unused_imports)]
+use log::{debug, error, info, trace, warn};
 
 use anyhow::Result;
 use image::{ImageBuffer, Rgb};
-use log::{debug, error, info, trace, warn};
 use num::Complex;
 use rayon::prelude::*;
-use std::net::Ipv4Addr;
 use std::{thread, time::Duration};
-
 use xcp_lite::registry::*;
 use xcp_lite::*;
 

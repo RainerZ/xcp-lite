@@ -2,6 +2,7 @@
 // Demonstrates measurement of nested structs
 
 #![allow(unused_assignments)]
+
 #[allow(unused_imports)]
 use log::{debug, error, info, trace, warn};
 

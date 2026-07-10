@@ -10,8 +10,6 @@
 #![crate_type = "lib"]
 // The library crate is named "xcp_lite"
 #![crate_name = "xcp_lite"]
-//
-// Disabled clippy lints
 
 //-----------------------------------------------------------------------------
 
@@ -19,10 +17,10 @@
 mod xcp;
 pub use xcp::CalCell;
 pub use xcp::CalSeg;
+pub use xcp::DaqEvent;
 pub use xcp::Xcp;
 pub use xcp::XcpEvent;
 pub use xcp::XcpTransportLayer;
-pub use xcp::daq::daq_event::DaqEvent;
 
 // Public submodule metrics
 pub mod metrics;
@@ -49,7 +47,7 @@ pub mod _private {
 }
 
 // EPK calibration segment definitions, must match libxcplite definitions
-pub(crate) const EPK_SEG_NAME: &str = "epk";
+//pub(crate) const EPK_SEG_NAME: &str = "epk";
 pub(crate) const EPK_SEG_SIZE: usize = 31;
 pub(crate) const EPK_SEG_ADDR: u32 = 0x80000000;
 

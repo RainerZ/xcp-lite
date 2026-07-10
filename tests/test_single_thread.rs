@@ -5,8 +5,8 @@
 // cargo test --features=a2l_reader -- --test-threads=1 --nocapture  --test test_single_thread
 
 #![allow(unused_imports)]
-
 use log::{debug, error, info, trace, warn};
+
 use std::{fmt::Debug, thread};
 use tokio::time::Duration;
 

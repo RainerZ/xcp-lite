@@ -268,8 +268,8 @@ impl<const N: usize> Histogram<N> {
 #[cfg(test)]
 mod histogram_tests {
 
-    #![allow(dead_code)]
-    #![allow(unused_imports)]
+    
+    
 
     use super::*;
 
