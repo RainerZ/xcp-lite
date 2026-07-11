@@ -337,59 +337,20 @@ impl GenerateA2l for McXcpTransportLayer {
             // )
         }
         // SxI
-        // Example: /begin XCP_ON_SxI 0x0100 0x9600 ASYNCH_FULL_DUPLEX_MODE PARITY_NONE ONE_STOP_BIT HEADER_LEN_BYTE CHECKSUM_BYTE /end XCP_ON_SxI
         else if protocol == "SxI" {
-            /*
-
-                      struct SxI_Parameters { /* At MODULE */
-            uint;                 /* XCP on SxI version */
-                                  /* "1.4" = 0x0104 */
-            ulong;                /* BAUDRATE [Hz] */
-            taggedstruct {        /* exclusive tags */
-              "ASYNCH_FULL_DUPLEX_MODE" struct {
-                enum {
-                  "PARITY_NONE" = 0,
-                  "PARITY_ODD" = 1,
-                  "PARITY_EVEN" = 2
-                };
-                enum {
-                  "ONE_STOP_BIT" = 1,
-                  "TWO_STOP_BITS" = 2
-                };
-                taggedstruct {
-                  block "FRAMING" struct {
-                    uchar;        /* SYNC */
-                    uchar;        /* ESC */
-                  };
-                };
-              };
-              "SYNCH_FULL_DUPLEX_MODE_BYTE";
-              "SYNCH_FULL_DUPLEX_MODE_WORD";
-              "SYNCH_FULL_DUPLEX_MODE_DWORD";
-              "SYNCH_MASTER_SLAVE_MODE_BYTE";
-              "SYNCH_MASTER_SLAVE_MODE_WORD";
-              "SYNCH_MASTER_SLAVE_MODE_DWORD";
-            };
-            enum {
-              "HEADER_LEN_BYTE" = 0,
-              "HEADER_LEN_CTR_BYTE" = 1,
-              "HEADER_LEN_FILL_BYTE" = 2,
-              "HEADER_LEN_WORD" = 3,
-              "HEADER_LEN_CTR_WORD" = 4,
-              "HEADER_LEN_FILL_WORD" = 5
-            };
-            enum {
-              "NO_CHECKSUM" = 0,
-              "CHECKSUM_BYTE" = 1,
-              "CHECKSUM_WORD" = 2
-            };
-                      */
-            // @@@@ TODO: Implement (SxI)
+            /* Example (CANape default SLIP framingconfiguration):
+                /begin XCP_ON_SxI
+                    0x0100 115200
+                    ASYNCH_FULL_DUPLEX_MODE PARITY_NONE ONE_STOP_BIT
+                    FRAMING 0x9A 0x9B
+                    HEADER_LEN_BYTE CHECKSUM_BYTE
+                /end XCP_ON_SxI
+            */
             let baud_rate = self.baud_rate.unwrap();
             log::info!("A2L writer: transport layer: SxI baud_rate={baud_rate}");
             writeln!(
                 writer,
-                "\n\t\t/begin XCP_ON_SxI 0x0100 {baud_rate} ASYNCH_FULL_DUPLEX_MODE PARITY_NONE ONE_STOP_BIT HEADER_LEN_BYTE CHECKSUM_BYTE /end XCP_ON_SxI",
+                "\n\t\t/begin XCP_ON_SxI 0x0100 {baud_rate} ASYNCH_FULL_DUPLEX_MODE PARITY_NONE ONE_STOP_BIT FRAMING 0x9A 0x9B HEADER_LEN_BYTE CHECKSUM_BYTE /end XCP_ON_SxI",
             )
         } else {
             log::warn!("A2L writer: transport layer: {} not supported", protocol);
