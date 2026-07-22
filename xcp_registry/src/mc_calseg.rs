@@ -95,23 +95,26 @@ impl McCalibrationSegment {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct McCalibrationSegmentList(pub Vec<McCalibrationSegment>);
 
+impl std::ops::Deref for McCalibrationSegmentList {
+    type Target = [McCalibrationSegment];
+    fn deref(&self) -> &[McCalibrationSegment] {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for McCalibrationSegmentList {
+    fn deref_mut(&mut self) -> &mut [McCalibrationSegment] {
+        &mut self.0
+    }
+}
+
 impl McCalibrationSegmentList {
     pub fn new() -> Self {
         McCalibrationSegmentList(Vec::with_capacity(8))
     }
 
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
     pub fn push(&mut self, object: McCalibrationSegment) {
         self.0.push(object);
-    }
-
-    pub fn get(&self, index: usize) -> Option<&McCalibrationSegment> {
-        self.0.get(index)
     }
 
     pub fn sort_by_name(&mut self) {
@@ -207,71 +210,20 @@ impl McCalibrationSegmentList {
     }
 }
 
-//-------------------------------------------------------------------------------------------------
-// McCalibrationSegmentListIterator
-
-/// Iterator for EventList
-pub struct McCalibrationSegmentListIterator<'a> {
-    index: usize,
-    list: &'a McCalibrationSegmentList,
-}
-
-impl<'a> McCalibrationSegmentListIterator<'_> {
-    pub fn new(list: &'a McCalibrationSegmentList) -> McCalibrationSegmentListIterator<'a> {
-        McCalibrationSegmentListIterator { index: 0, list }
-    }
-}
-
-impl<'a> Iterator for McCalibrationSegmentListIterator<'a> {
-    type Item = &'a McCalibrationSegment;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let index = self.index;
-        if index < self.list.0.len() {
-            self.index += 1;
-            Some(&self.list.0[index])
-        } else {
-            None
-        }
-    }
-}
-
 impl<'a> IntoIterator for &'a McCalibrationSegmentList {
     type Item = &'a McCalibrationSegment;
-    type IntoIter = McCalibrationSegmentListIterator<'a>;
+    type IntoIter = std::slice::Iter<'a, McCalibrationSegment>;
 
-    fn into_iter(self) -> McCalibrationSegmentListIterator<'a> {
-        McCalibrationSegmentListIterator::new(self)
-    }
-}
-
-//-------------------------------------------------------------------------------------------------
-// McCalibrationSegmentListIteratorMut (Mutable Iterator)
-
-/// Mutable iterator for CalibrationSegmentList
-pub struct McCalibrationSegmentListIteratorMut<'a> {
-    iter: std::slice::IterMut<'a, McCalibrationSegment>,
-}
-
-impl<'a> McCalibrationSegmentListIteratorMut<'a> {
-    pub fn new(list: &'a mut McCalibrationSegmentList) -> McCalibrationSegmentListIteratorMut<'a> {
-        McCalibrationSegmentListIteratorMut { iter: list.0.iter_mut() }
-    }
-}
-
-impl<'a> Iterator for McCalibrationSegmentListIteratorMut<'a> {
-    type Item = &'a mut McCalibrationSegment;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next()
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
     }
 }
 
 impl<'a> IntoIterator for &'a mut McCalibrationSegmentList {
     type Item = &'a mut McCalibrationSegment;
-    type IntoIter = McCalibrationSegmentListIteratorMut<'a>;
+    type IntoIter = std::slice::IterMut<'a, McCalibrationSegment>;
 
-    fn into_iter(self) -> McCalibrationSegmentListIteratorMut<'a> {
-        McCalibrationSegmentListIteratorMut::new(self)
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter_mut()
     }
 }

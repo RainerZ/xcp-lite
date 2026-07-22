@@ -64,22 +64,26 @@ impl McTypeDef {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct McTypeDefList(Vec<McTypeDef>);
 
+impl std::ops::Deref for McTypeDefList {
+    type Target = [McTypeDef];
+    fn deref(&self) -> &[McTypeDef] {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for McTypeDefList {
+    fn deref_mut(&mut self) -> &mut [McTypeDef] {
+        &mut self.0
+    }
+}
+
 impl McTypeDefList {
     pub fn new() -> Self {
         McTypeDefList(Vec::with_capacity(16))
     }
 
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-    pub fn get(&self, index: usize) -> Option<&McTypeDef> {
-        self.0.get(index)
-    }
     pub fn get_mut(&mut self, index: usize) -> &mut McTypeDef {
         &mut self.0[index]
-    }
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
     }
     pub fn push(&mut self, object: McTypeDef) {
         self.0.push(object);
@@ -99,48 +103,12 @@ impl McTypeDefList {
     }
 }
 
-//-------------------------------------------------------------------------------------------------
-// TypeDefListIterator
-
-/// Iterator for TypeDefList
-pub struct McTypeDefListIterator<'a> {
-    index: usize,
-    list: &'a McTypeDefList,
-}
-
-impl<'a> McTypeDefListIterator<'_> {
-    pub fn new(list: &'a McTypeDefList) -> McTypeDefListIterator<'a> {
-        McTypeDefListIterator { index: 0, list }
-    }
-}
-
-impl<'a> Iterator for McTypeDefListIterator<'a> {
-    type Item = &'a McTypeDef;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let index = self.index;
-        if index < self.list.0.len() {
-            self.index += 1;
-            Some(&self.list.0[index])
-        } else {
-            None
-        }
-    }
-}
-
 impl<'a> IntoIterator for &'a McTypeDefList {
     type Item = &'a McTypeDef;
-    type IntoIter = McTypeDefListIterator<'a>;
+    type IntoIter = std::slice::Iter<'a, McTypeDef>;
 
-    fn into_iter(self) -> McTypeDefListIterator<'a> {
-        McTypeDefListIterator::new(self)
-    }
-}
-
-// Just pass iter_mut up
-impl McTypeDefList {
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut McTypeDef> {
-        self.0.iter_mut()
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
     }
 }
 
@@ -199,17 +167,24 @@ impl McTypeDefField {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct McTypeDefFieldList(Vec<McTypeDefField>);
 
+impl std::ops::Deref for McTypeDefFieldList {
+    type Target = [McTypeDefField];
+    fn deref(&self) -> &[McTypeDefField] {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for McTypeDefFieldList {
+    fn deref_mut(&mut self) -> &mut [McTypeDefField] {
+        &mut self.0
+    }
+}
+
 impl McTypeDefFieldList {
     pub fn new() -> Self {
         McTypeDefFieldList(Vec::with_capacity(8))
     }
 
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
     pub fn push(&mut self, object: McTypeDefField) {
         self.0.push(object);
     }
@@ -219,47 +194,11 @@ impl McTypeDefFieldList {
     }
 }
 
-//-------------------------------------------------------------------------------------------------
-// TypeDefFieldListIterator
-
-/// Iterator for TypeDefFieldList
-pub struct McTypeDefFieldListIterator<'a> {
-    index: usize,
-    list: &'a McTypeDefFieldList,
-}
-
-impl<'a> McTypeDefFieldListIterator<'_> {
-    pub fn new(list: &'a McTypeDefFieldList) -> McTypeDefFieldListIterator<'a> {
-        McTypeDefFieldListIterator { index: 0, list }
-    }
-}
-
-impl<'a> Iterator for McTypeDefFieldListIterator<'a> {
-    type Item = &'a McTypeDefField;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let index = self.index;
-        if index < self.list.0.len() {
-            self.index += 1;
-            Some(&self.list.0[index])
-        } else {
-            None
-        }
-    }
-}
-
 impl<'a> IntoIterator for &'a McTypeDefFieldList {
     type Item = &'a McTypeDefField;
-    type IntoIter = McTypeDefFieldListIterator<'a>;
+    type IntoIter = std::slice::Iter<'a, McTypeDefField>;
 
-    fn into_iter(self) -> McTypeDefFieldListIterator<'a> {
-        McTypeDefFieldListIterator::new(self)
-    }
-}
-
-// Just pass iter_mut up
-impl McTypeDefFieldList {
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut McTypeDefField> {
-        self.0.iter_mut()
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
     }
 }

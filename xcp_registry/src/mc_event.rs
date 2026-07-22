@@ -88,6 +88,19 @@ impl McEvent {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct McEventList(Vec<McEvent>);
 
+impl std::ops::Deref for McEventList {
+    type Target = [McEvent];
+    fn deref(&self) -> &[McEvent] {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for McEventList {
+    fn deref_mut(&mut self) -> &mut [McEvent] {
+        &mut self.0
+    }
+}
+
 impl McEventList {
     pub fn new() -> Self {
         McEventList(Vec::with_capacity(100))
@@ -110,12 +123,6 @@ impl McEventList {
         Ok(())
     }
 
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
     pub fn push(&mut self, object: McEvent) {
         self.0.push(object);
     }
@@ -160,71 +167,20 @@ impl McEventList {
     }
 }
 
-//-------------------------------------------------------------------------------------------------
-// EventListIterator
-
-/// Iterator for EventList
-pub struct McEventListIterator<'a> {
-    index: usize,
-    list: &'a McEventList,
-}
-
-impl<'a> McEventListIterator<'_> {
-    pub fn new(list: &'a McEventList) -> McEventListIterator<'a> {
-        McEventListIterator { index: 0, list }
-    }
-}
-
-impl<'a> Iterator for McEventListIterator<'a> {
-    type Item = &'a McEvent;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let index = self.index;
-        if index < self.list.0.len() {
-            self.index += 1;
-            Some(&self.list.0[index])
-        } else {
-            None
-        }
-    }
-}
-
 impl<'a> IntoIterator for &'a McEventList {
     type Item = &'a McEvent;
-    type IntoIter = McEventListIterator<'a>;
+    type IntoIter = std::slice::Iter<'a, McEvent>;
 
-    fn into_iter(self) -> McEventListIterator<'a> {
-        McEventListIterator::new(self)
-    }
-}
-
-//-------------------------------------------------------------------------------------------------
-// McEventListIteratorMut (Mutable Iterator)
-
-/// Mutable iterator for EventList
-pub struct McEventListIteratorMut<'a> {
-    iter: std::slice::IterMut<'a, McEvent>,
-}
-
-impl<'a> McEventListIteratorMut<'a> {
-    pub fn new(list: &'a mut McEventList) -> McEventListIteratorMut<'a> {
-        McEventListIteratorMut { iter: list.0.iter_mut() }
-    }
-}
-
-impl<'a> Iterator for McEventListIteratorMut<'a> {
-    type Item = &'a mut McEvent;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next()
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
     }
 }
 
 impl<'a> IntoIterator for &'a mut McEventList {
     type Item = &'a mut McEvent;
-    type IntoIter = McEventListIteratorMut<'a>;
+    type IntoIter = std::slice::IterMut<'a, McEvent>;
 
-    fn into_iter(self) -> McEventListIteratorMut<'a> {
-        McEventListIteratorMut::new(self)
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter_mut()
     }
 }

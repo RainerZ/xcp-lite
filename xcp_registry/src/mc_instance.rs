@@ -1,6 +1,6 @@
 // Module mc_instance
 // Types:
-//  McInstance, McInstanceList, McInstanceListIterator
+//  McInstance, McInstanceList
 
 use regex::Regex;
 use std::borrow::Cow;
@@ -190,6 +190,19 @@ impl Default for McInstanceList {
     }
 }
 
+impl std::ops::Deref for McInstanceList {
+    type Target = [McInstance];
+    fn deref(&self) -> &[McInstance] {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for McInstanceList {
+    fn deref_mut(&mut self) -> &mut [McInstance] {
+        &mut self.0
+    }
+}
+
 impl McInstanceList {
     pub fn new() -> Self {
         McInstanceList(Vec::with_capacity(100))
@@ -197,13 +210,6 @@ impl McInstanceList {
 
     pub fn push(&mut self, object: McInstance) {
         self.0.push(object);
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
     }
 
     pub fn append(&mut self, other: &mut Self) {
@@ -301,80 +307,32 @@ impl McInstanceList {
             Vec::new()
         }
     }
+
+    pub fn retain<F>(&mut self, f: F)
+    where
+        F: FnMut(&McInstance) -> bool,
+    {
+        self.0.retain(f);
+    }
 }
 
 //-------------------------------------------------------------------------------------------------
-// InstanceListIterator
-
-/// Iterator for InstanceList
-pub struct McInstanceListIterator<'a> {
-    index: usize,
-    list: &'a McInstanceList,
-}
-
-impl<'a> McInstanceListIterator<'_> {
-    pub fn new(list: &'a McInstanceList) -> McInstanceListIterator<'a> {
-        McInstanceListIterator { index: 0, list }
-    }
-}
-
-impl<'a> Iterator for McInstanceListIterator<'a> {
-    type Item = &'a McInstance;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let index = self.index;
-        if index < self.list.0.len() {
-            self.index += 1;
-            Some(&self.list.0[index])
-        } else {
-            None
-        }
-    }
-}
+// IntoIterator
 
 impl<'a> IntoIterator for &'a McInstanceList {
     type Item = &'a McInstance;
-    type IntoIter = McInstanceListIterator<'a>;
+    type IntoIter = std::slice::Iter<'a, McInstance>;
 
-    fn into_iter(self) -> McInstanceListIterator<'a> {
-        McInstanceListIterator::new(self)
-    }
-}
-
-//-------------------------------------------------------------------------------------------------
-// McInstanceListIteratorMut (Mutable Iterator)
-
-/// Mutable iterator for InstanceList
-pub struct McInstanceListIteratorMut<'a> {
-    iter: std::slice::IterMut<'a, McInstance>,
-}
-
-impl<'a> McInstanceListIteratorMut<'a> {
-    pub fn new(list: &'a mut McInstanceList) -> McInstanceListIteratorMut<'a> {
-        McInstanceListIteratorMut { iter: list.0.iter_mut() }
-    }
-}
-
-impl<'a> Iterator for McInstanceListIteratorMut<'a> {
-    type Item = &'a mut McInstance;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next()
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
     }
 }
 
 impl<'a> IntoIterator for &'a mut McInstanceList {
     type Item = &'a mut McInstance;
-    type IntoIter = McInstanceListIteratorMut<'a>;
+    type IntoIter = std::slice::IterMut<'a, McInstance>;
 
-    fn into_iter(self) -> McInstanceListIteratorMut<'a> {
-        McInstanceListIteratorMut::new(self)
-    }
-}
-
-// Just pass iter_mut up
-impl McInstanceList {
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut McInstance> {
+    fn into_iter(self) -> Self::IntoIter {
         self.0.iter_mut()
     }
 }
