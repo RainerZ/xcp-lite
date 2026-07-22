@@ -3,6 +3,7 @@
 //  McTypeDef, McTypeDefField
 
 use std::borrow::Cow;
+use std::{ops::Deref, ops::DerefMut};
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -88,14 +89,14 @@ impl McEvent {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct McEventList(Vec<McEvent>);
 
-impl std::ops::Deref for McEventList {
+impl Deref for McEventList {
     type Target = [McEvent];
     fn deref(&self) -> &[McEvent] {
         &self.0
     }
 }
 
-impl std::ops::DerefMut for McEventList {
+impl DerefMut for McEventList {
     fn deref_mut(&mut self) -> &mut [McEvent] {
         &mut self.0
     }

@@ -4,6 +4,7 @@
 
 use regex::Regex;
 use std::borrow::Cow;
+use std::{ops::Deref, ops::DerefMut};
 
 use super::McAddress;
 use super::McDimType;
@@ -190,14 +191,14 @@ impl Default for McInstanceList {
     }
 }
 
-impl std::ops::Deref for McInstanceList {
+impl Deref for McInstanceList {
     type Target = [McInstance];
     fn deref(&self) -> &[McInstance] {
         &self.0
     }
 }
 
-impl std::ops::DerefMut for McInstanceList {
+impl DerefMut for McInstanceList {
     fn deref_mut(&mut self) -> &mut [McInstance] {
         &mut self.0
     }

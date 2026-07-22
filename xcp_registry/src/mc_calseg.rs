@@ -3,6 +3,7 @@
 //  McTypeDef, McTypeDefField
 
 use std::borrow::Cow;
+use std::{ops::Deref, ops::DerefMut};
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -95,14 +96,14 @@ impl McCalibrationSegment {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct McCalibrationSegmentList(pub Vec<McCalibrationSegment>);
 
-impl std::ops::Deref for McCalibrationSegmentList {
+impl Deref for McCalibrationSegmentList {
     type Target = [McCalibrationSegment];
     fn deref(&self) -> &[McCalibrationSegment] {
         &self.0
     }
 }
 
-impl std::ops::DerefMut for McCalibrationSegmentList {
+impl DerefMut for McCalibrationSegmentList {
     fn deref_mut(&mut self) -> &mut [McCalibrationSegment] {
         &mut self.0
     }

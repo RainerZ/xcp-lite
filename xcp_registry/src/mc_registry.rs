@@ -284,7 +284,7 @@ impl Registry {
         // Add to typedef list
         self.typedef_list.push(McTypeDef::new(type_name, size));
         let index = self.typedef_list.len() - 1;
-        Ok(self.typedef_list.get_mut(index))
+        Ok(&mut self.typedef_list[index])
     }
 
     //---------------------------------------------------------------------------------------------------------

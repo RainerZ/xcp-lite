@@ -2,6 +2,8 @@
 // Types:
 //  McTypeDef, McTypeDefField
 
+use std::{ops::Deref, ops::DerefMut};
+
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -64,14 +66,14 @@ impl McTypeDef {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct McTypeDefList(Vec<McTypeDef>);
 
-impl std::ops::Deref for McTypeDefList {
+impl Deref for McTypeDefList {
     type Target = [McTypeDef];
     fn deref(&self) -> &[McTypeDef] {
         &self.0
     }
 }
 
-impl std::ops::DerefMut for McTypeDefList {
+impl DerefMut for McTypeDefList {
     fn deref_mut(&mut self) -> &mut [McTypeDef] {
         &mut self.0
     }
@@ -82,9 +84,6 @@ impl McTypeDefList {
         McTypeDefList(Vec::with_capacity(16))
     }
 
-    pub fn get_mut(&mut self, index: usize) -> &mut McTypeDef {
-        &mut self.0[index]
-    }
     pub fn push(&mut self, object: McTypeDef) {
         self.0.push(object);
     }
@@ -167,14 +166,14 @@ impl McTypeDefField {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct McTypeDefFieldList(Vec<McTypeDefField>);
 
-impl std::ops::Deref for McTypeDefFieldList {
+impl Deref for McTypeDefFieldList {
     type Target = [McTypeDefField];
     fn deref(&self) -> &[McTypeDefField] {
         &self.0
     }
 }
 
-impl std::ops::DerefMut for McTypeDefFieldList {
+impl DerefMut for McTypeDefFieldList {
     fn deref_mut(&mut self) -> &mut [McTypeDefField] {
         &mut self.0
     }

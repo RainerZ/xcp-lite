@@ -7,6 +7,8 @@
 // Immutable, as_str is &'static str
 // May leak memory when converting from String
 
+use std::ops::Deref;
+
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -34,9 +36,8 @@ impl McText {
     }
 }
 
-impl std::ops::Deref for McText {
+impl Deref for McText {
     type Target = str;
-
     fn deref(&self) -> &Self::Target {
         self.0
     }
@@ -157,9 +158,8 @@ impl McIdentifier {
     }
 }
 
-impl std::ops::Deref for McIdentifier {
+impl Deref for McIdentifier {
     type Target = str;
-
     fn deref(&self) -> &Self::Target {
         self.0
     }
