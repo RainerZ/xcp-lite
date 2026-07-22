@@ -26,6 +26,7 @@ fn main() {
             .clang_arg("-Ixcplib")
             // XCPlite configuration override for Rust xcp-lite
             .clang_arg("-DXCPLIB_CFG_OVERRIDE=\"xcplib_rust_cfg.h\"")
+            .clang_arg("-DXCPLITE_CONFIGURATION=\"\"")
             .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
             //
             .blocklist_type("T_CLOCK_INFO")
