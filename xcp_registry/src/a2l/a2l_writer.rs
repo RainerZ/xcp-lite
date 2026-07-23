@@ -1003,11 +1003,14 @@ ASAP2_VERSION 1 71
 
     // IF_DATA XCP
     fn write_a2l_if_data(&mut self) -> std::io::Result<()> {
+        let max_cto: u8 = self.registry.xcp_params.map_or(8, |p| p.max_cto);
+        let max_dto: u16 = self.registry.xcp_params.map_or(8, |p| p.max_dto);
+
         write!(
             self,
             r#"/begin IF_DATA XCP
         /begin PROTOCOL_LAYER
-        0x0104 1000 2000 0 0 0 0 0 252 1468 BYTE_ORDER_MSB_LAST ADDRESS_GRANULARITY_BYTE
+        0x0104 1000 2000 0 0 0 0 0 {max_cto} {max_dto} BYTE_ORDER_MSB_LAST ADDRESS_GRANULARITY_BYTE
         OPTIONAL_CMD GET_COMM_MODE_INFO
         OPTIONAL_CMD GET_ID
         OPTIONAL_CMD SET_REQUEST

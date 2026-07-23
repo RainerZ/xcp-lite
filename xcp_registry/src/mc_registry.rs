@@ -19,6 +19,7 @@ use super::McSupportData;
 use super::McText;
 use super::McTypeDef;
 use super::McTypeDefList;
+use super::McXcpProtocolLayer;
 use super::McXcpTransportLayer;
 use super::RegistryError;
 use super::flatten_registry;
@@ -127,6 +128,11 @@ pub struct Registry {
     #[serde(skip_deserializing)]
     pub xcp_tl_params: Option<McXcpTransportLayer>,
 
+    // XCP protocol layer parameters
+    #[serde(skip_serializing)]
+    #[serde(skip_deserializing)]
+    pub xcp_params: Option<McXcpProtocolLayer>,
+
     // All eventss
     pub event_list: McEventList,
 
@@ -154,6 +160,7 @@ impl Registry {
             prefix_names: false,
             application: McApplication::new(),
             xcp_tl_params: None,
+            xcp_params: None,
             event_list: McEventList::new(),
             cal_seg_list: McCalibrationSegmentList::new(),
             typedef_list: McTypeDefList::new(),
@@ -176,6 +183,7 @@ impl Registry {
             port: Some(port),
             baud_rate: None,
         });
+        self.xcp_params = Some(McXcpProtocolLayer { max_cto: 248, max_dto: 248 });
     }
 
     /// Set XCP transport layer parameters for SxI and enable XCP IF_DATA in A2L
@@ -188,6 +196,7 @@ impl Registry {
             port: None,
             baud_rate: Some(baud_rate),
         });
+        self.xcp_params = Some(McXcpProtocolLayer { max_cto: 8, max_dto: 8 });
     }
 
     /// Check XCP transport layer information is available

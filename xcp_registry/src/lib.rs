@@ -137,6 +137,23 @@ impl Default for McXcpTransportLayer {
 }
 
 //-------------------------------------------------------------------------------------------------
+// McXcpProtocolLayer
+// XCP Protocol layer parameters
+// For A2l XCP IF_DATA
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct McXcpProtocolLayer {
+    pub max_cto: u8,
+    pub max_dto: u16,
+}
+
+impl Default for McXcpProtocolLayer {
+    fn default() -> Self {
+        McXcpProtocolLayer { max_cto: 8, max_dto: 8 }
+    }
+}
+
+//-------------------------------------------------------------------------------------------------
 // Registry singleton
 
 /// Open registry singleton
