@@ -242,7 +242,7 @@ struct CalPage2 {
     #[characteristic(comment = "Period", unit = "s", min = 0, max = 1000, step = 20)]
     period: f64, // VALUE type
 
-    #[characteristic(qualifier = "volatile", comment = "Demo array", unit = "ms", min = 0, max = 100)]
+    #[characteristic(comment = "Demo array", unit = "ms", min = 0, max = 100)]
     array: [f64; 16], // CURVE type (1 dimension)
 
     #[axis(comment = "Demo shared axis for curve1/2", min = 0, max = 100)]
@@ -416,12 +416,18 @@ fn task1(calseg: CalSeg<CalPage>, calseg1: CalSeg<CalPage1>) {
 //-----------------------------------------------------------------------------
 // Demo application main
 
+// Measurement variables types
+
 #[derive(McRegisterType, Debug, Clone, Copy)]
 struct TestStruct {
+    #[measurement(qualifier = "read_write", comment = "Measurement struct field a", min = 0.0, max = 30.0)]
     a: u8,
+    #[measurement(qualifier = "read_write", comment = "Measurement struct field b", min = 0.0, max = 1000.0)]
     b: u64,
+    #[measurement(qualifier = "read_write", comment = "Measurement struct field c", min = -100.0, max = 30.0, unit = "Volt", factor = 0.1, offset = 1.0)]
     c: f64,
 }
+
 #[derive(McRegisterType, Debug, Clone, Copy)]
 struct TestNestedStruct {
     s1: TestStruct,

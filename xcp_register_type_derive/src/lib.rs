@@ -220,8 +220,9 @@ fn build_support(obj: &TokenStream2, attrs: &FieldAttrs) -> TokenStream2 {
     }
     if let Some(q) = attrs.qualifier {
         let qt = match q {
-            Qualifier::Volatile => quote! { ::xcp_registry::McObjectQualifier::Volatile },
+            Qualifier::NoAsyncAccess => quote! { ::xcp_registry::McObjectQualifier::NoAsyncAccess },
             Qualifier::ReadOnly => quote! { ::xcp_registry::McObjectQualifier::ReadOnly },
+            Qualifier::ReadWrite => quote! { ::xcp_registry::McObjectQualifier::ReadWrite },
         };
         support = quote! { #support.set_qualifier(#qt) };
     }

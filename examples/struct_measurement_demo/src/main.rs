@@ -73,11 +73,11 @@ static PARAMETERS: std::sync::OnceLock<CalCell<Parameters>> = std::sync::OnceLoc
 
 #[derive(McRegisterType, Debug, Clone, Copy)]
 struct Counters {
-    #[measurement(comment = "counter", min = 0.0, max = 1000.0)]
+    #[measurement(qualifier = "read_write", comment = "counter", min = 0.0, max = 1000.0)]
     a: i16,
-    #[measurement(comment = "counter*2", min = 0.0, max = 2000.0)]
+    #[measurement(qualifier = "read_write", comment = "counter*2", min = 0.0, max = 2000.0)]
     b: u64,
-    #[measurement(comment = "counter*3", min = 0.0, max = 3000.0)]
+    #[measurement(qualifier = "read_write", comment = "counter*3", min = 0.0, max = 3000.0)]
     c: f64,
 }
 

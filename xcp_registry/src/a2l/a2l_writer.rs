@@ -718,8 +718,8 @@ impl McInstance {
                 if ext != 0 {
                     write!(writer, " ECU_ADDRESS_EXTENSION {ext}")?;
                 }
-                // Dynamic addressing mode makes it possible to write a measurement object
-                if self.address.is_event_relative() || self.address.is_absolute() {
+                // Dynamic or absolute addressing mode makes it possible to write a measurement object
+                if self.mc_support_data.qualifier == McObjectQualifier::ReadWrite && (self.address.is_event_relative() || self.address.is_absolute()) {
                     write!(writer, " READ_WRITE")?;
                 }
                 if !unit.is_empty() {
@@ -846,6 +846,8 @@ impl McInstance {
             if ext != 0 {
                 write!(writer, " ECU_ADDRESS_EXTENSION {}", ext)?;
             }
+
+            // @@@@ TODO: Support the read only qualifier for CHARACTERISTIC self.mc_support_data.qualifier == "read_only"
 
             writeln!(writer, " /end CHARACTERISTIC")?;
         }

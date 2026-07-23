@@ -21,8 +21,9 @@ pub(crate) enum Classifier {
 /// Object qualifier.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Qualifier {
-    Volatile,
+    NoAsyncAccess,
     ReadOnly,
+    ReadWrite,
 }
 
 /// Parsed attributes for a single field.
@@ -151,10 +152,11 @@ fn apply_key(attrs: &mut FieldAttrs, classifier: Classifier, key: &str, expr: &E
             }
             let v = expr_to_string(expr).ok_or_else(|| meta.error("`qualifier` expects a string literal"))?;
             attrs.qualifier = Some(match v.as_str() {
-                "volatile" => Qualifier::Volatile,
-                "readonly" => Qualifier::ReadOnly,
+                "no_async_access" => Qualifier::NoAsyncAccess,
+                "read_only" => Qualifier::ReadOnly,
+                "read_write" => Qualifier::ReadWrite,
                 other => {
-                    return Err(meta.error(format!("`qualifier` must be \"volatile\" or \"readonly\", got \"{other}\"")));
+                    return Err(meta.error(format!("`qualifier` must be \"no_async_access\", \"read_only\" or \"read_write\", got \"{other}\"")));
                 }
             });
         }

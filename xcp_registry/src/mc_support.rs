@@ -73,24 +73,21 @@ impl std::fmt::Display for McObjectType {
 //  * Constant objects are typically characteristics or axis objects
 //
 
+// @@@@ TODO: How to specify ReadWrite non volatile objects? DefuThis is a special case for characteristics and axis objects, which are constant in the target ECU, but may be modified by a calibration tool. This is a special case of interior mutability, which is not supported by Rust. The calibration concept needs to be specified in the XCP protocol and the A2L file. The calibration concept is not part of the XCP protocol, but is part of the A2L file. The calibration concept is not part of the XCP protocol, but is part of the A2L file. The calibration concept is not part of the XCP protocol, but is part of the A2L file. The calibration concept is not part of the XCP protocol, but is part of the A2L file. The calibration concept is not part of the XCP protocol, but is part of the A2L file. The calibration concept is not part of the XCP protocol, but is part of the A2L file. The calibration concept is not part of the XCP protocol, but is part of the A2L file. The calibration concept is not part of the XCP protocol, but is part of the A2L file. The calibration concept is not part of the XCP protocol, but is part of the A2L file. The calibration concept is not part of the XCP protocol, but is part of the A2L file. The calibration concept is not part of the XCP protocol, but is part of the A2L file. The calibration concept is not part of the XCP protocol, but is part of the A2L file. The calibration concept is not part of the XCP protocol, but is part of the A2L file.
 /// Object qualifier for Measurement, Characteristic or Axis object type instances or typedefs
 #[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum McObjectQualifier {
     #[default]
-    Unspecified = 0,
-    Volatile = 1,      // continuously modified by the target
-    ReadOnly = 2,      // no async write possible, assumed volatile
-    NoAsyncAccess = 4, // assumed volatile
+    Default = 0,
+    ReadOnly = 1,      // For read-only parameter objects
+    ReadWrite = 2,     // For writable measurement objects
+    NoAsyncAccess = 3, // For objects that can not be accessed asynchronously
 }
 
 impl McObjectQualifier {
-    // Assumed to be continuously modified by the target
-    pub fn is_volatile(self) -> bool {
-        self != McObjectQualifier::Unspecified
-    }
-    pub fn is_unspecified(&self) -> bool {
-        // used for serde, need &self
-        *self == McObjectQualifier::Unspecified
+    // used for serde, need &self
+    pub fn is_default(&self) -> bool {
+        *self == McObjectQualifier::Default
     }
 }
 
@@ -111,7 +108,7 @@ impl std::fmt::Display for McObjectQualifier {
 pub struct McSupportData {
     pub object_type: McObjectType, // Measurement, Characteristic or Axis
 
-    #[serde(skip_serializing_if = "McObjectQualifier::is_unspecified")]
+    #[serde(skip_serializing_if = "McObjectQualifier::is_default")]
     #[serde(default)]
     pub qualifier: McObjectQualifier,
 
@@ -161,7 +158,7 @@ impl Default for McSupportData {
     fn default() -> Self {
         McSupportData {
             object_type: McObjectType::Unspecified,
-            qualifier: McObjectQualifier::Unspecified,
+            qualifier: McObjectQualifier::Default,
             factor: None,
             offset: None,
             unit: McText::default(),
@@ -206,7 +203,7 @@ impl std::fmt::Display for McSupportData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "McSupportData:")?;
         write!(f, " {:?}", self.object_type)?;
-        if self.qualifier != McObjectQualifier::Unspecified {
+        if self.qualifier != McObjectQualifier::Default {
             write!(f, " {:?}", self.qualifier)?;
         }
         if self.factor.is_some() {
@@ -257,7 +254,7 @@ impl McSupportData {
     pub fn new(object_type: McObjectType) -> Self {
         McSupportData {
             object_type,
-            qualifier: McObjectQualifier::Unspecified,
+            qualifier: McObjectQualifier::Default,
             factor: None,
             offset: None,
             unit: McText::default(),
@@ -274,10 +271,17 @@ impl McSupportData {
         }
     }
 
-    /// Returns true if any descriptive metadata field (unit, min, max, factor, offset, step, comment)
-    /// has been explicitly set. Does not consider object_type or qualifier.
+    /// Returns true if any descriptive metadata field (qualifier, unit, min, max, factor, offset, step, comment) has been explicitly set.
+    /// Does not consider object_type.
     pub fn has_metadata(&self) -> bool {
-        !self.unit.is_empty() || self.min.is_some() || self.max.is_some() || self.factor.is_some() || self.offset.is_some() || self.step.is_some() || !self.comment.is_empty()
+        self.qualifier != McObjectQualifier::Default
+            || !self.unit.is_empty()
+            || self.min.is_some()
+            || self.max.is_some()
+            || self.factor.is_some()
+            || self.offset.is_some()
+            || self.step.is_some()
+            || !self.comment.is_empty()
     }
 
     /// Merge only the fields that are explicitly set in `other` into `self`.
@@ -308,6 +312,9 @@ impl McSupportData {
         }
         if other.object_type != McObjectType::Unspecified {
             self.object_type = other.object_type;
+        }
+        if other.qualifier != McObjectQualifier::Default {
+            self.qualifier = other.qualifier;
         }
     }
 
@@ -376,6 +383,10 @@ impl McSupportData {
         self
     }
 
+    pub fn set_read_write(mut self) -> Self {
+        self.qualifier = McObjectQualifier::ReadWrite;
+        self
+    }
     pub fn set_unit<T: Into<McText>>(mut self, unit: T) -> Self {
         self.unit = unit.into();
         self
@@ -423,6 +434,12 @@ impl McSupportData {
 
     //-----------------------------------------
     // Mutation setters (&mut self — for updating an already-registered instance)
+
+    /// Set the access qualifier (mutable, for post-registration updates)
+    pub fn update_qualifier(&mut self, qualifier: McObjectQualifier) -> &mut Self {
+        self.qualifier = qualifier;
+        self
+    }
 
     /// Set the physical unit string (mutable, for post-registration updates)
     pub fn update_unit<T: Into<McText>>(&mut self, unit: T) -> &mut Self {
