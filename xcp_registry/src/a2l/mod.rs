@@ -115,9 +115,13 @@ impl Registry {
         project_no: &str,
         check: bool,
     ) -> Result<(), std::io::Error> {
-        // Write to A2L file
+        // Create A2L file
         log::info!("Write A2L file {:?}", path.as_ref());
-        let a2l_file = std::fs::File::create(path)?;
+        let mut a2l_file = std::fs::File::create(path)?;
+
+        // Write UTF-8 BOM
+        std::io::Write::write_all(&mut a2l_file, b"\xEF\xBB\xBF")?;
+
         let writer: &mut dyn std::io::Write = &mut std::io::LineWriter::new(a2l_file);
         let mut a2l_writer = a2l_writer::A2lWriter::new(writer, self);
 
