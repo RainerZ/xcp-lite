@@ -190,8 +190,8 @@ impl McValueType {
             McValueType::Ulonglong | McValueType::Slonglong | McValueType::Float64Ieee => 8,
             McValueType::Blob(_) => panic!("get_size: Unknown blob size"),
             McValueType::TypeDef(_) => {
-                log::error!("get_size: Unknown instance size");
-                0
+                log::error!("get_size: TypeDef instance size unknown");
+                1
             }
             _ => panic!("get_size: Unsupported data type"),
         }
@@ -218,51 +218,6 @@ impl McValueType {
             4 => McValueType::Float32Ieee,
             8 => McValueType::Float64Ieee,
             _ => McValueType::Unknown,
-        }
-    }
-
-    // Convert from Rust basic type as str
-    // Used by the register macros
-    fn from_rust_basic_type(s: &'static str) -> McValueType {
-        match s {
-            "bool" => McValueType::Bool,
-            "u8" => McValueType::Ubyte,
-            "i8" => McValueType::Sbyte,
-            "u16" => McValueType::Uword,
-            "i16" => McValueType::Sword,
-            "u32" => McValueType::Ulong,
-            "i32" => McValueType::Slong,
-            "u64" | "usize" => McValueType::Ulonglong,
-            "i64" | "isize" => McValueType::Slonglong,
-            "f32" => McValueType::Float32Ieee,
-            "f64" => McValueType::Float64Ieee,
-            _ => McValueType::Unknown,
-        }
-    }
-
-    /// Convert from Rust type as str
-    /// May be u8, u16, u32, u64, i8, i16, i32, i74, f32, f64, bool, InnerStruct, [InnerStruct; x_dim], [[InnerStruct; x_dim]; y_dim]
-    /// // Used by the register macros
-    pub fn from_rust_type(s: &'static str) -> McValueType {
-        let t = McValueType::from_rust_basic_type(s);
-        if t != McValueType::Unknown {
-            t
-        } else {
-            // Trim leading and trailing whitespace and brackets
-            let array_type = s.trim_start_matches('[').trim_end_matches(']');
-
-            // Find the first ';' to handle multi-dimensional arrays
-            let first_semicolon_index = array_type.find(';').unwrap_or(array_type.len());
-
-            // Extract the substring from the start to the first ';'
-            let inner_type = &array_type[..first_semicolon_index].trim();
-
-            // If there are inner brackets, remove them to get the base type
-            let base_type = inner_type.trim_start_matches('[').trim_end_matches(']');
-
-            // If the array type is not a basic type, return an McValueType::TypeDef(type_name)
-            let t = McValueType::from_rust_basic_type(base_type);
-            if t == McValueType::Unknown { McValueType::new_typedef(base_type) } else { t }
         }
     }
 }
@@ -390,19 +345,5 @@ mod mc_type_tests {
         let byte: u8 = 0;
         let t2 = byte.get_type();
         assert_eq!(t2, McValueType::Ubyte);
-
-        let t2 = McValueType::from_rust_type("u8");
-        assert_eq!(t2, McValueType::Ubyte);
-
-        let t3 = McValueType::from_rust_type("[[f64; 3]; 4]");
-        assert_eq!(t3, McValueType::Float64Ieee);
-
-        let t4 = McValueType::from_rust_type("MyType");
-        assert_eq!(t4, McValueType::TypeDef(McIdentifier::new("MyType")));
-        // Should panic
-        // let result = std::panic::catch_unwind(|| {
-        //     t4.get_size();
-        // });
-        // assert!(result.is_err());
     }
 }
