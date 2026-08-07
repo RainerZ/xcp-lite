@@ -41,6 +41,7 @@ impl FieldType {
 /// Maps `[T; X]` to `x_dim = X, y_dim = 1` and `[[T; X]; Y]` to `x_dim = X, y_dim = Y`.
 /// 3 or more dimensions is a compile error. No dimension folding.
 pub(crate) fn parse_type(ty: &Type) -> syn::Result<FieldType> {
+    let ty = unwrap_type_group(ty);
     // Collect array lengths from outer to inner.
     let mut dims: Vec<u16> = Vec::new();
     let mut cur = ty;
@@ -64,7 +65,15 @@ pub(crate) fn parse_type(ty: &Type) -> syn::Result<FieldType> {
     Ok(FieldType { base, x_dim, y_dim })
 }
 
+fn unwrap_type_group(ty: &Type) -> &Type {
+    match ty {
+        Type::Group(group) => unwrap_type_group(&group.elem),
+        _ => ty,
+    }
+}
+
 fn parse_base(ty: &Type) -> syn::Result<BaseType> {
+    let ty = unwrap_type_group(ty);
     if let Type::Path(tp) = ty {
         if tp.qself.is_none() {
             if let Some(seg) = tp.path.segments.last() {
