@@ -85,5 +85,6 @@ unsafe extern "C" {
     pub fn ApplXcpGetClock64() -> u64;
 }
 unsafe extern "C" {
+    #[doc = " Called when an XCP client sends CONNECT.\n @param cb_connect mode is the CONNECT command's mode byte (0 = normal); return true to accept the connection, false to reject it"]
     pub fn ApplXcpRegisterConnectCallback(cb_connect: ::std::option::Option<unsafe extern "C" fn(mode: u8) -> bool>);
 }
