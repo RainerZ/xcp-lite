@@ -275,13 +275,20 @@ impl Xcp {
 
     // Initialization of the Xcp singleton
     pub fn init(app_name: &str, app_revision: &str, log_level: u8) -> &'static Xcp {
+        assert!(app_revision.len() < crate::EPK_SEG_SIZE);
+        // Mirror XcpSetEpk() sanitization: spaces, tabs and colons are replaced with underscores
+        let epk = std::ffi::CString::new(
+            app_revision
+                .bytes()
+                .map(|b| if b == b' ' || b == b'\t' || b == b':' { b'_' } else { b })
+                .collect::<Vec<u8>>(),
+        )
+        .unwrap();
+
         // Initialize the XCP library
         // @@@@ UNSAFE - C library calls
         unsafe {
             xcplib::XcpSetLogLevel(log_level);
-            assert!(app_revision.len() < crate::EPK_SEG_SIZE);
-            let epk = std::ffi::CString::new(app_revision).unwrap();
-            assert!(app_revision.len() < crate::EPK_SEG_SIZE);
             let name = std::ffi::CString::new(app_name).unwrap();
             xcplib::XcpInit(name.as_ptr(), epk.as_ptr(), 1); // @@@@ TODO XCP_MODE_LOCAL
             xcplib::ApplXcpRegisterConnectCallback(Some(cb_connect));
@@ -294,7 +301,8 @@ impl Xcp {
             .as_mut()
             .unwrap()
             .application
-            .set_version(app_revision.to_string(), crate::EPK_SEG_ADDR);
+            // Reclaim the CString bytes as String — McText leaks it for 'static
+            .set_version(String::from_utf8(epk.into_bytes()).unwrap(), crate::EPK_SEG_ADDR);
 
         &XCP
     }
