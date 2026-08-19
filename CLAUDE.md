@@ -105,8 +105,7 @@ Derive `#[derive(McRegisterType)]` on calibration/measurement structs.
 - `add_typedef` (size) + `add_typedef_field` (offset/dim_type/size) in
   `xcp_registry/src/mc_registry.rs` validate structural typedef equality; the derive
   re-submits typedef fields after a duplicate typedef.
-- `McDimType` derives `PartialEq`. Known pre-existing bug (NOT fixed): `is_scalar`/`is_array`/
-  `is_matrix` use `y_dim` where `x_dim` is intended.
+- `McDimType` derives `PartialEq`.
 - Do not create markdown docs to describe changes unless asked. Comments: one short line, only
   for what the code cannot show.
 

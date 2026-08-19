@@ -59,19 +59,19 @@ impl McDimType {
 
     /// No dimension
     pub fn is_scalar(&self) -> bool {
-        let x_dim = self.y_dim.unwrap_or(1);
+        let x_dim = self.x_dim.unwrap_or(1);
         let y_dim = self.y_dim.unwrap_or(1);
         x_dim <= 1 && y_dim <= 1
     }
     /// One dimension
     pub fn is_array(&self) -> bool {
-        let x_dim = self.y_dim.unwrap_or(1);
+        let x_dim = self.x_dim.unwrap_or(1);
         let y_dim = self.y_dim.unwrap_or(1);
         x_dim > 1 && y_dim <= 1
     }
     /// Two dimensions
     pub fn is_matrix(&self) -> bool {
-        let x_dim = self.y_dim.unwrap_or(1);
+        let x_dim = self.x_dim.unwrap_or(1);
         let y_dim = self.y_dim.unwrap_or(1);
         x_dim > 1 && y_dim > 1
     }
