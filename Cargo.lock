@@ -2530,6 +2530,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.110",
+ "xcp_registry",
 ]
 
 [[package]]
