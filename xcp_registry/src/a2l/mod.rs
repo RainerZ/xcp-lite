@@ -40,7 +40,7 @@ impl Registry {
                 Ok(warnings)
             }
 
-            Err(e) => Err(format!("a2lfile::load failed: {:?}", e)),
+            Err(e) => Err(format!("a2lfile::load failed: {}", e)),
         }
     }
 
@@ -92,7 +92,7 @@ impl Registry {
 
                 Ok(warnings)
             }
-            Err(e) => Err(format!("a2lfile::load failed: {:?}", e)),
+            Err(e) => Err(format!("a2lfile::load failed: {}", e)),
         }
     }
 
