@@ -3,6 +3,23 @@
 All notable changes to Rust xcp-lite are documented in this file.
 
 
+## [V3.0.9]
+
+- Bugfix: `McDimType::is_scalar`/`is_array`/`is_matrix` — copy-paste bug caused misclassifying all 1D arrays as scalars.
+- Bugfix: EPK string sanitization (spaces, tabs, colons → `_`) is now applied in the xcp-lite registry to match XCPlite behavior; `Xcp::init()` pre-sanitizes before passing to both `XcpInit()` and the registry.
+- `McRegisterType` derive macro now handles `syn::Type::Group` wrapping via `unwrap_type_group`, fixing type parsing inside `macro_rules!` contexts (issue #51). Regression test added.
+- Added `McXcpProtocolLayer` (`max_cto`, `max_dto`) to the registry; written into A2L XCP IF_DATA.
+- A2L files are now written with a UTF-8 BOM.
+- Switched xcplib submodule to V2.1.10.
+
+
+## [V3.0.8]
+
+- Explicit `read_write` qualifier added to measurement (`#[measurement(qualifier = "read_write", ...)]`) fields.
+- More idiomatic iterator implementations for `McInstanceList`, `McTypedefList`, `McEventList`, and `McCalibrationSegmentList`.
+- Switched xcplib submodule to V2.1.9.
+
+
 ## [V3.0.5]
 
 - Fix xcplib compilation on Linux/GCC with -std=c11
@@ -15,6 +32,7 @@ All notable changes to Rust xcp-lite are documented in this file.
         - pthread_mutexattr_settype, PTHREAD_MUTEX_RECURSIVE (POSIX.1-2001 mutex attrs)
         - struct timeval, struct ip_mreqn      (socket/network types)
         - gmtime_r                             (POSIX.1-2001 time util)
+- Fix A2L writer: `XCP_ON_SXI` IF_DATA block now includes explicit `FRAMING` to enable SYNC mode in CANape.
 
 
 ## [V3.0.3]

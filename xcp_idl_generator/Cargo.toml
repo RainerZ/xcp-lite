@@ -1,6 +1,6 @@
 [package]
 name = "xcp_idl_generator"
-version = "3.0.0"
+version.workspace = true
 edition = "2024"
 
 [dependencies]

@@ -1,6 +1,6 @@
 [package]
 name = "calibration_demo"
-version = "3.0.0"
+version.workspace = true
 edition = "2024"
 
 [dependencies]

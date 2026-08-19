@@ -1,6 +1,6 @@
 [package]
 name = "xcp_register_type_derive"
-version = "3.0.0"
+version.workspace = true
 edition = "2024"
 authors = ["RainerZ"]
 description = "Derive macro McRegisterType: generates direct xcp_registry registration code"

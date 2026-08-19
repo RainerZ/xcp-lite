@@ -8,7 +8,7 @@ xcp-lite is a Rust API for measurement and calibration, which uses the ASAM XCP 
 This is no complete implementation of XCP in Rust, the protocol and transport layer implementation is in C/C++ based on XCPlite.  
 For more details on XCP and XCPlite, see <https://github.com/vectorgrp/XCPlite>. The Rust API provides a convenient and safe interface to the C/C++ implementation, which is optimized for speed, lock-less operation and low memory footprint. The C/C++ XCPlite is a submodule of this repository. 
 
-The Rust implementation provides its own in memory registry for measurement and calibration objects and types, which is used to generate the A2L file on target. It does not use the XCPlite A2L generation. The registry library crate is used by other crates to deal with A2L end ELF files.  
+The Rust implementation provides its own in memory registry for measurement and calibration objects and types, which is used to generate the A2L file on target. It does not use the XCPlite A2L generation. The registry library crate is used by other crates to deal with A2L and ELF files.  
 
  
 Main purpose was to experiment with Rust and to demonstrate some more advanced features of measurement and calibration with CANape:

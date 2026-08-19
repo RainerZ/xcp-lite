@@ -1,6 +1,6 @@
 [package]
 name = "xcp_test_client"
-version = "3.0.0"
+version.workspace = true
 edition = "2024"
 resolver = "2"
 authors = ["RainerZ"]
