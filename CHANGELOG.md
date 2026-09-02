@@ -10,6 +10,7 @@ All notable changes to Rust xcp-lite are documented in this file.
 - `McRegisterType` derive macro now handles `syn::Type::Group` wrapping via `unwrap_type_group`, fixing type parsing inside `macro_rules!` contexts (issue #51). Regression test added.
 - Added `McXcpProtocolLayer` (`max_cto`, `max_dto`) to the registry; written into A2L XCP IF_DATA.
 - A2L files are now written with a UTF-8 BOM.
+- A2L writer: unique names for field typedefs of the same name but different type.
 - Switched xcplib submodule to V2.1.10.
 
 
