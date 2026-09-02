@@ -468,14 +468,15 @@ impl GenerateA2l for McCalibrationSegment {
 
 impl McTypeDef {
     pub fn write_typedef(&self, writer: &mut A2lWriter, level: usize) -> std::io::Result<()> {
-        const EXT_FIELD_NAMES: bool = false; // Use type_name.field_name for TYPEDEF_MEASUREMENT, TYPEDEF_CHARACTERISTIC, TYPEDEF_AXIS
-
         let type_length = self.size;
         let type_name = self.name.as_str();
 
         log::debug!("A2L writer: typedef {level} {type_name} len={type_length} ");
 
-        // Recurese or generate measurement typedefs for all TypeDefFields of this TypeDef
+        // Names of the field typedefs (None for fields which are typedef structures), used for the STRUCTURE_COMPONENT references below
+        let mut field_typedef_names: Vec<Option<String>> = Vec::with_capacity(self.fields.len());
+
+        // Recurse or generate measurement typedefs for all TypeDefFields of this TypeDef
         for field in &self.fields {
             //
             // Field is a typedef, recursion here
@@ -485,26 +486,28 @@ impl McTypeDef {
                 } else {
                     log::error!("a2l_writer: TypeDef for {} not found", field_type_name.as_str());
                 }
+                field_typedef_names.push(None);
             } else {
                 //
                 // Field is a basic type
 
                 // Generate TYPEDEF_MEASUREMENT, TYPEDEF_CHARACTERISTIC or TYPEDEF_AXIS for basic types in STRUCTURE_COMPONENT
-                // @@@@ ISSUE TYPEDEF_MEASUREMENT, TYPEDEF_CHARACTERISTIC or TYPEDEF_AXIS have a unique name space
-                // How to handle duplicate names ???????, this is not checked
-                // Currently: Name is type_name.field_name do reduce naming conflicts, which leads to confusing names in CANape
+                // TYPEDEF_MEASUREMENT, TYPEDEF_CHARACTERISTIC or TYPEDEF_AXIS share one name space, so the typedef is named after the field
+                // as long as no other field with the same name but a different type or metadata has been written, otherwise the name is
+                // qualified with the structure name (type_name.field_name).
                 // TYPEDEF_MEASUREMENT, TYPEDEF_CHARACTERISTIC or TYPEDEF_AXIS do not support DISPLAY_IDENTIFIER, which would have been a solution
                 let field_name = field.name.as_str();
                 let field_dim_type = &field.dim_type;
                 let mc_support_data = field.get_mc_support_data();
                 let value_type = field_dim_type.value_type;
-                let tmp = format!("{type_name}.{field_name}");
-                let ext_field_name = if EXT_FIELD_NAMES { tmp.as_str() } else { field_name };
 
-                // Skip duplicate TYPEDEF_MEASUREMENT, TYPEDEF_CHARACTERISTIC, TYPEDEF_AXIS during recursion
-                // @@@@ TODO Check if this is an error, because or the types are different
-                // @@@@ TODO Avoid the string formating here
-                if !writer.check_duplicate(ext_field_name) {
+                // Content signature of the typedef: fields with the same name must not share a typedef if type or metadata differ
+                let signature = format!("{field_dim_type:?} {mc_support_data:?}");
+                let (typedef_name, exists) = writer.field_typedef_name(type_name, field_name, &signature);
+                let ext_field_name = typedef_name.as_str();
+
+                // Skip typedefs which have already been written (recursion, or same field name and content in another structure)
+                if !exists {
                     let conversion_name = write_conversion(writer, ext_field_name, 0, field_dim_type, mc_support_data)?;
                     let unit = phys_unit(mc_support_data.get_unit());
                     match mc_support_data.get_object_type() {
@@ -567,34 +570,24 @@ impl McTypeDef {
                         }
                     }
                 }
+                field_typedef_names.push(Some(typedef_name));
             }
         }
 
         // Skip duplicate TYPEDEF_STRUCTURE during recursion
-        // @@@@ TODO Check if this is an error, because or the types are different
         if !writer.check_duplicate(type_name) {
             // Generate structure definition which fields referencing the above field typedefs TYPEDEF_MEASUREMENT, TYPEDEF_CHARACTERISTIC or other TYPEDEF_STRUCTURE
             writeln!(writer, r#"/begin TYPEDEF_STRUCTURE {type_name} "" {type_length}"#)?;
-            for field in &self.fields {
+            for (field, field_typedef_name) in self.fields.iter().zip(&field_typedef_names) {
                 let field_dim_type = &field.dim_type;
                 // Type of the field is another struct (then its a TYPEDEF)
                 if let McValueType::TypeDef(type_name) = &field_dim_type.value_type {
                     write!(writer, "\t/begin STRUCTURE_COMPONENT {} {type_name} {}", field.name.as_str(), field.offset)?;
                 }
-                // Type of the field is basic (then its a TYPEDEF_CHARACTERISTIC, TYPEDEF_MEASUREMENT, TYPEDEF_AXIS) with the same name as the field
-                // Use extended field name type_name.field name
-                else if EXT_FIELD_NAMES {
-                    write!(
-                        writer,
-                        "\t/begin STRUCTURE_COMPONENT {} {type_name}.{} {}",
-                        field.name.as_str(),
-                        field.name.as_str(),
-                        field.offset
-                    )?;
-                }
-                // Use simple field name
+                // Type of the field is basic (then its a TYPEDEF_CHARACTERISTIC, TYPEDEF_MEASUREMENT, TYPEDEF_AXIS), named as determined above
                 else {
-                    write!(writer, "\t/begin STRUCTURE_COMPONENT {} {} {}", field.name.as_str(), field.name.as_str(), field.offset)?;
+                    let field_typedef_name = field_typedef_name.as_deref().unwrap_or(field.name.as_str());
+                    write!(writer, "\t/begin STRUCTURE_COMPONENT {} {field_typedef_name} {}", field.name.as_str(), field.offset)?;
                 }
 
                 // Write dimensions if the field is a typedef, otherwise the TYPEDEF_MEASUREMENT, TYPEDEF_CHARACTERISTIC or TYPEDEF_AXIS has the dimensions
@@ -860,7 +853,9 @@ impl McInstance {
 pub struct A2lWriter<'a> {
     writer: &'a mut dyn Write,
     registry: &'a Registry,
-    typedef_list: HashMap<String, usize>,
+    // Names of all TYPEDEF_* objects written so far, each with a signature of its content.
+    // Used to skip duplicates during recursion and to detect field typedefs which share a name but differ in type or metadata.
+    typedef_list: HashMap<String, String>,
 }
 
 impl Write for A2lWriter<'_> {
@@ -877,19 +872,47 @@ impl<'a> A2lWriter<'a> {
         A2lWriter {
             writer,
             registry,
-            // @@@@ TODO temporary solution to avoid duplicate typedefs
             typedef_list: HashMap::new(),
         }
     }
 
+    /// Check if a TYPEDEF_STRUCTURE with this name has already been written, register it otherwise
     fn check_duplicate(&mut self, ident: &str) -> bool {
-        // @@@@ TODO Improve
-        if self.typedef_list.contains_key(ident) {
-            //writeln!(self, r#"/* {} duplicate skipped */"#, ident).ok();
+        const STRUCTURE_SIGNATURE: &str = "TYPEDEF_STRUCTURE";
+        if let Some(existing) = self.typedef_list.get(ident) {
+            if existing != STRUCTURE_SIGNATURE {
+                log::warn!("A2L writer: TYPEDEF_STRUCTURE {ident} has the same name as a field typedef, skipped");
+            }
             return true;
         }
-        self.typedef_list.insert(ident.to_string(), 0);
+        self.typedef_list.insert(ident.to_string(), STRUCTURE_SIGNATURE.to_string());
         false
+    }
+
+    /// Get the name of the TYPEDEF_MEASUREMENT, TYPEDEF_CHARACTERISTIC or TYPEDEF_AXIS for a basic typed field of a TYPEDEF_STRUCTURE
+    /// Returns the name to use and whether a typedef with this name and content has already been written.
+    /// TYPEDEF_* names share one name space, but fields of different structures may have the same name with a different type or metadata.
+    /// The plain field name is used as long as it is free or already used for a typedef with identical content,
+    /// otherwise the name is qualified with the structure name (type_name.field_name)
+    fn field_typedef_name(&mut self, type_name: &str, field_name: &str, signature: &str) -> (String, bool) {
+        if let Some(existing) = self.typedef_list.get(field_name) {
+            if existing == signature {
+                return (field_name.to_string(), true);
+            }
+            let qualified = format!("{type_name}.{field_name}");
+            if let Some(existing) = self.typedef_list.get(&qualified) {
+                if existing != signature {
+                    log::warn!("A2L writer: typedef {qualified} already exists with different content");
+                }
+                return (qualified, true);
+            }
+            log::debug!("A2L writer: field typedef {field_name} already exists with different content, using {qualified}");
+            self.typedef_list.insert(qualified.clone(), signature.to_string());
+            (qualified, false)
+        } else {
+            self.typedef_list.insert(field_name.to_string(), signature.to_string());
+            (field_name.to_string(), false)
+        }
     }
 
     fn write_a2l_head(&mut self, title_comment: &str, project_name: &str, project_description: &str, module_name: &str, project_no: &str) -> std::io::Result<()> {
@@ -1222,5 +1245,97 @@ ASAP2_VERSION 1 71
         self.write_a2l_groups()?;
         self.write_a2l_tail()?;
         Ok(())
+    }
+}
+
+//-------------------------------------------------------------------------------------------------
+// Tests
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    // Write only the typedef section of a registry into a string
+    fn write_typedefs(reg: &Registry) -> String {
+        let mut buf: Vec<u8> = Vec::new();
+        {
+            let writer: &mut dyn Write = &mut buf;
+            let mut a2l_writer = A2lWriter::new(writer, reg);
+            a2l_writer.write_a2l_typedefs().unwrap();
+        }
+        String::from_utf8(buf).unwrap()
+    }
+
+    fn add_field(reg: &mut Registry, type_name: &'static str, value_type: McValueType, mc_support_data: McSupportData) {
+        reg.add_typedef(type_name, 4).unwrap();
+        reg.add_typedef_field(type_name, "value", McDimType::new(value_type, 1, 1), mc_support_data, 0).unwrap();
+    }
+
+    // Fields with the same name in different structures share a typedef only if type and metadata are identical,
+    // otherwise the typedef name is qualified with the structure name
+    #[test]
+    fn test_field_typedef_name_collision() {
+        let mut reg = Registry::new();
+        add_field(&mut reg, "A", McValueType::Uword, McSupportData::new(McObjectType::Measurement));
+        add_field(&mut reg, "B", McValueType::Float32Ieee, McSupportData::new(McObjectType::Measurement));
+        add_field(&mut reg, "C", McValueType::Uword, McSupportData::new(McObjectType::Measurement));
+        add_field(&mut reg, "D", McValueType::Uword, McSupportData::new(McObjectType::Measurement).set_unit("V"));
+        add_field(&mut reg, "E", McValueType::Uword, McSupportData::new(McObjectType::Characteristic));
+        let a2l = write_typedefs(&reg);
+        println!("{a2l}");
+
+        // A and C share one UWORD typedef named after the field
+        assert_eq!(
+            a2l.matches(r#"/begin TYPEDEF_MEASUREMENT value "" UWORD IDENTITY 0 0 0 65535 /end TYPEDEF_MEASUREMENT"#)
+                .count(),
+            1
+        );
+        assert_eq!(a2l.matches("/begin STRUCTURE_COMPONENT value value 0 /end STRUCTURE_COMPONENT").count(), 2);
+        // B has a different type, D a different unit, E a different object type: qualified names
+        assert!(a2l.contains(r#"/begin TYPEDEF_MEASUREMENT B.value "" FLOAT32_IEEE NO_COMPU_METHOD"#));
+        assert!(a2l.contains("/begin STRUCTURE_COMPONENT value B.value 0 /end STRUCTURE_COMPONENT"));
+        assert!(a2l.contains(r#"/begin TYPEDEF_MEASUREMENT D.value "" UWORD IDENTITY 0 0 0 65535 PHYS_UNIT "V" /end TYPEDEF_MEASUREMENT"#));
+        assert!(a2l.contains("/begin STRUCTURE_COMPONENT value D.value 0 /end STRUCTURE_COMPONENT"));
+        assert!(a2l.contains(r#"/begin TYPEDEF_CHARACTERISTIC E.value "" VALUE U16 0 IDENTITY 0 65535 /end TYPEDEF_CHARACTERISTIC"#));
+        assert!(a2l.contains("/begin STRUCTURE_COMPONENT value E.value 0 /end STRUCTURE_COMPONENT"));
+        // every typedef name is defined exactly once
+        for name in ["value", "B.value", "D.value", "E.value"] {
+            assert_eq!(
+                a2l.matches(&format!("/begin TYPEDEF_MEASUREMENT {name} ")).count() + a2l.matches(&format!("/begin TYPEDEF_CHARACTERISTIC {name} ")).count(),
+                1,
+                "{name}"
+            );
+        }
+    }
+
+    // The same typedef referenced several times (nested and by several instances) is written once and keeps plain field names
+    #[test]
+    fn test_nested_typedef_written_once() {
+        let mut reg = Registry::new();
+        add_field(&mut reg, "Inner", McValueType::Ulong, McSupportData::new(McObjectType::Measurement));
+        reg.add_typedef("Outer", 8).unwrap();
+        reg.add_typedef_field(
+            "Outer",
+            "first",
+            McDimType::new(McValueType::new_typedef("Inner"), 1, 1),
+            McSupportData::new(McObjectType::Measurement),
+            0,
+        )
+        .unwrap();
+        reg.add_typedef_field(
+            "Outer",
+            "second",
+            McDimType::new(McValueType::new_typedef("Inner"), 1, 1),
+            McSupportData::new(McObjectType::Measurement),
+            4,
+        )
+        .unwrap();
+        let a2l = write_typedefs(&reg);
+        println!("{a2l}");
+
+        assert_eq!(a2l.matches("/begin TYPEDEF_STRUCTURE Inner ").count(), 1);
+        assert_eq!(a2l.matches(r#"/begin TYPEDEF_MEASUREMENT value "" ULONG"#).count(), 1);
+        assert!(a2l.contains("/begin STRUCTURE_COMPONENT first Inner 0 /end STRUCTURE_COMPONENT"));
+        assert!(a2l.contains("/begin STRUCTURE_COMPONENT second Inner 4 /end STRUCTURE_COMPONENT"));
     }
 }
