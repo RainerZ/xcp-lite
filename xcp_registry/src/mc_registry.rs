@@ -183,7 +183,8 @@ impl Registry {
             port: Some(port),
             baud_rate: None,
         });
-        self.xcp_params = Some(McXcpProtocolLayer { max_cto: 248, max_dto: 248 });
+        // Defaults for XCPlite
+        self.xcp_params = Some(McXcpProtocolLayer { max_cto: 248, max_dto: 1024 });
     }
 
     /// Set XCP transport layer parameters for SxI and enable XCP IF_DATA in A2L
