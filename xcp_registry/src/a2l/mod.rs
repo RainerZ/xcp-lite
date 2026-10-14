@@ -262,6 +262,23 @@ mod test {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
+    // Without transport layer parameters: IF_DATA XCP with protocol layer and events, but no XCP_ON_UDP_IP block
+    #[test]
+    fn test_write_a2l_without_transport_layer() {
+        let dir = test_dir("without_transport_layer");
+        let path = dir.join("test.a2l");
+        let mut reg = test_registry(McA2mlMode::None);
+        reg.xcp_tl_params = None;
+        reg.xcp_params = None;
+        assert!(!reg.has_xcp_params());
+        reg.write_a2l(&path, "test", "test", "", "test", "XCPLITE__ACSDD", false).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("/begin IF_DATA XCP") && text.contains("/begin PROTOCOL_LAYER") && !text.contains("XCP_ON_"));
+        assert!(text.contains(" 248 1024 BYTE_ORDER_MSB_LAST")); // XCPlite defaults for max_cto and max_dto
+        check_loaded(&path);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
     // A2ML embedded into the A2L file, or no A2ML at all
     #[test]
     fn test_load_a2l_embedded_and_no_aml() {
